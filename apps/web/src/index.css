@@ -1,0 +1,10 @@
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  font-family: system-ui, -apple-system, Segoe UI, Inter, Roboto, Arial, sans-serif;
+  background: #f7f7fb;
+  color: #111;
+}
+button { font-family: inherit; }
+select, input { font-family: inherit; }
