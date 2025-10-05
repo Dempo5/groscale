@@ -1,3 +1,4 @@
+import { api } from "./lib/api";
 import { useEffect, useMemo, useState } from "react";
 import {
   getLeads,
