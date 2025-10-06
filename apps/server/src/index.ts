@@ -7,10 +7,11 @@ app.use(express.json());
 // 👇 set this to your Vercel domain (and localhost for dev)
 const allowed = [
   "http://localhost:5173",                      // Vite dev
-  "https://<your-vercel-project>.vercel.app"    // your deployed frontend
+  "https://groscales.vercel.app"    // your deployed frontend
 ];
 app.use(cors({
   origin: (origin, cb) => {
+    if (!origin) return cb(null, true);
     if (!origin || allowed.includes(origin)) return cb(null, true);
     cb(new Error("Not allowed by CORS"));
   },
