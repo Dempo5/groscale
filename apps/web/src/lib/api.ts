@@ -65,3 +65,10 @@ export async function sendMessage(leadId: string, text: string): Promise<Message
   if (!res.ok) throw new Error("Failed to send message");
   return res.json();
 }
+// ---- Compatibility bundle export (for existing imports like `import { api } from './lib/api'`) ----
+export const api = {
+  getLeads,
+  updateLead,
+  getThread,
+  sendMessage,
+};
