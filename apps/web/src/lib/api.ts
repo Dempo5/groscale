@@ -1,139 +1,117 @@
 // apps/web/src/lib/api.ts
 
-export type Lead = {
+// ---------- Types ----------
+export interface Lead {
   id: string;
-  name: string;
+  /** Many screens use first/last explicitly */
+  firstName?: string;
+  lastName?: string;
+
+  /** Keep a friendly combined name too (back-compat for places using .name) */
+  name?: string;
+
   phone: string;
   email?: string;
-  status: "NEW" | "CONTACTED" | "BOOKED" | "DNC";
-  tags?: string[];
-  lastMessageAt?: string;
-};
+  status: string;          // e.g., "BOOKED", "CONTACTED"
+  tags?: string[];         // e.g., ["hot", "follow-up"]
+}
 
-export type Message = {
+export interface Message {
   id: string;
-  leadId: string;
-  from: "me" | "them";
+  from: "me" | "lead";
   text: string;
-  at: string; // ISO date
-};
-
-export type Thread = {
-  lead: Lead;
-  messages: Message[];
-};
-
-const API_BASE =
-  (import.meta as any).env?.VITE_API_URL?.replace(/\/$/, "") ||
-  ""; // relative to same origin by default
-
-async function http<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...init,
-  });
-  // If backend is not up, fall back to mock data
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return (await res.json()) as T;
+  at: string;              // display time-only is fine for mock
+  /** Some UI references message.leadId, so we expose it (optional) */
+  leadId?: string;
 }
 
-/* ---------------- Real calls (adjust paths to your backend) ---------------- */
+// ---------- Tiny in-memory mock “DB” ----------
 
+const leadsMock: Lead[] = [
+  {
+    id: "L001",
+    firstName: "Carlos",
+    lastName: "Ruiz",
+    name: "Carlos Ruiz",
+    phone: "+1 689 555 1122",
+    email: "carlos@example.com",
+    status: "BOOKED",
+    tags: ["hot"],
+  },
+  {
+    id: "L002",
+    firstName: "Bree",
+    lastName: "Chen",
+    name: "Bree Chen",
+    phone: "+1 407 555 8811",
+    email: "bree@example.com",
+    status: "CONTACTED",
+    tags: ["follow-up"],
+  },
+];
+
+const messagesByLead = new Map<string, Message[]>(
+  [
+    [
+      "L001",
+      [
+        { id: "m1", from: "lead", text: "Hey! Can we reschedule?", at: "9:12 AM", leadId: "L001" },
+        { id: "m2", from: "me",   text: "Sure, what works for you?", at: "9:14 AM", leadId: "L001" },
+      ],
+    ],
+    [
+      "L002",
+      [
+        { id: "m3", from: "lead", text: "What's the pricing?", at: "8:02 AM", leadId: "L002" },
+      ],
+    ],
+  ]
+);
+
+// Utility to normalize full name when one part changes
+function withFullName(lead: Lead): Lead {
+  const first = lead.firstName?.trim() ?? "";
+  const last = lead.lastName?.trim() ?? "";
+  const name = [first, last].filter(Boolean).join(" ");
+  return { ...lead, name: name || lead.name };
+}
+
+// ---------- API (mocked) ----------
+
+/** Get all leads */
 export async function getLeads(): Promise<Lead[]> {
-  try {
-    return await http<Lead[]>("/api/leads");
-  } catch {
-    return mockLeads(); // fallback
-  }
+  return leadsMock.map(withFullName);
 }
 
-export async function updateLead(id: string, patch: Partial<Lead>): Promise<Lead> {
-  try {
-    return await http<Lead>(`/api/leads/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      body: JSON.stringify(patch),
-    });
-  } catch {
-    // Local optimistic update fallback
-    const leads = mockLeads();
-    const i = leads.findIndex(l => l.id === id);
-    if (i >= 0) leads[i] = { ...leads[i], ...patch };
-    return leads[i]!;
-  }
+/** Update a lead; returns the updated Lead */
+export async function updateLead(id: string, updates: Partial<Lead>): Promise<Lead> {
+  const idx = leadsMock.findIndex(l => l.id === id);
+  if (idx === -1) throw new Error("Lead not found");
+
+  const merged = withFullName({ ...leadsMock[idx], ...updates });
+  leadsMock[idx] = merged;
+  return merged;
 }
 
-export async function getThread(leadId: string): Promise<Thread> {
-  try {
-    return await http<Thread>(`/api/threads/${encodeURIComponent(leadId)}`);
-  } catch {
-    const lead = mockLeads().find(l => l.id === leadId)!;
-    return {
-      lead,
-      messages: mockMessages().filter(m => m.leadId === leadId),
-    };
-  }
+/** Get one thread by lead id */
+export async function getThread(leadId: string): Promise<Message[]> {
+  return messagesByLead.get(leadId)?.slice() ?? [];
 }
 
+/** Send a message and return the created Message */
 export async function sendMessage(leadId: string, text: string): Promise<Message> {
-  try {
-    return await http<Message>("/api/messages", {
-      method: "POST",
-      body: JSON.stringify({ leadId, text }),
-    });
-  } catch {
-    // Mock immediate echo
-    const now = new Date().toISOString();
-    return { id: `m_${Math.random().toString(36).slice(2)}`, leadId, from: "me", text, at: now };
-  }
+  const msg: Message = {
+    id: "m" + Math.random().toString(36).slice(2, 8),
+    from: "me",
+    text,
+    at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    leadId,
+  };
+  const arr = messagesByLead.get(leadId) ?? [];
+  arr.push(msg);
+  messagesByLead.set(leadId, arr);
+  return msg;
 }
 
-/* ----------------------------- Mock data ---------------------------------- */
-
-function mockLeads(): Lead[] {
-  return [
-    {
-      id: "L-001",
-      name: "Carlos Ruiz",
-      phone: "+1 689 555 1122",
-      email: "carlos@example.com",
-      status: "BOOKED",
-      tags: ["hot"],
-      lastMessageAt: "2025-10-05T09:14:00-04:00",
-    },
-    {
-      id: "L-002",
-      name: "Bree Chen",
-      phone: "+1 407 555 8811",
-      email: "bree@example.com",
-      status: "CONTACTED",
-      tags: ["followup"],
-      lastMessageAt: "2025-10-05T08:02:00-04:00",
-    },
-  ];
-}
-
-function mockMessages(): Message[] {
-  return [
-    {
-      id: "m1",
-      leadId: "L-001",
-      from: "them",
-      text: "Hey! Can we reschedule?",
-      at: "2025-10-05T09:12:00-04:00",
-    },
-    {
-      id: "m2",
-      leadId: "L-001",
-      from: "me",
-      text: "Sure, what works for you?",
-      at: "2025-10-05T09:14:00-04:00",
-    },
-    {
-      id: "m3",
-      leadId: "L-002",
-      from: "them",
-      text: "What's the pricing?",
-      at: "2025-10-05T08:02:00-04:00",
-    },
-  ];
-}
+// Keep compatibility with `import { api } from './lib/api'`
+export const api = { getLeads, updateLead, getThread, sendMessage };
