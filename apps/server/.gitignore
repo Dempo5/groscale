@@ -1,0 +1,10 @@
+node_modules
+dev.db
+.env
+.env.local
+prisma/migrations/*/steps.json
+
+# optional but nice:
+dist
+.vscode/
+.DS_Store
