@@ -1,7 +1,9 @@
 // apps/web/src/lib/api.ts
 // ---------- Base API ----------
+
+// Use environment variable first, fallback to Vercel backend
 const API_BASE =
-  import.meta.env.VITE_API_URL || "https://groscales-server.onrender.com";
+  import.meta.env.VITE_API_BASE || "https://groscale.vercel.app";
 
 // ---------- Types ----------
 export interface Lead {
@@ -10,7 +12,7 @@ export interface Lead {
   firstName?: string;
   lastName?: string;
 
-  /** Keep a friendly combined name too (back-compat for places using .name) */
+  /** Friendly combined name for UI */
   name?: string;
 
   phone: string;
@@ -24,11 +26,11 @@ export interface Message {
   from: "me" | "lead";
   text: string;
   at: string;              // display time-only is fine for mock
-  /** Some UI references message.leadId, so we expose it (optional) */
+  /** Optional lead ID reference */
   leadId?: string;
 }
 
-// ---------- Real API (using backend) ----------
+// ---------- Real API (connected to backend) ----------
 
 /** Get all leads */
 export async function getLeads(): Promise<Lead[]> {
@@ -48,7 +50,7 @@ export async function updateLead(id: string, updates: Partial<Lead>): Promise<Le
   return res.json();
 }
 
-/** Get one thread by lead id */
+/** Get thread by lead ID */
 export async function getThread(leadId: string): Promise<Message[]> {
   const res = await fetch(`${API_BASE}/api/threads/${leadId}`);
   if (!res.ok) throw new Error("Failed to fetch thread");
@@ -65,7 +67,8 @@ export async function sendMessage(leadId: string, text: string): Promise<Message
   if (!res.ok) throw new Error("Failed to send message");
   return res.json();
 }
-// ---- Compatibility bundle export (for existing imports like `import { api } from './lib/api'`) ----
+
+// ---- Compatibility export ----
 export const api = {
   getLeads,
   updateLead,
