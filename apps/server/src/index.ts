@@ -6,8 +6,9 @@ app.use(express.json());
 
 // 👇 set this to your Vercel domain (and localhost for dev)
 const allowed = [
-  "http://localhost:5173",                      // Vite dev
-  "https://groscales.vercel.app"    // your deployed frontend
+  "http://localhost:5173",                    // dev
+  "https://groscale.vercel.app",             // Vercel frontend 
+  "https://groscale-frontend.onrender.com",  // Render frontend 
 ];
 app.use(cors({
   origin: (origin, cb) => {
