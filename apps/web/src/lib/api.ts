@@ -80,11 +80,10 @@ function withFullName(lead: Lead): Lead {
 
 /** Get all leads */
 export async function getLeads(): Promise<Lead[]> {
-  // Ensure name stays consistent with first/last
   return leadsMock.map(withFullName);
 }
 
-/** Update a lead; returns the updated Lead (UI expects a Lead, not void) */
+/** Update a lead; returns the updated Lead */
 export async function updateLead(id: string, updates: Partial<Lead>): Promise<Lead> {
   const idx = leadsMock.findIndex(l => l.id === id);
   if (idx === -1) throw new Error("Lead not found");
@@ -99,7 +98,7 @@ export async function getThread(leadId: string): Promise<Message[]> {
   return messagesByLead.get(leadId)?.slice() ?? [];
 }
 
-/** Send a message and return the created Message (UI expects a Message) */
+/** Send a message and return the created Message */
 export async function sendMessage(leadId: string, text: string): Promise<Message> {
   const msg: Message = {
     id: "m" + Math.random().toString(36).slice(2, 8),
@@ -113,3 +112,6 @@ export async function sendMessage(leadId: string, text: string): Promise<Message
   messagesByLead.set(leadId, arr);
   return msg;
 }
+
+// Keep compatibility with `import { api } from './lib/api'`
+export const api = { getLeads, updateLead, getThread, sendMessage };
