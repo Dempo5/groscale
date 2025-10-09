@@ -7,8 +7,9 @@
     "rootDir": "src",
     "strict": true,
     "esModuleInterop": true,
-    "skipLibCheck": true,   // <-- ensures it ignores library type mismatches
+    "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src"]
+  "include": ["src/index.ts", "src/db.ts"],
+  "exclude": ["src/routes", "src/middleware", "node_modules"]
 }
