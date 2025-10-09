@@ -1,5 +1,4 @@
 // apps/server/prisma/schema.prisma
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -23,8 +22,7 @@ model Lead {
   name      String
   phone     String
   email     String?
-  // In Postgres, arrays are great for tags:
-  tags      String[]    // stored as text[]
+  tags      String[]    // Postgres text[]
   status    LeadStatus  @default(NEW)
 
   messages  Message[]
@@ -36,7 +34,7 @@ model Message {
   id        String   @id @default(cuid())
   lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
   leadId    String
-  from      String   // "me" | "lead" (keep as string for simplicity)
+  from      String   // "me" | "lead"
   text      String
   at        DateTime @default(now())
 
