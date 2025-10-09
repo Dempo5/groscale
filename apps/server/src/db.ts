@@ -1,5 +1,3 @@
-// src/db.ts
-import "dotenv/config";           // load .env before touching Prisma
+// apps/server/src/db.ts
 import { PrismaClient } from "@prisma/client";
-
 export const prisma = new PrismaClient();
