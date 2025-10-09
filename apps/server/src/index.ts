@@ -1,154 +1,112 @@
+// apps/server/src/index.ts
 import express from "express";
 import cors from "cors";
-
-// ---------- CORS ----------
-const allowedOrigins = [
-  "http://localhost:5173",                 // Vite dev
-  "https://groscales-frontend.onrender.com", // Render frontend
-  "https://groscale.vercel.app",             // Vercel frontend
-];
+import { prisma } from "./db";
 
 const app = express();
 app.use(express.json());
+
+// ----- CORS -----
+const allowed = new Set(
+  (process.env.ALLOWED_ORIGINS || "")
+    .split(",")
+    .map(s => s.trim())
+    .filter(Boolean)
+);
+// always allow local vite
+allowed.add("http://localhost:5173");
+
 app.use(
   cors({
-    origin(origin, cb) {
-      // allow same-origin / curl with no Origin
-      if (!origin) return cb(null, true);
-      if (allowedOrigins.includes(origin)) return cb(null, true);
+    origin: (origin, cb) => {
+      if (!origin || allowed.has(origin)) return cb(null, true);
       return cb(new Error("Not allowed by CORS"));
     },
     credentials: true,
   })
 );
 
-// ---------- Mock data ----------
-type Lead = {
-  id: string;
-  firstName?: string;
-  lastName?: string;
-  name?: string;
-  phone: string;
-  email?: string;
-  status: string;
-  tags?: string[];
-};
+// ----- Health -----
+app.get("/health", (_req, res) => res.json({ ok: true }));
 
-type Message = {
-  id: string;
-  leadId: string;
-  from: "me" | "lead";
-  text: string;
-  at: string;
-};
+// ----- Leads -----
+app.get("/api/leads", async (_req, res, next) => {
+  try {
+    const leads = await prisma.lead.findMany({ orderBy: { createdAt: "desc" } });
+    res.json(leads);
+  } catch (e) { next(e); }
+});
 
-const leads: Lead[] = [
-  {
-    id: "L001",
-    firstName: "Carlos",
-    lastName: "Ruiz",
-    name: "Carlos Ruiz",
-    phone: "+1 689 555 1122",
-    email: "carlos@example.com",
-    status: "BOOKED",
-    tags: ["hot"],
-  },
-  {
-    id: "L002",
-    firstName: "Bree",
-    lastName: "Chen",
-    name: "Bree Chen",
-    phone: "+1 407 555 8811",
-    email: "bree@example.com",
-    status: "CONTACTED",
-    tags: ["follow-up"],
-  },
-];
+app.post("/api/leads", async (req, res, next) => {
+  try {
+    const { firstName, lastName, name, phone, email, tags = [], status = "NEW" } = req.body ?? {};
+    const created = await prisma.lead.create({
+      data: { firstName, lastName, name, phone, email, tags, status },
+    });
+    res.status(201).json(created);
+  } catch (e) { next(e); }
+});
 
-const messagesByLead = new Map<string, Message[]>([
-  [
-    "L001",
-    [
-      {
-        id: "m1",
-        leadId: "L001",
-        from: "lead",
-        text: "Hey! Can we reschedule?",
-        at: "9:12 AM",
-      },
-      {
-        id: "m2",
-        leadId: "L001",
+app.put("/api/leads/:id", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { firstName, lastName, name, phone, email, tags, status } = req.body ?? {};
+    const updated = await prisma.lead.update({
+      where: { id },
+      data: { firstName, lastName, name, phone, email, tags, status },
+    });
+    res.json(updated);
+  } catch (e) { next(e); }
+});
+
+app.delete("/api/leads/:id", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    await prisma.message.deleteMany({ where: { leadId: id } });
+    await prisma.lead.delete({ where: { id } });
+    res.status(204).end();
+  } catch (e) { next(e); }
+});
+
+// ----- Threads / Messages -----
+app.get("/api/threads/:leadId", async (req, res, next) => {
+  try {
+    const { leadId } = req.params;
+    const msgs = await prisma.message.findMany({
+      where: { leadId },
+      orderBy: { at: "asc" },
+    });
+    res.json(msgs);
+  } catch (e) { next(e); }
+});
+
+app.post("/api/messages", async (req, res, next) => {
+  try {
+    const { leadId, text } = req.body ?? {};
+    const msg = await prisma.message.create({
+      data: {
+        leadId,
+        text,
         from: "me",
-        text: "Sure, what works for you?",
-        at: "9:14 AM",
       },
-    ],
-  ],
-  [
-    "L002",
-    [
-      {
-        id: "m3",
-        leadId: "L002",
-        from: "lead",
-        text: "What's the pricing?",
-        at: "8:02 AM",
-      },
-    ],
-  ],
-]);
+    });
+    res.status(201).json(msg);
+  } catch (e) { next(e); }
+});
 
-function withFullName(l: Lead): Lead {
-  const first = l.firstName?.trim() ?? "";
-  const last = l.lastName?.trim() ?? "";
-  const name = [first, last].filter(Boolean).join(" ");
-  return { ...l, name: name || l.name };
+// ----- 404 -----
+app.use((_req, res) => res.status(404).json({ error: "Not found" }));
+
+// ----- Error handler -----
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error(err);
+  res.status(500).json({ error: "Server error" });
+});
+
+// start only when not on Render
+const port = process.env.PORT || 3001;
+if (process.env.NODE_ENV !== "production") {
+  app.listen(port, () => console.log(`API on http://localhost:${port}`));
 }
 
-// ---------- Routes ----------
-app.get("/api/health", (_req, res) => {
-  res.json({ ok: true });
-});
-
-app.get("/api/leads", (_req, res) => {
-  res.json(leads.map(withFullName));
-});
-
-app.put("/api/leads/:id", (req, res) => {
-  const { id } = req.params;
-  const idx = leads.findIndex((l) => l.id === id);
-  if (idx === -1) return res.status(404).json({ error: "Lead not found" });
-
-  const merged = withFullName({ ...leads[idx], ...req.body });
-  leads[idx] = merged;
-  res.json(merged);
-});
-
-app.get("/api/threads/:leadId", (req, res) => {
-  const msgs = messagesByLead.get(req.params.leadId) ?? [];
-  res.json(msgs);
-});
-
-app.post("/api/messages", (req, res) => {
-  const { leadId, text } = req.body as { leadId: string; text: string };
-  if (!leadId || !text) return res.status(400).json({ error: "leadId and text required" });
-
-  const msg: Message = {
-    id: "m" + Math.random().toString(36).slice(2, 8),
-    leadId,
-    from: "me",
-    text,
-    at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-  };
-  const arr = messagesByLead.get(leadId) ?? [];
-  arr.push(msg);
-  messagesByLead.set(leadId, arr);
-  res.json(msg);
-});
-
-// ---------- Start ----------
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
-  console.log(`API listening on ${PORT}`);
-});
+export default app;
