@@ -1,32 +1,12 @@
+// apps/server/prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
-}
-
-model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  password  String
-  createdAt DateTime @default(now())
-  leads     Lead[]
-}
-
-model Lead {
-  id        String     @id @default(cuid())
-  ownerId   String
-  owner     User       @relation(fields: [ownerId], references: [id])
-  firstName String?
-  lastName  String?
-  phone     String
-  email     String?
-  tags      Json?
-  status    LeadStatus @default(NEW)
-  createdAt DateTime   @default(now())
 }
 
 enum LeadStatus {
@@ -34,4 +14,31 @@ enum LeadStatus {
   CONTACTED
   BOOKED
   CLOSED
+}
+
+model Lead {
+  id        String      @id @default(cuid())
+  firstName String?
+  lastName  String?
+  name      String
+  phone     String
+  email     String?
+  // In Postgres, arrays are great for tags:
+  tags      String[]    // stored as text[]
+  status    LeadStatus  @default(NEW)
+
+  messages  Message[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId    String
+  from      String   // "me" | "lead" (keep as string for simplicity)
+  text      String
+  at        DateTime @default(now())
+
+  createdAt DateTime @default(now())
 }
