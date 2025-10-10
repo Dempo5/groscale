@@ -1,89 +1,149 @@
-// @ts-nocheck
-// apps/server/src/index.ts
-import express from "express";
+import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
-import { prisma } from "./db";
+
+// ---------- CORS ----------
+const allowed = [
+  "http://localhost:5173",                    // Vite dev
+  "https://groscale-frontend.onrender.com",   // Render frontend
+  "https://groscale.vercel.app"               // Vercel (if you point web there)
+];
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-
-// ---------- Middleware ----------
 app.use(express.json());
+
 app.use(
   cors({
-    origin: (origin, cb) => {
-      const allowed = [
-        "https://groscale-frontend.onrender.com",
-        "https://groscale.vercel.app",
-        "http://localhost:5173"
-      ];
-      if (!origin || allowed.includes(origin)) cb(null, true);
-      else cb(new Error("Not allowed by CORS"));
+    origin(origin: string | undefined, cb) {
+      if (!origin) return cb(null, true);
+      if (allowed.includes(origin)) return cb(null, true);
+      return cb(new Error("Not allowed by CORS"));
     },
-    credentials: true
+    credentials: true,
   })
 );
 
-// ---------- Health Check ----------
-app.get("/health", (_req, res) => {
-  res.json({ ok: true });
+// ---------- Mock “DB” ----------
+type LeadStatus = "NEW" | "CONTACTED" | "BOOKED" | "CLOSED";
+
+export interface Lead {
+  id: string;
+  firstName?: string;
+  lastName?: string;
+  name?: string;
+  phone: string;
+  email?: string;
+  status: LeadStatus;
+  tags?: string[];
+}
+
+export interface Message {
+  id: string;
+  from: "me" | "lead";
+  text: string;
+  at: string;
+  leadId: string;
+}
+
+const leads: Lead[] = [
+  {
+    id: "L001",
+    firstName: "Carlos",
+    lastName: "Ruiz",
+    name: "Carlos Ruiz",
+    phone: "+16895551122",
+    status: "BOOKED",
+    tags: ["hot"],
+  },
+  {
+    id: "L002",
+    firstName: "Bree",
+    lastName: "Chen",
+    name: "Bree Chen",
+    phone: "+14075558811",
+    status: "CONTACTED",
+    tags: ["follow-up"],
+  },
+];
+
+const messagesByLead = new Map<string, Message[]>([
+  [
+    "L001",
+    [
+      { id: "m1", from: "lead", text: "Hey! Can we reschedule?", at: "09:12", leadId: "L001" },
+      { id: "m2", from: "me",   text: "Sure — what works?",     at: "09:14", leadId: "L001" },
+    ],
+  ],
+  [
+    "L002",
+    [{ id: "m3", from: "lead", text: "What’s the pricing?", at: "08:02", leadId: "L002" }],
+  ],
+]);
+
+function withFullName(l: Lead): Lead {
+  const first = l.firstName?.trim() ?? "";
+  const last  = l.lastName?.trim() ?? "";
+  const name  = [first, last].filter(Boolean).join(" ");
+  return { ...l, name: name || l.name };
+}
+
+// ---------- Routes ----------
+app.get("/health", (_req: Request, res: Response) => {
+  res.json({ ok: true, at: new Date().toISOString() });
 });
 
-// ---------- Get All Leads ----------
-app.get("/api/leads", async (_req, res, next) => {
-  try {
-    const leads = await prisma.lead.findMany();
-    res.json(leads);
-  } catch (err) {
-    next(err);
-  }
+app.get("/api/leads", (_req: Request, res: Response) => {
+  res.json(leads.map(withFullName));
 });
 
-// ---------- Update Lead ----------
-app.put("/api/leads/:id", async (req, res, next) => {
+app.put("/api/leads/:id", (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const updated = await prisma.lead.update({
-      where: { id },
-      data: req.body
-    });
-    res.json(updated);
+    const idx = leads.findIndex(l => l.id === id);
+    if (idx === -1) return res.status(404).json({ error: "Lead not found" });
+
+    const update = req.body as Partial<Lead>;
+    const merged = withFullName({ ...leads[idx], ...update });
+    leads[idx] = merged;
+    res.json(merged);
   } catch (err) {
     next(err);
   }
 });
 
-// ---------- Get Thread ----------
-app.get("/api/threads/:leadId", async (req, res, next) => {
+app.get("/api/threads/:leadId", (req: Request, res: Response) => {
+  const { leadId } = req.params;
+  res.json((messagesByLead.get(leadId) ?? []).slice());
+});
+
+app.post("/api/messages", (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { leadId } = req.params;
-    const messages = await prisma.message.findMany({ where: { leadId } });
-    res.json(messages);
+    const { leadId, text } = req.body as { leadId: string; text: string };
+    if (!leadId || !text) return res.status(400).json({ error: "leadId and text required" });
+
+    const msg: Message = {
+      id: "m" + Math.random().toString(36).slice(2, 8),
+      from: "me",
+      text,
+      at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      leadId,
+    };
+    const arr = messagesByLead.get(leadId) ?? [];
+    arr.push(msg);
+    messagesByLead.set(leadId, arr);
+    res.status(201).json(msg);
   } catch (err) {
     next(err);
   }
 });
 
-// ---------- Send Message ----------
-app.post("/api/messages", async (req, res, next) => {
-  try {
-    const { leadId, text } = req.body;
-    const newMsg = await prisma.message.create({
-      data: { leadId, text, from: "me", at: new Date().toISOString() }
-    });
-    res.json(newMsg);
-  } catch (err) {
-    next(err);
-  }
+// ---------- Error handler (typed) ----------
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  console.error(err);
+  res.status(500).json({ error: "Server error" });
 });
 
-// ---------- Error Handler ----------
-app.use((err, _req, res, _next) => {
-  console.error("Error:", err);
-  res.status(500).json({ error: err.message || "Internal Server Error" });
-});
-
-// ---------- Start Server ----------
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+// ---------- Start ----------
+const port = Number(process.env.PORT || 8080);
+app.listen(port, () => {
+  console.log(`API listening on :${port}`);
 });
