@@ -1,63 +1,39 @@
-import express, { Request, Response, NextFunction } from "express";
+import express from "express";
 import cors from "cors";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const app = express();
-app.use(express.json());
+const PORT = process.env.PORT || 10000;
 
-/* -------------------------------------------------------
-   ✅ CORS — allows Vercel + localhost + Render previews
---------------------------------------------------------- */
-const envList = (process.env.ALLOWED_ORIGINS || "")
-  .split(",")
-  .map(s => s.trim())
-  .filter(Boolean);
-
-const defaults = ["http://localhost:5173"];
-
+// ✅ TEMP CORS FIX — allows requests from any origin for testing
 app.use(
   cors({
-    origin: (origin, cb) => {
-      if (!origin) return cb(null, true); // allow server-to-server / health checks
-      if (envList.includes(origin) || defaults.includes(origin)) return cb(null, true);
-      try {
-        const { host } = new URL(origin);
-        if (host.endsWith(".vercel.app")) return cb(null, true);
-      } catch {}
-      cb(new Error("Not allowed by CORS"));
-    },
-    credentials: true,
+    origin: true, // reflect the request origin automatically
+    credentials: true, // allow cookies if needed
   })
 );
 
-/* -------------------------------------------------------
-   ✅ Basic routes
---------------------------------------------------------- */
-app.get("/", (_req: Request, res: Response) => {
+// ✅ Ensure preflight (OPTIONS) requests succeed
+app.options("*", cors({ origin: true }));
+
+app.use(express.json());
+
+// ✅ Simple test route to confirm API is working
+app.get("/", (req, res) => {
   res.send("GroScale API is running ✅ Try /api/leads");
 });
 
-app.get("/healthz", (_req: Request, res: Response) => {
-  res.json({ ok: true });
-});
-
-/* Example route (replace with Prisma later) */
-app.get("/api/leads", (_req: Request, res: Response) => {
+// ✅ Example API route
+app.get("/api/leads", (req, res) => {
   res.json([
     { id: 1, name: "Test Lead", email: "lead@example.com" },
     { id: 2, name: "Demo Lead", email: "demo@example.com" },
   ]);
 });
 
-/* -------------------------------------------------------
-   ✅ Error handler
---------------------------------------------------------- */
-app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-  console.error("❌ Error:", err.message);
-  res.status(500).json({ error: err.message });
+// ✅ Start server
+app.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
 });
-
-/* -------------------------------------------------------
-   ✅ Server start
---------------------------------------------------------- */
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
