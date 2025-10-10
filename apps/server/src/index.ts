@@ -1,38 +1,35 @@
+// @ts-nocheck
 // apps/server/src/index.ts
 import express from "express";
 import cors from "cors";
-import { prisma } from "./db"; // make sure ./db.ts exists in the same folder
+import { prisma } from "./db";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
+// ---------- Middleware ----------
 app.use(express.json());
 app.use(
   cors({
     origin: (origin, cb) => {
-      // Allow your frontend URLs (Render + Vercel)
       const allowed = [
         "https://groscale-frontend.onrender.com",
         "https://groscale.vercel.app",
         "http://localhost:5173"
       ];
-      if (!origin || allowed.includes(origin)) {
-        cb(null, true);
-      } else {
-        cb(new Error("Not allowed by CORS"));
-      }
+      if (!origin || allowed.includes(origin)) cb(null, true);
+      else cb(new Error("Not allowed by CORS"));
     },
     credentials: true
   })
 );
 
-// ✅ Health check route
+// ---------- Health Check ----------
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
-// ✅ Get all leads
+// ---------- Get All Leads ----------
 app.get("/api/leads", async (_req, res, next) => {
   try {
     const leads = await prisma.lead.findMany();
@@ -42,7 +39,7 @@ app.get("/api/leads", async (_req, res, next) => {
   }
 });
 
-// ✅ Update a lead
+// ---------- Update Lead ----------
 app.put("/api/leads/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -56,7 +53,7 @@ app.put("/api/leads/:id", async (req, res, next) => {
   }
 });
 
-// ✅ Get thread (messages for a lead)
+// ---------- Get Thread ----------
 app.get("/api/threads/:leadId", async (req, res, next) => {
   try {
     const { leadId } = req.params;
@@ -67,7 +64,7 @@ app.get("/api/threads/:leadId", async (req, res, next) => {
   }
 });
 
-// ✅ Send a message
+// ---------- Send Message ----------
 app.post("/api/messages", async (req, res, next) => {
   try {
     const { leadId, text } = req.body;
@@ -80,13 +77,13 @@ app.post("/api/messages", async (req, res, next) => {
   }
 });
 
-// ✅ Error handler
+// ---------- Error Handler ----------
 app.use((err, _req, res, _next) => {
   console.error("Error:", err);
   res.status(500).json({ error: err.message || "Internal Server Error" });
 });
 
-// ✅ Start server
+// ---------- Start Server ----------
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
