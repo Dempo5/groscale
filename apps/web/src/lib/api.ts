@@ -1,12 +1,11 @@
 // apps/web/src/lib/api.ts
-const API_BASE = "https://groscale.onrender.com"; // your Render URL
+const API_BASE = "https://groscale.onrender.com"; // hard-code for reliability
 
 export async function getLeads() {
   const res = await fetch(`${API_BASE}/api/leads`, {
-    mode: "cors",
+    // no credentials; keeps CORS simple
+    headers: { Accept: "application/json" },
   });
-  if (!res.ok) {
-    throw new Error(`Load failed (${res.status})`);
-  }
+  if (!res.ok) throw new Error(`Load failed (${res.status})`);
   return res.json();
 }
