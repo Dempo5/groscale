@@ -1,75 +1,64 @@
-const API_BASE = import.meta.env.VITE_API_URL || "https://api.groscales.com";
+// apps/web/src/lib/api.ts
+// Robust client for GroScales API: health check + retries + timeouts.
 
-/** Small helper to wait */
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const API_BASE =
+  import.meta.env.VITE_API_URL?.replace(/\/+$/, "") || "https://api.groscales.com";
 
-/** Fetch with timeout */
-async function fetchWithTimeout(
-  input: RequestInfo | URL,
-  init: RequestInit & { timeoutMs?: number } = {}
-) {
-  const { timeoutMs = 20000, ...rest } = init;
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+const DEFAULT_TIMEOUT_MS = 12_000; // each request max 12s
+const MAX_HEALTH_RETRIES = 8;      // ~90s worst-case for Render cold start
+const BASE_DELAY_MS = 800;         // backoff start
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, timeout = DEFAULT_TIMEOUT_MS) {
+  const ctl = new AbortController();
+  const id = setTimeout(() => ctl.abort(), timeout);
   try {
-    return await fetch(input, { ...rest, signal: ctrl.signal, mode: "cors" });
+    const res = await fetch(input, { ...init, signal: ctl.signal, credentials: "omit" });
+    return res;
   } finally {
-    clearTimeout(t);
+    clearTimeout(id);
   }
 }
 
 /**
- * Warm-and-fetch: handles Render cold start by retrying politely.
- * Pass onStatus to surface nice UI messages ("Waking server…", etc).
+ * Waits until API responds healthy (/_health or /api/leads HEAD) with retries.
  */
-export async function getLeads(onStatus?: (s: string) => void) {
-  const url = `${API_BASE}/api/leads?t=${Date.now()}`;
+export async function waitForApiReady(): Promise<void> {
+  const healthUrls = [`${API_BASE}/_health`, `${API_BASE}/api/health`, `${API_BASE}/api/leads`];
 
-  // up to ~90s total (6 tries * (20s timeout + small waits))
-  const maxTries = 6;
-  let attempt = 0;
-
-  while (attempt < maxTries) {
-    attempt++;
-    const label =
-      attempt === 1
-        ? "Contacting API…"
-        : `Still waking the API (try ${attempt}/${maxTries})…`;
-    onStatus?.(label);
-
-    try {
-      const res = await fetchWithTimeout(url, { timeoutMs: 20000 });
-
-      // Render shows 503/522/524 while starting — retry those.
-      if (!res.ok) {
-        if ([502, 503, 504, 522, 524].includes(res.status)) {
-          await sleep(1500);
-          continue;
-        }
-        const text = await res.text().catch(() => "");
-        throw new Error(`API ${res.status} ${res.statusText} ${text}`);
-      }
-
-      const text = await res.text();
+  for (let attempt = 1; attempt <= MAX_HEALTH_RETRIES; attempt++) {
+    for (const url of healthUrls) {
       try {
-        return JSON.parse(text);
+        const res = await fetchWithTimeout(url, { method: url.endsWith("/api/leads") ? "HEAD" : "GET" }, 6000);
+        if (res.ok) return; // API is up
       } catch {
-        throw new Error("API returned non-JSON");
+        // ignore and try next/again
       }
-    } catch (err: any) {
-      // AbortError => timed out; retry
-      if (err?.name === "AbortError") {
-        await sleep(1500);
-        continue;
-      }
-      // Network / DNS hiccup — retry a couple times
-      if (attempt < maxTries) {
-        await sleep(1500);
-        continue;
-      }
-      throw err;
     }
+    // exponential backoff with small jitter
+    const delay = BASE_DELAY_MS * Math.pow(1.5, attempt - 1) + Math.random() * 150;
+    // Provide a hook for the UI to optionally read status (optional custom event)
+    window.dispatchEvent(new CustomEvent("groscale:api-waking", { detail: { attempt, delay } }));
+    await sleep(delay);
   }
 
   throw new Error("API is still starting. Please try again in a moment.");
+}
+
+/**
+ * Loads leads after ensuring the API is reachable.
+ */
+export async function getLeads() {
+  await waitForApiReady();
+  const res = await fetchWithTimeout(`${API_BASE}/api/leads`, {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Fetch failed (${res.status}): ${text || res.statusText}`);
+  }
+  return res.json() as Promise<Array<{ id: number; name: string; email: string }>>;
 }
