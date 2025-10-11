@@ -1,19 +1,31 @@
 import { useEffect, useState } from "react";
-import { getLeads, type Lead } from "./lib/api";
+import { getLeads } from "./lib/api";
+
+type Lead = {
+  id: string;
+  name?: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+};
 
 export default function App() {
   const [leads, setLeads] = useState<Lead[] | null>(null);
+  const [status, setStatus] = useState<string>("Loading leads…");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const data = await getLeads();
-        if (alive) setLeads(data);
+        const data = await getLeads((s) => alive && setStatus(s));
+        if (!alive) return;
+        setLeads(data);
+        setStatus("");
       } catch (e: any) {
-        console.error("getLeads error:", e);
-        if (alive) setError(e?.message ?? "Load failed");
+        if (!alive) return;
+        console.error("getLeads failed:", e);
+        setError(e?.message ?? "Load failed");
       }
     })();
     return () => {
@@ -31,7 +43,7 @@ export default function App() {
       </nav>
 
       {error && <p style={{ color: "crimson" }}>Error: {error}</p>}
-      {!error && !leads && <p>Loading leads…</p>}
+      {!error && !leads && <p>{status}</p>}
 
       {leads && (
         <ul style={{ lineHeight: 1.8 }}>
