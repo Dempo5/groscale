@@ -1,85 +1,86 @@
 // apps/server/src/index.ts
-import express from "express";
+import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 
 const app = express();
-app.set("trust proxy", true);
-app.use(express.json());
 
-// --- CORS: allow your prod domain + any Vercel preview ---
-function isAllowedOrigin(origin?: string) {
-  if (!origin) return false;
-  try {
-    const u = new URL(origin);
-    // Prod web app
-    if (u.hostname === "groscale.vercel.app") return true;
-    // Any Vercel preview (e.g. groscale-xxxxx-groscales-projects.vercel.app)
-    if (u.hostname.endsWith(".vercel.app")) return true;
-    // Hitting the API directly from its own domain (useful for tools)
-    if (u.hostname === "api.groscales.com") return true;
-    return false;
-  } catch {
-    return false;
-  }
-}
+// ------- CORS ---------------------------------------------------------------
+const raw = process.env.ALLOWED_ORIGINS || "";
+// allow comma or whitespace separated list
+const ALLOWED = raw
+  .split(/[, \n\r\t]+/)
+  .map(s => s.trim())
+  .filter(Boolean);
+
+// during bring-up, allow your api domain + vercel main + preview
+const FALLBACK = [
+  "https://groscale.vercel.app",
+  "https://api.groscales.com",
+];
+
+const WHITELIST = new Set([...ALLOWED, ...FALLBACK]);
+
+app.use((req, res, next) => {
+  res.setHeader("X-Powered-By", "GroScales");
+  next();
+});
 
 app.use(
   cors({
-    origin: (origin, cb) => {
-      // allow server-to-server / curl (no Origin header)
-      if (!origin) return cb(null, true);
-      if (isAllowedOrigin(origin)) return cb(null, true);
-      return cb(new Error("Not allowed by CORS"));
+    origin(origin, cb) {
+      // allow no Origin (curl, server-side) and any whitelisted origin
+      if (!origin || WHITELIST.has(origin)) return cb(null, true);
+      cb(new Error(`CORS blocked for origin ${origin}`));
     },
-    credentials: false, // no cookies/session
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: false,
+    maxAge: 86400,
   })
 );
 
-// respond fast to preflight
-app.options("*", cors());
+// make sure preflight never hangs
+app.options("*", (_req, res) => res.sendStatus(204));
 
-// --- Health / homepage ---
+// ------- health / readiness -------------------------------------------------
+app.get("/_health", (_req, res) => {
+  res.status(200).json({ ok: true, service: "groscales-api", ts: Date.now() });
+});
+app.get("/api/health", (_req, res) => {
+  res.status(200).json({ ok: true });
+});
+
+// ------- demo data (replace with DB later) ----------------------------------
+const DEMO_LEADS = [
+  { id: 1, name: "Test Lead", email: "lead@example.com" },
+  { id: 2, name: "Demo Lead", email: "demo@example.com" },
+];
+
+// quick readiness probe with no body
+app.head("/api/leads", (_req, res) => res.sendStatus(200));
+
+// real data
+app.get("/api/leads", (_req: Request, res: Response, _next: NextFunction) => {
+  res.json(DEMO_LEADS);
+});
+
+// root banner (useful to see if the service is live)
 app.get("/", (_req, res) => {
-  res.type("text/plain").send("GroScale API is running ✅  Try /api/leads");
+  res
+    .status(200)
+    .type("text/plain")
+    .send("GroScale API is running ✅  Try /_health or /api/leads");
 });
 
-// --- Example routes (keep or replace with your DB-backed ones) ---
-app.get("/api/leads", (_req, res) => {
-  res.json([
-    { id: "1", name: "Test Lead", email: "lead@example.com" },
-    { id: "2", name: "Demo Lead", email: "demo@example.com" },
-  ]);
+// ------- error handler ------------------------------------------------------
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  const code = typeof err?.status === "number" ? err.status : 500;
+  res.status(code).json({ error: err?.message || "Server error" });
 });
 
-app.put("/api/leads/:id", (req, res) => {
-  const { id } = req.params;
-  const updates = req.body ?? {};
-  res.json({ id, ...updates });
-});
-
-app.get("/api/threads/:leadId", (req, res) => {
-  const { leadId } = req.params;
-  res.json([
-    { id: "m1", from: "lead", text: "Hi!", at: new Date().toISOString(), leadId },
-    { id: "m2", from: "me", text: "Hello!", at: new Date().toISOString(), leadId },
-  ]);
-});
-
-app.post("/api/messages", (req, res) => {
-  const { leadId, text } = req.body ?? {};
-  res.json({
-    id: Math.random().toString(36).slice(2),
-    from: "me",
-    text: text ?? "",
-    at: new Date().toISOString(),
-    leadId: leadId ?? null,
-  });
-});
-
-// --- Start server ---
-const PORT = parseInt(process.env.PORT || "10000", 10);
+// ------- start --------------------------------------------------------------
+const PORT = Number(process.env.PORT || 10000);
 app.listen(PORT, () => {
-  console.log(`API listening on :${PORT}`);
+  // eslint-disable-next-line no-console
+  console.log(`Server running on port ${PORT}`);
 });
