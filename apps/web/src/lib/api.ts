@@ -1,23 +1,34 @@
-// apps/web/src/lib/api.ts
-export interface Lead {
-  id: number;
-  name: string;
-  email: string;
+const API_BASE =
+  import.meta.env.VITE_API_URL?.replace(/\/$/, "") || "https://groscale.onrender.com";
+
+// ping /health to wake the dyno; don’t hit /api/leads (it will be authed soon)
+async function waitForApi(maxTries = 6, delayMs = 800) {
+  for (let i = 1; i <= maxTries; i++) {
+    try {
+      const r = await fetch(`${API_BASE}/health`, { credentials: "include" });
+      if (r.ok) return;
+    } catch (_) {
+      /* ignore */
+    }
+    await new Promise(res => setTimeout(res, delayMs));
+  }
+  throw new Error("API is still starting. Please try again in a moment.");
 }
 
-const API_BASE =
-  (import.meta.env.VITE_API_URL as string) || "https://groscale.onrender.com";
+export async function getLeads() {
+  // make sure API is awake (uses /health so it’s always public)
+  await waitForApi();
 
-export async function fetchLeads(): Promise<Lead[]> {
   const res = await fetch(`${API_BASE}/api/leads`, {
-    mode: "cors",
-    credentials: "omit",
-    headers: { Accept: "application/json" },
+    credentials: "include",
   });
 
   if (!res.ok) {
-    // If CORS fails, browsers often surface an opaque response (status 0).
-    throw new Error(`HTTP ${res.status || 0}`);
+    // helpful messages
+    if (res.status === 401 || res.status === 403) {
+      throw new Error("Unauthorized. Login coming soon.");
+    }
+    throw new Error(`Failed to fetch leads (HTTP ${res.status})`);
   }
-  return (await res.json()) as Lead[];
+  return res.json();
 }
