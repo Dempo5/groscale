@@ -6,12 +6,18 @@ export interface Lead {
 }
 
 const API_BASE =
-  import.meta.env.VITE_API_URL?.toString() || 'https://groscale.onrender.com';
+  (import.meta.env.VITE_API_URL as string) || "https://groscale.onrender.com";
 
 export async function fetchLeads(): Promise<Lead[]> {
-  const res = await fetch(`${API_BASE}/api/leads`, { credentials: 'omit' });
+  const res = await fetch(`${API_BASE}/api/leads`, {
+    mode: "cors",
+    credentials: "omit",
+    headers: { Accept: "application/json" },
+  });
+
   if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
+    // If CORS fails, browsers often surface an opaque response (status 0).
+    throw new Error(`HTTP ${res.status || 0}`);
   }
-  return res.json() as Promise<Lead[]>;
+  return (await res.json()) as Lead[];
 }
