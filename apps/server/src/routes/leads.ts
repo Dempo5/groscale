@@ -2,7 +2,6 @@ import { Router, Request, Response } from 'express';
 
 const router = Router();
 
-// Simple demo list
 const DEMO_LEADS = [
   { id: 1, name: 'Test Lead', email: 'lead@example.com' },
   { id: 2, name: 'Demo Lead', email: 'demo@example.com' }
