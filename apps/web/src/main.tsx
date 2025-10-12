@@ -1,43 +1,35 @@
-import React, { PropsWithChildren } from "react";
+import React from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App";
+import { createBrowserRouter, RouterProvider, Navigate } from "react-router-dom";
 import "./index.css";
+import { getToken } from "./lib/api";
+import Login from "./pages/Login";
+import AppShell from "./pages/AppShell";
+import Leads from "./pages/Leads";
 
-/** Simple error boundary so the UI never goes blank */
-class ErrorBoundary extends React.Component<
-  PropsWithChildren,
-  { error?: Error }
-> {
-  constructor(props: PropsWithChildren) {
-    super(props);
-    this.state = { error: undefined };
-  }
-  static getDerivedStateFromError(error: Error) {
-    return { error };
-  }
-  componentDidCatch(error: Error, info: unknown) {
-    // You will see this in the browser console
-    console.error("❌ App crashed:", error, info);
-  }
-  render() {
-    if (this.state.error) {
-      return (
-        <div style={{ padding: 16, color: "crimson", fontFamily: "system-ui" }}>
-          <h2>App crashed</h2>
-          <pre style={{ whiteSpace: "pre-wrap" }}>
-            {String(this.state.error.message || this.state.error)}
-          </pre>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
+function Protected({ children }: { children: React.ReactNode }) {
+  const authed = Boolean(getToken());
+  return authed ? <>{children}</> : <Navigate to="/login" replace />;
 }
+
+const router = createBrowserRouter([
+  { path: "/", element: <Navigate to={getToken() ? "/app" : "/login"} replace /> },
+  { path: "/login", element: <Login /> },
+  {
+    path: "/app",
+    element: (
+      <Protected>
+        <AppShell />
+      </Protected>
+    ),
+    children: [
+      { index: true, element: <Leads /> }, // /app shows Leads for now
+    ],
+  },
+]);
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
+    <RouterProvider router={router} />
   </React.StrictMode>
 );
