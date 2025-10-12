@@ -5,10 +5,9 @@ import leadsRouter from './routes/leads.js';
 
 const app = express();
 
-// CORS — allow your Vercel fronts and local dev
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
-  .map(o => o.trim())
+  .map(s => s.trim())
   .filter(Boolean);
 
 app.use(
@@ -26,20 +25,16 @@ app.use(
 
 app.use(express.json());
 
-// Health checks
 app.get('/_health', (_req: Request, res: Response) => {
   res.json({ ok: true, ts: new Date().toISOString() });
 });
 
-// API
 app.use('/api/leads', leadsRouter);
 
-// 404
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
 
-// Error handler
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   console.error(err);
   res.status(500).json({ error: err.message || 'Server error' });
