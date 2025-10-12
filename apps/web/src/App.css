@@ -1,163 +1,25 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
-}
+:root { color-scheme: dark; }
+body { margin: 0; font-family: ui-sans-serif, system-ui, Segoe UI, Roboto, Helvetica, Arial; background: #0b0f14; color: #e6edf3; }
+a { color: #8ab4ff; text-decoration: none; }
+a:hover { text-decoration: underline; }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
-}
+.topbar { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid #1f2937; }
+.brand { font-weight: 800; letter-spacing: .2px; }
+.topnav a, .topnav button { margin-left: 12px; background: transparent; border: 0; color: #cbd5e1; cursor: pointer; }
+.topnav button { padding: 6px 10px; border-radius: 8px; background: #1f2937; }
+.topnav button:hover { background: #263340; }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
+.content { max-width: 980px; margin: 28px auto; padding: 0 16px; }
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
-}
+.auth-card { width: 360px; max-width: 92vw; background: #0f1620; border: 1px solid #1f2937; padding: 24px; border-radius: 14px; box-shadow: 0 10px 35px rgba(0,0,0,.35); }
+.auth-card h2 { margin-top: 0; }
+.auth-card form { display: grid; gap: 10px; }
+.auth-card input { width: 100%; padding: 12px 14px; border-radius: 10px; background: #0b121a; border: 1px solid #223040; color: #e6edf3; }
+.auth-card button { padding: 10px 14px; border-radius: 10px; background: #3b82f6; border: none; color: white; font-weight: 600; }
+.auth-card button:disabled { opacity: .6; }
+.error { color: #f87171; }
+.muted { color: #9aa7b2; margin-top: 8px; }
 
-.card {
-  padding: 2em;
-}
-
-.read-the-docs {
-  color: #888;
-}
-/* === GroScales Clean UI (drop-in) === */
-:root {
-  --bg: #f6f7fb;
-  --card: #ffffff;
-  --text: #0f172a;
-  --muted: #64748b;
-  --primary: #0f172a;
-  --primary-2: #111827;
-  --ring: rgba(2, 6, 23, 0.08);
-}
-
-body {
-  background: var(--bg);
-  color: var(--text);
-}
-
-.container {
-  max-width: 980px;
-  margin: 0 auto;
-  padding: 28px 24px 56px;
-}
-
-.header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 20px;
-}
-
-.brand {
-  font-size: 28px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-}
-
-.tabs {
-  display: flex;
-  gap: 8px;
-}
-
-.tab {
-  padding: 6px 12px;
-  border-radius: 10px;
-  background: #e2e8f0;
-  color: #0f172a;
-  font-size: 13px;
-  border: none;
-}
-
-.tab.active {
-  background: var(--primary);
-  color: #fff;
-}
-
-.auth-card {
-  background: var(--card);
-  border: 1px solid #e5e7eb;
-  border-radius: 14px;
-  padding: 14px;
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  box-shadow: 0 10px 30px var(--ring);
-  margin-bottom: 18px;
-}
-
-.input {
-  padding: 10px 12px;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  background: #fff;
-  color: var(--text);
-  font-size: 14px;
-  min-width: 220px;
-  outline: none;
-}
-
-.input:focus {
-  border-color: #cbd5e1;
-  box-shadow: 0 0 0 4px var(--ring);
-}
-
-.btn {
-  padding: 10px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--primary);
-  background: var(--primary);
-  color: #fff;
-  font-weight: 600;
-  cursor: pointer;
-  transition: transform .04s ease, background .15s ease;
-}
-
-.btn:hover { background: var(--primary-2); }
-.btn:active { transform: translateY(1px); }
-
-.btn.secondary {
-  background: #fff;
-  color: var(--primary);
-}
-
-.section {
-  background: var(--card);
-  border: 1px solid #e5e7eb;
-  border-radius: 14px;
-  padding: 16px;
-  box-shadow: 0 10px 30px var(--ring);
-}
-
-.section h2 {
-  margin: 0 0 10px;
-  font-size: 16px;
-  font-weight: 700;
-}
-
-.error {
-  color: #b91c1c;
-  font-weight: 600;
-  margin: 8px 0;
-}
+.dash h2 { margin-top: 0; }
+.lead-list { list-style: none; padding: 0; margin: 8px 0 0; }
+.lead-list li { padding: 10px 12px; border: 1px solid #1f2937; border-radius: 10px; margin-bottom: 8px; background: #0f1620; }
