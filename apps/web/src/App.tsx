@@ -1,41 +1,35 @@
 // apps/web/src/App.tsx
-import { useEffect, useState } from 'react';
-import { fetchLeads, type Lead } from './lib/api';
-
-function LeadsList({ leads }: { leads: Lead[] }) {
-  if (!leads.length) return <p>No leads yet.</p>;
-  return (
-    <ul style={{ lineHeight: 1.8 }}>
-      {leads.map(l => (
-        <li key={l.id}>
-          <strong>{l.name}</strong> — {l.email}
-        </li>
-      ))}
-    </ul>
-  );
-}
+import { useEffect, useState } from "react";
+import { fetchLeads, type Lead } from "./lib/api";
 
 export default function App() {
   const [leads, setLeads] = useState<Lead[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0); // for wake/retry
+  const [tries, setTries] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
       try {
-        setError(null);
         const data = await fetchLeads();
-        if (!cancelled) setLeads(data);
-      } catch (err) {
+        if (!cancelled) {
+          setLeads(data);
+          setError(null);
+        }
+      } catch (e: any) {
         if (cancelled) return;
-        // Gentle wake-up retry loop (Render free dynos can sleep)
-        if (attempt < 6) {
-          setError(`API is still starting. Please try again in a moment.`);
-          setTimeout(() => setAttempt(a => a + 1), 1500);
-        } else {
-          setError('Load failed');
+
+        const msg =
+          e?.message?.includes("HTTP 0")
+            ? "CORS/opaque response (check API allow-list)"
+            : e?.message || "Load failed";
+
+        setError(msg);
+
+        // simple retry when API is waking up
+        if (tries < 6) {
+          setTimeout(() => setTries((t) => t + 1), 1500);
         }
       }
     }
@@ -44,28 +38,31 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [attempt]);
+  }, [tries]);
 
   return (
-    <div style={{ padding: 16 }}>
+    <div style={{ padding: 24 }}>
       <h1>GroScales</h1>
-      <nav style={{ marginBottom: 12 }}>
-        <button
-          style={{
-            padding: '6px 12px',
-            borderRadius: 8,
-            background: '#0f172a',
-            color: 'white',
-            border: 'none',
-          }}
-        >
-          Leads
-        </button>
+
+      <nav style={{ margin: "12px 0" }}>
+        <button>Leads</button>
       </nav>
 
-      {error && <p style={{ color: 'crimson' }}>Error: {error}</p>}
-      {!error && !leads && <p>Loading leads...</p>}
-      {leads && <LeadsList leads={leads} />}
+      {!leads && !error && (
+        <p>Still waking the API (try {tries}/{6})…</p>
+      )}
+      {error && <p style={{ color: "crimson" }}>Error: {error}</p>}
+
+      {leads && (
+        <ul>
+          {leads.map((l) => (
+            <li key={l.id}>
+              {l.name} — <code>{l.email}</code>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
+vvvvvvvvvvvvvvvvvvvvvvvvvvvvv
