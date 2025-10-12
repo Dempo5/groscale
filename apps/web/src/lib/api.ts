@@ -1,31 +1,31 @@
 // apps/web/src/lib/api.ts
-import { authHeader, setToken, clearToken, getToken } from "./auth";
+import { setToken, clearToken, getToken } from "./auth";
+export { getToken } from "./auth"; // <-- re-export to keep older imports working
 
 const API_BASE =
   import.meta.env.VITE_API_URL?.replace(/\/+$/, "") || "https://api.groscales.com";
 
 export type Lead = { id: number; name: string; email: string };
 
-// generic fetch
 async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...opts,
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeader(),
-      ...(opts.headers || {}),
-    },
-  });
+  const headers = new Headers(opts.headers as HeadersInit);
+  if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const res = await fetch(`${API_BASE}${path}`, { ...opts, headers });
 
   if (res.status === 401) {
     clearToken();
     throw new Error("Unauthorized");
+    // optionally: location.assign('/login');
   }
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(text || `Request failed: ${res.status}`);
   }
+  // most endpoints return JSON; if you add file downloads later, branch here
   return res.json() as Promise<T>;
 }
 
