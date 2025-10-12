@@ -1,53 +1,15 @@
-import { Router } from "express";
-import { PrismaClient, LeadStatus } from "@prisma/client";
-import auth from "../middleware/auth";
+import { Router, Request, Response } from 'express';
 
-const r = Router();
-const prisma = new PrismaClient();
+const router = Router();
 
-// Create a lead
-r.post("/", auth, async (req, res) => {
-  const uid = (req as any).uid as string;
-  const { firstName, lastName, phone, email, tags } = req.body || {};
-  if (!phone) return res.status(400).json({ error: "phone required" });
+// Simple demo list
+const DEMO_LEADS = [
+  { id: 1, name: 'Test Lead', email: 'lead@example.com' },
+  { id: 2, name: 'Demo Lead', email: 'demo@example.com' }
+];
 
-  const lead = await prisma.lead.create({
-    data: {
-      ownerId: uid,
-      firstName,
-      lastName,
-      phone,
-      email,
-      tags: Array.isArray(tags) ? tags : [],
-    },
-  });
-  res.json(lead);
+router.get('/', (_req: Request, res: Response) => {
+  res.json(DEMO_LEADS);
 });
 
-// List my leads
-r.get("/", auth, async (req, res) => {
-  const uid = (req as any).uid as string;
-  const leads = await prisma.lead.findMany({
-    where: { ownerId: uid },
-    orderBy: { createdAt: "desc" },
-  });
-  res.json(leads);
-});
-
-// Update status
-r.patch("/:id/status", auth, async (req, res) => {
-  const uid = (req as any).uid as string;
-  const { id } = req.params;
-  const { status } = req.body || {};
-  if (!["NEW","CONTACTED","BOOKED","CLOSED"].includes(status))
-    return res.status(400).json({ error: "bad status" });
-
-  const updated = await prisma.lead.updateMany({
-    where: { id, ownerId: uid },
-    data: { status: status as LeadStatus },
-  });
-  if (updated.count === 0) return res.status(404).json({ error: "not found" });
-  res.json({ ok: true });
-});
-
-export default r;
+export default router;
