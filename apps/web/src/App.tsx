@@ -1,59 +1,129 @@
-// apps/web/src/App.tsx
-import { useEffect, useState } from "react";
-import type { Lead } from "./lib/api";
-import { getLeads } from "./lib/api";
+import { useEffect, useMemo, useState } from "react";
+import "./App.css";
+import { getLeads, login, logout, register, getToken, type Lead } from "./lib/api";
+
+type Status = "idle" | "loading" | "error" | "ready";
 
 export default function App() {
-  const [leads, setLeads] = useState<Lead[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [status, setStatus] = useState<Status>("idle");
+  const [err, setErr] = useState<string | null>(null);
+
+  // auth form state
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  const authed = useMemo(() => Boolean(getToken()), []);
+
+  async function loadLeads() {
+    setStatus("loading");
+    setErr(null);
+    try {
+      const data = await getLeads();
+      setLeads(data);
+      setStatus("ready");
+    } catch (e: any) {
+      setErr(e?.message || "Load failed");
+      setStatus("error");
+    }
+  }
 
   useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const data = await getLeads();
-        if (alive) setLeads(data);
-      } catch (e: any) {
-        if (!alive) return;
-        const msg =
-          e instanceof Error ? e.message : typeof e === "string" ? e : "Load failed";
-        setError(msg);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
+    loadLeads();
+  }, [authed]); // reload when token appears/disappears
+
+  async function onLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    try {
+      await login(email.trim(), password);
+      await loadLeads();
+    } catch (e: any) {
+      setErr(e?.message || "Login failed");
+    }
+  }
+
+  async function onRegister(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    try {
+      await register(name.trim() || "User", email.trim(), password);
+      await login(email.trim(), password);
+      await loadLeads();
+    } catch (e: any) {
+      setErr(e?.message || "Register failed");
+    }
+  }
+
+  function onLogout() {
+    logout();
+    setLeads([]);
+    setErr(null);
+    setStatus("idle");
+    // reload demo (unauthenticated) leads
+    loadLeads();
+  }
 
   return (
-    <main style={{ maxWidth: 900, margin: "2rem auto", padding: "0 1rem" }}>
-      <h1>GroScales</h1>
+    <div className="container">
+      <header className="header">
+        <h1>GroScales</h1>
+        <div className="auth">
+          {getToken() ? (
+            <div className="row">
+              <span className="badge">Logged in</span>
+              <button onClick={onLogout}>Logout</button>
+            </div>
+          ) : (
+            <form className="row" onSubmit={onLogin}>
+              <input
+                placeholder="Name (for register)"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                style={{ width: 160 }}
+              />
+              <input
+                placeholder="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                style={{ width: 180 }}
+                required
+              />
+              <input
+                placeholder="Password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={{ width: 140 }}
+                required
+              />
+              <button type="submit">Login</button>
+              <button type="button" onClick={onRegister}>Register</button>
+            </form>
+          )}
+        </div>
+      </header>
 
-      <nav style={{ margin: "1rem 0" }}>
-        <button
-          style={{
-            background: "#0b1220",
-            color: "#fff",
-            borderRadius: 8,
-            padding: "6px 12px",
-            border: "none",
-          }}
-        >
-          Leads
-        </button>
+      <nav className="tabs">
+        <button className="active">Leads</button>
+        {/* Messaging tab comes later */}
       </nav>
 
-      {!leads && !error && <p>Loading leads…</p>}
-      {error && <p style={{ color: "crimson" }}>Error: {error}</p>}
-      {leads && (
-        <ul>
-          {leads.map((l) => (
-            <li key={l.id}>
-              <strong>{l.name}</strong> — {l.email}
-            </li>
-          ))}
-        </ul>
-      )}
-    </main>
+      <main>
+        {status === "loading" && <p>Loading leads...</p>}
+        {status === "error" && <p className="error">Error: {err}</p>}
+        {status !== "loading" && leads.length > 0 && (
+          <ul>
+            {leads.map((l) => (
+              <li key={l.id}>
+                <strong>{l.name}</strong> — {l.email}
+              </li>
+            ))}
+          </ul>
+        )}
+        {status === "ready" && leads.length === 0 && <p>No leads yet.</p>}
+      </main>
+    </div>
   );
 }
