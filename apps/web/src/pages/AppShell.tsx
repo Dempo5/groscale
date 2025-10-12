@@ -1,27 +1,35 @@
-import { Outlet, useNavigate } from "react-router-dom";
-import { logout } from "../lib/api";
-import "./ui.css";
+// apps/web/src/pages/AppShell.tsx
+import { Link, Outlet, useNavigate } from "react-router-dom";
+import { isAuthed, logout } from "../lib/api";
 
 export default function AppShell() {
   const nav = useNavigate();
+  const authed = isAuthed();
 
-  function onLogout() {
+  function doLogout() {
     logout();
     nav("/login", { replace: true });
   }
 
   return (
     <div className="app-shell">
-      <header className="app-header">
-        <div className="brand">GroScales</div>
-        <div className="spacer" />
-        <button onClick={() => nav("/app")} className="tab active">Leads</button>
-        {/* Future: <button onClick={() => nav("/app/messages")} className="tab">Messaging</button> */}
-        <div className="spacer" />
-        <button onClick={onLogout} className="ghost">Logout</button>
+      <header className="topbar">
+        <Link to="/dashboard" className="brand">GroScales</Link>
+        <nav className="topnav">
+          {authed ? (
+            <>
+              <Link to="/dashboard">Dashboard</Link>
+              <button onClick={doLogout}>Logout</button>
+            </>
+          ) : (
+            <>
+              <Link to="/login">Login</Link>
+              <Link to="/register">Register</Link>
+            </>
+          )}
+        </nav>
       </header>
-
-      <main className="app-main">
+      <main className="content">
         <Outlet />
       </main>
     </div>
