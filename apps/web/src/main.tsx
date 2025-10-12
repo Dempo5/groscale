@@ -1,35 +1,28 @@
+// apps/web/src/main.tsx
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { createBrowserRouter, RouterProvider, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import "./index.css";
-import { getToken } from "./lib/api";
-import Login from "./pages/Login";
 import AppShell from "./pages/AppShell";
-import Leads from "./pages/Leads";
-
-function Protected({ children }: { children: React.ReactNode }) {
-  const authed = Boolean(getToken());
-  return authed ? <>{children}</> : <Navigate to="/login" replace />;
-}
-
-const router = createBrowserRouter([
-  { path: "/", element: <Navigate to={getToken() ? "/app" : "/login"} replace /> },
-  { path: "/login", element: <Login /> },
-  {
-    path: "/app",
-    element: (
-      <Protected>
-        <AppShell />
-      </Protected>
-    ),
-    children: [
-      { index: true, element: <Leads /> }, // /app shows Leads for now
-    ],
-  },
-]);
+import Login from "./pages/Login";
+import Register from "./pages/Register";
+import Dashboard from "./pages/Dashboard";
+import ProtectedRoute from "./routes/ProtectedRoute";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <RouterProvider router={router} />
+    <BrowserRouter>
+      <Routes>
+        <Route element={<AppShell />}>
+          <Route index element={<Navigate to="/login" replace />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route element={<ProtectedRoute />}>
+            <Route path="/dashboard" element={<Dashboard />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
   </React.StrictMode>
 );
