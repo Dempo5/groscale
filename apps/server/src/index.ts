@@ -1,51 +1,69 @@
-// apps/server/src/index.ts
-import 'dotenv/config';
-import express from 'express';
-import cors from 'cors';
-import authRoutes from './routes/auth.js';
-import leadsRoutes from './routes/leads.js';
+import express, { Request, Response, NextFunction } from "express";
+import cors from "cors";
 
-const app = express();
-
-// CORS
-const allowed = (process.env.ALLOWED_ORIGINS || '')
-  .split(',')
-  .map((s) => s.trim())
+// ----- env -----
+const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map(s => s.trim())
   .filter(Boolean);
 
+// ----- app -----
+const app = express();
+
+app.use(express.json());
+
+// CORS: allow the Vercel frontends you listed in Render env var
 app.use(
   cors({
     origin: (origin, cb) => {
+      // allow same-origin / curl
       if (!origin) return cb(null, true);
-      if (allowed.length === 0 || allowed.includes(origin)) return cb(null, true);
-      cb(new Error('Not allowed by CORS'));
+      if (allowedOrigins.includes(origin)) return cb(null, true);
+      return cb(new Error("Not allowed by CORS"));
     },
     credentials: true,
   })
 );
 
-app.use(express.json());
+// ---------- Public health check (no auth) ----------
+app.get("/health", (_req: Request, res: Response) => {
+  res.status(200).json({ ok: true, ts: Date.now() });
+});
 
-// Health + root
-app.get('/', (_req, res) =>
-  res.type('text/html').send(
-    `<pre>GroScale API is running ✅
+// ---------- DEMO leads (public GET for now) ----------
+/**
+ * NOTE: We’ll lock this behind auth once Week 1 auth is finished.
+ * Keeping GET public avoids breaking the UI while we wire login.
+ */
+app.get("/api/leads", (_req: Request, res: Response) => {
+  res.json([
+    { id: 1, name: "Test Lead", email: "lead@example.com" },
+    { id: 2, name: "Demo Lead", email: "demo@example.com" },
+  ]);
+});
+
+// Optional landing text
+app.get("/", (_req: Request, res: Response) => {
+  res.type("text").send(
+    `GroScale API is running ✅
+
 Try:
-  POST /api/auth/register
-  POST /api/auth/login
-  GET  /api/leads (with Bearer token)
-  POST /api/leads (with Bearer token)</pre>`
-  )
-);
-
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/leads', leadsRoutes);
+/health
+GET /api/leads`
+  );
+});
 
 // 404
-app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
+app.use((_req, res) => res.status(404).json({ error: "Not found" }));
 
-const port = Number(process.env.PORT || 10000);
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+// error handler
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  const code = typeof err?.status === "number" ? err.status : 500;
+  res.status(code).json({ error: err?.message || "Server error" });
+});
+
+// start
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
