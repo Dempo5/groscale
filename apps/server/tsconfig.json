@@ -9,5 +9,12 @@
     "esModuleInterop": true,
     "skipLibCheck": true
   },
-  "include": ["src"]
+  "include": ["src/index.ts", "src/routes/leads.ts"],
+  "exclude": [
+    "src/routes/auth.ts",
+    "src/routes/sms.ts",
+    "src/middleware/**",
+    "src/db/**",
+    "prisma/**"
+  ]
 }
