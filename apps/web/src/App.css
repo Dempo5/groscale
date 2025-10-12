@@ -40,3 +40,69 @@
 .read-the-docs {
   color: #888;
 }
+/* === GroScales Custom Styles === */
+.container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px;
+  text-align: left;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.tabs {
+  margin: 16px 0;
+}
+
+.tabs .active {
+  background: #0f172a;
+  color: white;
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+
+.badge {
+  background: #e2e8f0;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.error {
+  color: #b91c1c;
+  font-weight: 500;
+}
+
+input {
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+}
+
+button {
+  padding: 6px 10px;
+  border: 1px solid #0f172a;
+  background: white;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+button:hover {
+  background: #0f172a;
+  color: white;
+}
