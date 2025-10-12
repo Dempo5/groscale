@@ -65,52 +65,60 @@ export default function App() {
     loadLeads();
   }
 
-  return (
+    return (
     <div className="container">
-      <header className="header">
-        <h1>GroScales</h1>
-        <div className="auth">
-          {getToken() ? (
-            <div className="row">
-              <span className="badge">Logged in</span>
-              <button onClick={onLogout}>Logout</button>
-            </div>
-          ) : (
-            <form className="row" onSubmit={onLogin}>
-              <input
-                placeholder="Name (for register)"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                style={{ width: 160 }}
-              />
-              <input
-                placeholder="Email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                style={{ width: 180 }}
-                required
-              />
-              <input
-                placeholder="Password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                style={{ width: 140 }}
-                required
-              />
-              <button type="submit">Login</button>
-              <button type="button" onClick={onRegister}>Register</button>
-            </form>
-          )}
+      {/* Header */}
+      <div className="header">
+        <div className="brand">GroScales</div>
+        <div className="tabs">
+          <button className="tab active">Leads</button>
+          {/* Future: <button className="tab">Messaging</button> */}
         </div>
-      </header>
+      </div>
 
-      <nav className="tabs">
-        <button className="active">Leads</button>
-        {/* Messaging tab comes later */}
-      </nav>
+      {/* Auth bar */}
+      {getToken() ? (
+        <div className="auth-card">
+          <span className="badge">Logged in</span>
+          <button className="btn secondary" onClick={onLogout}>
+            Logout
+          </button>
+        </div>
+      ) : (
+        <form className="auth-card" onSubmit={onLogin}>
+          <input
+            className="input"
+            placeholder="Name (for register)"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <input
+            className="input"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+          <input
+            className="input"
+            placeholder="Password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+          <button type="submit" className="btn secondary">
+            Login
+          </button>
+          <button type="button" className="btn" onClick={onRegister}>
+            Register
+          </button>
+        </form>
+      )}
 
-      <main>
+      {/* Main content */}
+      <div className="section">
+        <h2>Leads</h2>
         {status === "loading" && <p>Loading leads...</p>}
         {status === "error" && <p className="error">Error: {err}</p>}
         {status !== "loading" && leads.length > 0 && (
@@ -123,7 +131,7 @@ export default function App() {
           </ul>
         )}
         {status === "ready" && leads.length === 0 && <p>No leads yet.</p>}
-      </main>
+      </div>
     </div>
   );
 }
