@@ -4,9 +4,9 @@
   "type": "module",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "prebuild": "rimraf dist || true",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js",
-    "prebuild": "rimraf dist || true"
+    "start": "node dist/index.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
