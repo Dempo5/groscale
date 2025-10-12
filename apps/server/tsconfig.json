@@ -1,20 +1,17 @@
 {
+  "extends": "./tsconfig.json",
   "compilerOptions": {
-    "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "outDir": "dist",
     "rootDir": "src",
+    "skipLibCheck": true,
     "strict": true,
     "esModuleInterop": true,
-    "skipLibCheck": true
+    "target": "ES2022"
   },
-  "include": ["src/index.ts", "src/routes/leads.ts"],
-  "exclude": [
-    "src/routes/auth.ts",
-    "src/routes/sms.ts",
-    "src/middleware/**",
-    "src/db/**",
-    "prisma/**"
+  "files": [
+    "src/index.ts",
+    "src/routes/leads.ts"
   ]
 }
