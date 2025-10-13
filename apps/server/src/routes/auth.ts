@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { prisma } from '../db.js';
 import bcrypt from 'bcryptjs';
 import { signToken } from '../middleware/auth.js';
+import { requireAuth, AuthedRequest } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -31,7 +32,19 @@ router.post('/register', async (req, res) => {
     return res.status(500).json({ error: 'Server error' });
   }
 });
-
+router.get("/me", requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { id: true, email: true, name: true, createdAt: true },
+    });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json({ user });
+  } catch (err) {
+    console.error("me error", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
 /**
  * POST /api/auth/login
  * body: { email, password }
