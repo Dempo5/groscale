@@ -1,37 +1,23 @@
-// apps/web/src/pages/AppShell.tsx
-import { Link, Outlet, useNavigate } from "react-router-dom";
-import { isAuthed, logout } from "../lib/api";
+import { Link, Outlet, useLocation } from "react-router-dom";
 
 export default function AppShell() {
-  const nav = useNavigate();
-  const authed = isAuthed();
-
-  function doLogout() {
-    logout();
-    nav("/login", { replace: true });
-  }
+  const { pathname } = useLocation();
+  const onAuth = pathname.startsWith("/login") || pathname.startsWith("/register");
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <Link to="/dashboard" className="brand">GroScales</Link>
-        <nav className="topnav">
-          {authed ? (
-            <>
-              <Link to="/dashboard">Dashboard</Link>
-              <button onClick={doLogout}>Logout</button>
-            </>
-          ) : (
-            <>
-              <Link to="/login">Login</Link>
-              <Link to="/register">Register</Link>
-            </>
-          )}
-        </nav>
+    <>
+      <header className="app-header">
+        <div className="brand">GroScales</div>
+
+        {!onAuth && (
+          <nav className="top-links">
+            {/* whatever real links you want when logged in */}
+            <Link to="/app">App</Link>
+          </nav>
+        )}
       </header>
-      <main className="content">
-        <Outlet />
-      </main>
-    </div>
+
+      <Outlet />
+    </>
   );
 }
