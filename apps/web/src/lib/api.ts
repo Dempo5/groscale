@@ -1,6 +1,7 @@
 // apps/web/src/lib/api.ts
 import { setToken, clearToken, getToken } from "./auth";
 export { getToken } from "./auth"; // <-- re-export to keep older imports working
+type User = { id: string; email: string; name?: string | null };
 
 const API_BASE =
   import.meta.env.VITE_API_URL?.replace(/\/+$/, "") || "https://api.groscales.com";
@@ -45,7 +46,16 @@ export async function login(email: string, password: string) {
   setToken(data.token);
   return data;
 }
+export async function getMe() {
+  return request<{ user: User }>("/api/auth/me");
+}
 
+export async function createLead(input: { name: string; email: string; phone?: string }) {
+  return request("/api/leads", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
 export function logout() {
   clearToken();
 }
