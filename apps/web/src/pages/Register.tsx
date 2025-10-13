@@ -1,78 +1,75 @@
 import { FormEvent, useState } from "react";
-import { register, login } from "../lib/api";
+import { register as apiRegister, login } from "../lib/api";
 import "./auth.css";
 
 export default function Register() {
-  const [name, setName] = useState<string>("");
-  const [email, setEmail] = useState<string>("");
-  const [password, setPassword] = useState<string>("");
-  const [busy, setBusy] = useState<boolean>(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [ok, setOk] = useState(false);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    setErr(null);
-    setBusy(true);
+    setErr(null); setOk(false); setBusy(true);
     try {
-      await register(name.trim() || "User", email.trim(), password);
+      await apiRegister(email.trim(), password, name.trim() || undefined);
+      // auto sign-in after successful registration
       await login(email.trim(), password);
-      window.location.href = "/app";
+      setOk(true);
+      window.location.href = "/dashboard";
     } catch (e: any) {
-      setErr(e?.message || "Create account failed");
+      setErr(e?.message || "Could not create your account");
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div className="auth-page minimal">
-      <header className="auth-topbar">
-        <div className="brand">
-          <span className="logo-dot" />
-          <span>GroScales</span>
-          <span className="pill">Beta</span>
-        </div>
-      </header>
-
-      <main className="auth-center">
+    <div className="auth-shell">
+      <main className="auth-wrapper">
         <div className="auth-card">
-          <h1 className="auth-title">Create your account</h1>
-          <p className="auth-sub">Start scaling conversations.</p>
-
-          {err && <p className="auth-error">{err}</p>}
+          <h1>Create your account</h1>
+          <p className="sub">Sign up to start using GroScales.</p>
 
           <form onSubmit={onSubmit} className="auth-form">
-            <label className="field">
+            <label>
               <span>Name</span>
               <input
-                placeholder="Ava Daniels"
+                type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                required
+                placeholder="Optional"
+                autoComplete="name"
               />
             </label>
 
-            <label className="field">
+            <label>
               <span>Email</span>
               <input
                 type="email"
-                placeholder="you@company.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@company.com"
+                autoComplete="email"
                 required
               />
             </label>
 
-            <label className="field">
+            <label>
               <span>Password</span>
               <input
                 type="password"
-                placeholder="Create a password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password"
                 required
               />
             </label>
+
+            {err && <div className="error">{err}</div>}
+            {ok && <div className="ok">Account created! Redirecting…</div>}
 
             <div className="actions">
               <button type="submit" disabled={busy}>
@@ -80,6 +77,8 @@ export default function Register() {
               </button>
               <a className="ghost" href="/login">Back to sign in</a>
             </div>
+
+            <a className="back" href="/">Back to home</a>
           </form>
         </div>
       </main>
