@@ -1,46 +1,92 @@
-// apps/web/src/pages/Register.tsx
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { FormEvent, useState } from "react";
 import { register, login } from "../lib/api";
+import "./auth.css";
 
 export default function Register() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const nav = useNavigate();
 
-  async function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setErr(null);
-    setLoading(true);
+    setBusy(true);
     try {
       await register(name.trim() || "User", email.trim(), password);
       await login(email.trim(), password);
-      nav("/dashboard", { replace: true });
+      window.location.href = "/app";
     } catch (e: any) {
-      setErr(e?.message || "Register failed");
+      setErr(e?.message || "Create account failed");
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   }
 
   return (
-    <div className="auth-card">
-      <h2>Create account</h2>
-      <form onSubmit={onSubmit}>
-        <input placeholder="Full name" value={name} onChange={(e) => setName(e.target.value)} />
-        <input placeholder="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        <input placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        {err && <p className="error">{err}</p>}
-        <button disabled={loading} type="submit">
-          {loading ? "Creating…" : "Create account"}
-        </button>
-      </form>
-      <p className="muted">
-        Already have an account? <Link to="/login">Sign in</Link>
-      </p>
+    <div className="auth-page">
+      <header className="auth-topbar">
+        <div className="brand">
+          <span className="logo-dot" />
+          <span>GroScales</span>
+          <span className="pill">Beta</span>
+        </div>
+      </header>
+
+      <div className="auth-wrap">
+        <div className="auth-card">
+          <h1 className="auth-title">Create your account</h1>
+          <p className="auth-sub">Start scaling conversations.</p>
+
+          {err && <p className="auth-error">{err}</p>}
+
+          <form onSubmit={onSubmit} className="auth-form">
+            <label className="field">
+              <span>Name</span>
+              <input
+                placeholder="Ava Daniels"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+              />
+            </label>
+            <label className="field">
+              <span>Email</span>
+              <input
+                type="email"
+                placeholder="you@company.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </label>
+            <label className="field">
+              <span>Password</span>
+              <input
+                type="password"
+                placeholder="Create a password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </label>
+
+            <div className="actions">
+              <button type="submit" disabled={busy}>
+                {busy ? "Creating…" : "Create account"}
+              </button>
+              <a className="ghost" href="/login">Back to sign in</a>
+            </div>
+          </form>
+        </div>
+
+        <div className="auth-art" aria-hidden="true">
+          <div className="blob a" />
+          <div className="blob b" />
+          <div className="grid" />
+        </div>
+      </div>
     </div>
   );
 }
