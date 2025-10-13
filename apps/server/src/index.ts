@@ -1,3 +1,4 @@
+import { requireAuth } from "./middleware/requireAuth.js";
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 
