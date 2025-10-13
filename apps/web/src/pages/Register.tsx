@@ -12,9 +12,12 @@ export default function Register() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    setErr(null); setOk(false); setBusy(true);
+    setErr(null);
+    setOk(false);
+    setBusy(true);
     try {
-      await apiRegister(email.trim(), password, name.trim() || undefined);
+      // ensure we pass a pure string, never undefined
+      await apiRegister(email.trim(), password, (name ?? "").trim());
       // auto sign-in after successful registration
       await login(email.trim(), password);
       setOk(true);
