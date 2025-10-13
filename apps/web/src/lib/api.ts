@@ -6,7 +6,14 @@ type User = { id: string; email: string; name?: string | null };
 const API_BASE =
   import.meta.env.VITE_API_URL?.replace(/\/+$/, "") || "https://api.groscales.com";
 
-export type Lead = { id: number; name: string; email: string };
+export type Lead = {
+  id: string | number;
+  name: string;
+  email: string;
+  phone?: string | null;   // <-- added
+  createdAt?: string;      // optional, if returned by API
+};
+
 
 async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const headers = new Headers(opts.headers as HeadersInit);
