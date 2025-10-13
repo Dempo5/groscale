@@ -14,7 +14,6 @@ export default function Login() {
     setBusy(true);
     try {
       await login(email.trim(), password);
-      // go to /app after successful sign-in
       window.location.href = "/app";
     } catch (e: any) {
       setErr(e?.message || "Sign-in failed");
@@ -24,7 +23,7 @@ export default function Login() {
   }
 
   return (
-    <div className="auth-page">
+    <div className="auth-page minimal">
       <header className="auth-topbar">
         <div className="brand">
           <span className="logo-dot" />
@@ -33,8 +32,7 @@ export default function Login() {
         </div>
       </header>
 
-      <div className="auth-wrap">
-        {/* left side is the form card */}
+      <main className="auth-center">
         <div className="auth-card">
           <h1 className="auth-title">Welcome back</h1>
           <p className="auth-sub">Sign in to continue.</p>
@@ -74,14 +72,7 @@ export default function Login() {
             <a className="back" href="/">Back to home</a>
           </form>
         </div>
-
-        {/* right side gradient/art area */}
-        <div className="auth-art" aria-hidden="true">
-          <div className="blob a" />
-          <div className="blob b" />
-          <div className="grid" />
-        </div>
-      </div>
+      </main>
     </div>
   );
 }
