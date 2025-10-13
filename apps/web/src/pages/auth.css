@@ -87,3 +87,17 @@ body {
   text-decoration:none;
 }
 .back{ display:inline-block; margin-top:12px; color:var(--muted); text-decoration:none }
+
+/* Center the auth card for pages using auth-shell/auth-wrapper */
+.auth-shell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;      /* vertical center */
+}
+
+.auth-wrapper {
+  width: 100%;
+  display: flex;
+  justify-content: center;  /* horizontal center */
+  padding: 40px 20px 60px;  /* match your spacing */
+}
