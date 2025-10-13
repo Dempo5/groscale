@@ -1,14 +1,12 @@
-// === apps/web/src/pages/Login.tsx ===
 import { FormEvent, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
 import { login } from "../lib/api";
+import "./auth.css";
 
 export default function Login() {
-  const nav = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -16,69 +14,74 @@ export default function Login() {
     setBusy(true);
     try {
       await login(email.trim(), password);
-      nav("/dashboard");
+      // go to /app after successful sign-in
+      window.location.href = "/app";
     } catch (e: any) {
-      setErr(e?.message || "Login failed");
+      setErr(e?.message || "Sign-in failed");
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <>
-      <div className="brandbar">
+    <div className="auth-page">
+      <header className="auth-topbar">
         <div className="brand">
-          <img
-            src="https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/react.svg"
-            alt="" width={20} height={20}
-            style={{ filter: "hue-rotate(170deg) saturate(1.6)" }}
-          />
-          GroScales
-          <span className="badge">Beta</span>
+          <span className="logo-dot" />
+          <span>GroScales</span>
+          <span className="pill">Beta</span>
         </div>
-      </div>
+      </header>
 
-      <div className="auth-split">
-        <div className="art-pane" />
+      <div className="auth-wrap">
+        {/* left side is the form card */}
+        <div className="auth-card">
+          <h1 className="auth-title">Welcome back</h1>
+          <p className="auth-sub">Sign in to continue.</p>
 
-        <div className="auth-pane">
-          <form className="card" onSubmit={onSubmit}>
-            <h1>Welcome back</h1>
-            <p className="muted">Sign in to continue.</p>
+          {err && <p className="auth-error">{err}</p>}
 
-            <div className="field">
-              <label htmlFor="email">Email</label>
+          <form onSubmit={onSubmit} className="auth-form">
+            <label className="field">
+              <span>Email</span>
               <input
-                id="email" type="email" autoComplete="email"
-                value={email} onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@company.com" required
+                type="email"
+                placeholder="you@company.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
               />
-            </div>
+            </label>
 
-            <div className="field">
-              <label htmlFor="password">Password</label>
+            <label className="field">
+              <span>Password</span>
               <input
-                id="password" type="password" autoComplete="current-password"
-                value={password} onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••" required
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
               />
-            </div>
-
-            {err && <p className="muted" style={{ color: "#ff9a9a" }}>{err}</p>}
+            </label>
 
             <div className="actions">
-              <button className="btn" type="submit" disabled={busy}>
+              <button type="submit" disabled={busy}>
                 {busy ? "Signing in…" : "Sign in"}
               </button>
-              <Link className="btn secondary" to="/register">Create account</Link>
+              <a className="ghost" href="/register">Create account</a>
             </div>
 
-            <p className="muted" style={{ marginTop: 14 }}>
-              <Link to="/" className="link">Back to home</Link>
-            </p>
+            <a className="back" href="/">Back to home</a>
           </form>
         </div>
+
+        {/* right side gradient/art area */}
+        <div className="auth-art" aria-hidden="true">
+          <div className="blob a" />
+          <div className="blob b" />
+          <div className="grid" />
+        </div>
       </div>
-    </>
+    </div>
   );
 }
