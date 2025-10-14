@@ -9,18 +9,18 @@ export default function Login() {
   const [err, setErr] = useState<string | null>(null);
 
   async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    setErr(null);
-    setBusy(true);
-    try {
-      await login(email.trim(), password);
-      window.location.href = "/app";
-    } catch (e: any) {
-      setErr(e?.message || "Sign-in failed");
-    } finally {
-      setBusy(false);
-    }
+  e.preventDefault();
+  setErr(null); setBusy(true);
+  try {
+    await login(email.trim(), password);
+    // ✅ force hard navigation so the app loads /dashboard fresh
+    window.location.href = "/dashboard";
+  } catch (e: any) {
+    setErr(e?.message || "Could not sign you in");
+  } finally {
+    setBusy(false);
   }
+}
 
   return (
     <div className="auth-page minimal">
