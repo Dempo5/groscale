@@ -15,14 +15,18 @@ export default function Register() {
     setErr(null);
     setOk(false);
     setBusy(true);
-    try {
-      // ensure we pass a pure string, never undefined
-      await apiRegister(email.trim(), password, (name ?? "").trim());
-      // auto sign-in after successful registration
-      await login(email.trim(), password);
-      setOk(true);
-      window.location.href = "/dashboard";
-    } catch (e: any) {
+      try {
+-   // ensure we pass a pure string, never undefined
+-   await apiRegister(email.trim(), password, (name ?? "").trim());
+-   // auto sign-in after successful registration
+-   await login(email.trim(), password);
+-   setOk(true);
+-   window.location.href = "/dashboard";
++   // register already sets the token; no need to login again
++   await apiRegister(email.trim(), password, (name ?? "").trim());
++   setOk(true);
++   window.location.href = "/dashboard";
+  } catch (e: any) {
       setErr(e?.message || "Could not create your account");
     } finally {
       setBusy(false);
