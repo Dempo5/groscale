@@ -1,6 +1,6 @@
 // apps/web/src/pages/Dashboard.tsx
 import { useEffect, useMemo, useState } from "react";
-import "./dashboard-v2.css"; // <— use the single, consolidated stylesheet
+import "./dashboard-ios.css?ver=ios-2025-10-14"; // <— use the single, consolidated stylesheet
 import { getLeads, Lead, logout } from "../lib/api";
 
 type Msg = { id: string; from: "lead" | "me"; text: string; at: string };
