@@ -6,19 +6,15 @@ import { Prisma } from "@prisma/client";
 
 const router = Router();
 
-// POST /api/auth/register
 router.post("/register", async (req, res) => {
   try {
     const { email, password, name } = req.body ?? {};
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email & password required" });
-    }
+    if (!email || !password) return res.status(400).json({ error: "Email & password required" });
 
     const hashed = await bcrypt.hash(password, 12);
-
     const user = await prisma.user.create({
-      data: { email, name, hashedPassword: hashed }, // ⬅️ use hashedPassword
-      select: { id: true, email: true, name: true },  // never return hash
+      data: { email, name, hashedPassword: hashed },        // <<<<
+      select: { id: true, email: true, name: true },        // never return hash
     });
 
     const token = signToken(user.id);
@@ -32,21 +28,18 @@ router.post("/register", async (req, res) => {
   }
 });
 
-// POST /api/auth/login
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body ?? {};
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email & password required" });
-    }
+    if (!email || !password) return res.status(400).json({ error: "Email & password required" });
 
     const u = await prisma.user.findUnique({
       where: { email },
-      select: { id: true, email: true, name: true, hashedPassword: true }, // ⬅️ select hashedPassword
+      select: { id: true, email: true, name: true, hashedPassword: true },   // <<<<
     });
     if (!u?.hashedPassword) return res.status(401).json({ error: "Invalid credentials" });
 
-    const ok = await bcrypt.compare(password, u.hashedPassword);
+    const ok = await bcrypt.compare(password, u.hashedPassword);             // <<<<
     if (!ok) return res.status(401).json({ error: "Invalid credentials" });
 
     const token = signToken(u.id);
@@ -58,7 +51,6 @@ router.post("/login", async (req, res) => {
   }
 });
 
-// GET /api/auth/me
 router.get("/me", requireAuth, async (req: AuthedRequest, res) => {
   const user = await prisma.user.findUnique({
     where: { id: req.userId },
