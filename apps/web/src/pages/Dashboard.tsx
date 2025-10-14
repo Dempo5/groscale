@@ -169,7 +169,7 @@ export default function Dashboard() {
               <button className="ghost">Add Tag</button>
             </div>
 
-            <div className="messages">
+            <div className="messages" key={selected?.id ?? "none"}>
               {messages.map((m) => (
                 <div key={m.id} className={`bubble ${m.from === "me" ? "mine" : ""}`}>
                   {m.text}
