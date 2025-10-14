@@ -17,14 +17,13 @@ router.post("/register", async (req, res) => {
     const hashed = await bcrypt.hash(password, 12);
 
     const user = await prisma.user.create({
-      data: { email, name, password: hashed }, // <-- write to `password`
-      select: { id: true, email: true, name: true },
+      data: { email, name, hashedPassword: hashed }, // ⬅️ use hashedPassword
+      select: { id: true, email: true, name: true },  // never return hash
     });
 
     const token = signToken(user.id);
     res.json({ token, user });
   } catch (e: any) {
-    // Duplicate email
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
       return res.status(409).json({ error: "Email already in use" });
     }
@@ -43,11 +42,11 @@ router.post("/login", async (req, res) => {
 
     const u = await prisma.user.findUnique({
       where: { email },
-      select: { id: true, email: true, name: true, password: true }, // read `password`
+      select: { id: true, email: true, name: true, hashedPassword: true }, // ⬅️ select hashedPassword
     });
-    if (!u?.password) return res.status(401).json({ error: "Invalid credentials" });
+    if (!u?.hashedPassword) return res.status(401).json({ error: "Invalid credentials" });
 
-    const ok = await bcrypt.compare(password, u.password);
+    const ok = await bcrypt.compare(password, u.hashedPassword);
     if (!ok) return res.status(401).json({ error: "Invalid credentials" });
 
     const token = signToken(u.id);
