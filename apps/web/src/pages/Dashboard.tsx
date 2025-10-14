@@ -9,10 +9,9 @@ type Lead = {
   email: string;
   phone?: string | null;
   createdAt?: string;
-  // optional enriched fields for the inspector (show blank if not present)
   firstName?: string | null;
   lastName?: string | null;
-  dob?: string | null;        // ISO or mm/dd/yyyy
+  dob?: string | null;
   age?: number | null;
   city?: string | null;
   state?: string | null;
@@ -33,15 +32,17 @@ function CopyChip({ value, label }: { value?: string | null; label: string }) {
       title={`Copy ${label}`}
     >
       {value}
-      <svg width="14" height="14" viewBox="0 0 24 24" className="copy-icon" aria-hidden>
-        <path fill="currentColor" d="M16 1H4c-1.1 0-2 .9-2 2v12h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+      <svg width="14" height="14" viewBox="0 0 24 24" className="copy-icon">
+        <path
+          fill="currentColor"
+          d="M16 1H4c-1.1 0-2 .9-2 2v12h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"
+        />
       </svg>
     </button>
   );
 }
 
 function LeftNav() {
-  // simple inline SVGs to avoid emoji look
   const items = [
     { key: "analytics", label: "Analytics", icon: AnalyticIcon },
     { key: "contacts", label: "Contacts", icon: ContactsIcon },
@@ -49,7 +50,7 @@ function LeftNav() {
     { key: "phones", label: "Phone numbers", icon: PhoneIcon },
     { key: "tags", label: "Tags", icon: TagIcon },
     { key: "templates", label: "Templates", icon: TemplateIcon },
-    { key: "uploads", label: "Uploads (CSV)", icon: UploadIcon },
+    { key: "uploads", label: "Uploads", icon: UploadIcon },
   ];
   return (
     <aside className="leftnav">
@@ -66,7 +67,7 @@ function LeftNav() {
   );
 }
 
-// --- inline icons (stroke-only, minimal) ---
+// icons
 function AnalyticIcon(){return(<svg viewBox="0 0 24 24"><path d="M4 20V10m6 10V4m6 16v-6m4 6H2" stroke="currentColor" strokeWidth="1.7" fill="none" strokeLinecap="round"/></svg>)}
 function ContactsIcon(){return(<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.2" stroke="currentColor" strokeWidth="1.7" fill="none"/><path d="M4 20c1.6-3.4 5-5.5 8-5.5s6.4 2.1 8 5.5" stroke="currentColor" strokeWidth="1.7" fill="none" strokeLinecap="round"/></svg>)}
 function FlowIcon(){return(<svg viewBox="0 0 24 24"><path d="M6 6h6v4H6zM12 14h6v4h-6zM12 10v4" stroke="currentColor" strokeWidth="1.7" fill="none"/></svg>)}
@@ -96,13 +97,18 @@ export default function Dashboard() {
           return;
         }
         setErr(e?.message || "Failed to load");
-      } finally { setLoading(false); }
+      } finally {
+        setLoading(false);
+      }
     })();
   }, []);
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      if (e.key === "/") { e.preventDefault(); searchRef.current?.focus(); }
+      if (e.key === "/") {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
@@ -111,7 +117,9 @@ export default function Dashboard() {
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return leads;
-    return leads.filter(l => [l.name, l.email, l.phone].some(v => (v||"").toLowerCase().includes(s)));
+    return leads.filter((l) =>
+      [l.name, l.email, l.phone].some((v) => (v || "").toLowerCase().includes(s))
+    );
   }, [leads, q]);
 
   return (
@@ -123,17 +131,22 @@ export default function Dashboard() {
           <em>Sales</em>
         </div>
         <div className="actions">
-          <button className="ghost" onClick={() => { logout(); window.location.href = "/login"; }}>
+          <button
+            className="ghost"
+            onClick={() => {
+              logout();
+              window.location.href = "/login";
+            }}
+          >
             Logout
           </button>
         </div>
       </header>
 
       <main className="p-work">
-        {/* LEFT NAV */}
         <LeftNav />
 
-        {/* CONVERSATIONS LIST */}
+        {/* List */}
         <section className="panel convo-list compact">
           <div className="panel-head">
             <div className="title">Leads {loading ? "" : `· ${filtered.length}`}</div>
@@ -152,15 +165,20 @@ export default function Dashboard() {
           {loading && <div className="sk">{Array.from({ length: 8 }).map((_, i) => <div key={i} className="sk-row" />)}</div>}
           {!loading && filtered.length === 0 && <div className="empty">No results for “{q}”.</div>}
           <ul className="rows">
-            {filtered.map(l => {
+            {filtered.map((l) => {
               const sel = active?.id === l.id;
               return (
                 <li key={l.id} className={`row dense ${sel ? "selected" : ""}`} onClick={() => setActive(l)}>
-                  <div className="avatar">{(l.name || l.email).slice(0,1).toUpperCase()}</div>
+                  <div className="avatar">{(l.name || l.email).slice(0, 1).toUpperCase()}</div>
                   <div className="meta">
-                    <div className="name">{l.name || "Untitled lead"}</div>
+                    <div className="name">
+                      {l.name || "Untitled lead"}
+                      <span className="stage new">New</span>
+                    </div>
                     <div className="sub">
-                      {l.email}{l.phone ? ` · ${l.phone}` : ""} <span className="time">{fmtDate(l.createdAt)}</span>
+                      {l.email}
+                      {l.phone ? ` · ${l.phone}` : ""}
+                      <span className="time">{fmtDate(l.createdAt)}</span>
                     </div>
                   </div>
                 </li>
@@ -169,24 +187,32 @@ export default function Dashboard() {
           </ul>
         </section>
 
-        {/* THREAD */}
+        {/* Middle */}
         <section className="panel thread snug">
           {!active ? (
             <div className="empty big">Select a conversation</div>
           ) : (
             <>
               <div className="thread-head">
-                <div className="avatar lg">{(active.name || active.email).slice(0,1).toUpperCase()}</div>
+                <div className="avatar lg">{(active.name || active.email).slice(0, 1).toUpperCase()}</div>
                 <div className="meta">
                   <div className="name">{active.name || "Untitled lead"}</div>
-                  <div className="sub">{active.email}{active.phone ? ` · ${active.phone}` : ""}</div>
+                  <div className="sub">{active.email}</div>
                 </div>
                 <div className="spacer" />
                 <div className="presence">● Live</div>
               </div>
 
+              <div className="thread-tools">
+                <button className="ghost small">Create Quote</button>
+                <button className="ghost small">Call</button>
+                <button className="ghost small">Schedule</button>
+                <button className="ghost small">Add Tag</button>
+                <div className="spacer" />
+                <button className="ghost small">More</button>
+              </div>
+
               <div className="messages">
-                {/* placeholder bubbles (smaller) */}
                 <div className="bubble theirs">
                   Hi! I’m exploring coverage options. What plans do you recommend?
                   <div className="stamp">9:14 AM</div>
@@ -205,13 +231,15 @@ export default function Dashboard() {
                   <button className="ghost small">Emoji</button>
                   <button className="ghost small">Schedule</button>
                 </div>
-                <button className="primary" disabled>Send</button>
+                <button className="primary" disabled>
+                  Send
+                </button>
               </div>
             </>
           )}
         </section>
 
-        {/* DETAILS INSPECTOR */}
+        {/* Inspector */}
         <aside className="panel details">
           {!active ? (
             <div className="empty">Lead details</div>
@@ -219,70 +247,28 @@ export default function Dashboard() {
             <>
               <div className="card">
                 <div className="label">Contact</div>
-
-                {/* Full name with copy of display name */}
-                <div className="kv">
-                  <span>Full name</span>
-                  <div className="val">
-                    <CopyChip value={active.name || [active.firstName, active.lastName].filter(Boolean).join(" ")} label="full name" />
+                <div className="kv-grid">
+                  <div className="k">
+                    <span>Full name</span>
+                    <div className="v">
+                      <CopyChip
+                        value={active.name || [active.firstName, active.lastName].filter(Boolean).join(" ")}
+                        label="full name"
+                      />
+                    </div>
                   </div>
-                </div>
-
-                <div className="kv">
-                  <span>First name</span>
-                  <div className="val">{active.firstName || "—"}</div>
-                </div>
-                <div className="kv">
-                  <span>Last name</span>
-                  <div className="val">{active.lastName || "—"}</div>
-                </div>
-
-                <div className="kv">
-                  <span>Email</span>
-                  <div className="val"><CopyChip value={active.email} label="email" /></div>
-                </div>
-
-                <div className="kv">
-                  <span>Phone</span>
-                  <div className="val"><CopyChip value={active.phone || ""} label="phone" /></div>
-                </div>
-
-                <div className="kv">
-                  <span>DOB</span>
-                  <div className="val">{active.dob || "—"}</div>
-                </div>
-                <div className="kv">
-                  <span>Age</span>
-                  <div className="val">{active.age ?? "—"}</div>
-                </div>
-
-                <div className="kv">
-                  <span>City</span>
-                  <div className="val">{active.city || "—"}</div>
-                </div>
-                <div className="kv">
-                  <span>State</span>
-                  <div className="val">{active.state || "—"}</div>
-                </div>
-
-                <div className="kv">
-                  <span>ZIP</span>
-                  <div className="val"><CopyChip value={active.zip || ""} label="zip" /></div>
-                </div>
-
-                <div className="kv">
-                  <span>Household size</span>
-                  <div className="val">{active.householdSize ?? "—"}</div>
-                </div>
-
-                <div className="kv">
-                  <span>Quote</span>
-                  <div className="val">{active.quote || "—"}</div>
-                </div>
-
-                <div className="kv">
-                  <span>Created</span>
-                  <div className="val">{fmtDate(active.createdAt) || "—"}</div>
+                  <div className="k"><span>First name</span><div className="v">{active.firstName || "—"}</div></div>
+                  <div className="k"><span>Last name</span><div className="v">{active.lastName || "—"}</div></div>
+                  <div className="k"><span>Email</span><div className="v"><CopyChip value={active.email} label="email" /></div></div>
+                  <div className="k"><span>Phone</span><div className="v"><CopyChip value={active.phone || ""} label="phone" /></div></div>
+                  <div className="k"><span>DOB</span><div className="v">{active.dob || "—"}</div></div>
+                  <div className="k"><span>Age</span><div className="v">{active.age ?? "—"}</div></div>
+                  <div className="k"><span>City</span><div className="v">{active.city || "—"}</div></div>
+                  <div className="k"><span>State</span><div className="v">{active.state || "—"}</div></div>
+                  <div className="k"><span>ZIP</span><div className="v"><CopyChip value={active.zip || ""} label="zip" /></div></div>
+                  <div className="k"><span>Household size</span><div className="v">{active.householdSize ?? "—"}</div></div>
+                  <div className="k"><span>Quote</span><div className="v">{active.quote || "—"}</div></div>
+                  <div className="k"><span>Created</span><div className="v">{fmtDate(active.createdAt) || "—"}</div></div>
                 </div>
               </div>
 
