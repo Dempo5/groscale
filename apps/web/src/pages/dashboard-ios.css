@@ -1,4 +1,4 @@
-/* GroScales — iMessage-style Light UI
+/* GroScales — iMessage-style Light UI (polished)
    -------------------------------------------------- */
 :root{
   --bg:#f5f7fb;
@@ -8,9 +8,11 @@
   --muted:#6c7a89;
   --text:#0c1620;
 
-  --brand:#2f8be6;          /* blue bubble */
-  --brand-700:#1f76d0;
-  --accent:#0ea5b6;         /* action accents */
+  --brand:#2f8be6;          /* bubble base */
+  --brand-700:#1f76d0;      /* bubble depth */
+  --brand-gloss: rgba(255,255,255,.18);
+
+  --accent:#0ea5b6;
 
   --radius:14px;
   --shadow:0 8px 24px rgba(12,22,32,.08);
@@ -25,6 +27,7 @@
   --muted:#9cb0c4;
   --text:#eaf1f9;
   --shadow:0 12px 28px rgba(0,0,0,.38);
+  --brand-gloss: rgba(255,255,255,.12);
 }
 
 /* Shell */
@@ -35,17 +38,24 @@
     radial-gradient(900px 600px at 120% 120%, rgba(14,165,182,.08), transparent 60%),
     var(--bg);
   color:var(--text);
-  font: 500 14px/1.55 system-ui, -apple-system, Segoe UI, Inter, Roboto, Arial;
+  /* Apple system stack */
+  font: 500 14px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text",
+        "SF Pro", "Inter", system-ui, Segoe UI, Roboto, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
 }
 
-/* Top bar */
+/* Top bar – glass */
 .p-topbar{
   position:sticky;top:0;z-index:3;
   height:60px;display:flex;align-items:center;justify-content:space-between;
   padding:0 16px;border-bottom:1px solid var(--line);
-  background:linear-gradient(180deg,rgba(255,255,255,.85),rgba(255,255,255,.65));
-  backdrop-filter:saturate(1.2) blur(10px);
+  background:linear-gradient(180deg,rgba(255,255,255,.65),rgba(255,255,255,.45));
+  backdrop-filter:saturate(1.25) blur(12px);
 }
+[data-theme="dark"] .p-topbar{
+  background:linear-gradient(180deg,rgba(12,16,24,.55),rgba(12,16,24,.35));
+}
+
 .brand{display:flex;align-items:center;gap:10px;font-weight:900;letter-spacing:-.2px}
 .brand .dot{width:10px;height:10px;border-radius:50%;
   background:linear-gradient(145deg,#2f8be6,#0ea5b6)}
@@ -75,19 +85,26 @@
 }
 .panel-head .title{font-weight:900}
 
-/* Left icon nav */
+/* Left icon nav – glass */
 .leftnav{
-  background:var(--panel);
   border:1px solid var(--line);
-  border-radius:12px;box-shadow:var(--shadow);
-  padding:8px;display:flex;flex-direction:column;align-items:center;gap:6px
+  border-radius:12px;
+  padding:8px;
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+  background:linear-gradient(180deg,rgba(255,255,255,.6),rgba(255,255,255,.45));
+  backdrop-filter:saturate(1.25) blur(12px);
+  box-shadow:var(--shadow);
 }
+[data-theme="dark"] .leftnav{
+  background:linear-gradient(180deg,rgba(18,22,30,.55),rgba(18,22,30,.35));
+}
+
 .nav-item{
   width:40px;height:40px;border-radius:10px;display:grid;place-items:center;
   color:var(--muted); border:1px solid transparent; cursor:pointer;
-  background:var(--panel-weak);
+  background:var(--panel-weak); transition:transform .08s ease, box-shadow .12s ease;
 }
-.nav-item:hover{border-color:var(--line); color:var(--text)}
+.nav-item:hover{border-color:var(--line); color:var(--text); transform:translateY(-1px)}
 .nav-item.active{ color:var(--brand); border-color:#cfe3fb; background:#f2f7ff }
 
 /* Search + buttons */
@@ -99,12 +116,16 @@
 .primary{
   height:36px;padding:0 14px;border:0;border-radius:10px;color:#fff;
   background:linear-gradient(180deg,var(--brand),var(--brand-700));
-  box-shadow:0 10px 24px rgba(47,139,230,.25);cursor:pointer
+  box-shadow:0 10px 24px rgba(47,139,230,.25);cursor:pointer;
+  transition:filter .12s ease, transform .06s ease;
 }
+.primary:hover{ filter:brightness(1.03); transform:translateY(-1px) }
 .ghost{
   height:36px;padding:0 12px;border-radius:10px;color:var(--brand);
-  background:#f2f7ff;border:1px solid #cfe3fb;cursor:pointer
+  background:#f2f7ff;border:1px solid #cfe3fb;cursor:pointer;
+  transition:filter .12s ease, transform .06s ease;
 }
+.ghost:hover{ filter:brightness(1.02); transform:translateY(-1px) }
 
 /* Lead list */
 .rows{list-style:none;margin:0;padding:0}
@@ -127,10 +148,20 @@
   display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--line)
 }
 .thread-tools{ display:flex; gap:8px; padding:8px 12px; border-bottom:1px solid var(--line); background:var(--panel-weak) }
-.messages{ flex:1; overflow:auto; padding:14px; display:grid; gap:8px; background:#f6f9ff }
+.messages{
+  flex:1; overflow:auto; padding:14px; display:grid; gap:8px; background:#f6f9ff;
+}
 
-/* iMessage-style bubbles */
+/* Micro-animation for bubbles */
+@keyframes fadeSlideIn {
+  from { opacity:0; transform:translateY(6px) }
+  to   { opacity:1; transform:translateY(0) }
+}
+.messages .bubble { animation: fadeSlideIn .18s ease both }
+
+/* iMessage-style bubbles w/ gradient + gloss */
 .bubble{
+  position:relative;
   max-width:68%; padding:9px 12px; border-radius:16px; line-height:1.45;
   background:#e9edf5; color:#0c1620; border:1px solid #dfe6ef;
 }
@@ -139,7 +170,20 @@
   background:linear-gradient(180deg,var(--brand),var(--brand-700));
   border:1px solid #1e6fc5;
 }
+/* gloss highlight */
+.bubble.mine::after{
+  content:""; position:absolute; left:8px; right:8px; top:2px; height:14px;
+  background:linear-gradient(180deg,var(--brand-gloss),transparent);
+  border-radius:12px; pointer-events:none;
+}
+
 .bubble .stamp{ font-size:11px; opacity:.6; margin-top:4px }
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce){
+  .messages .bubble { animation:none }
+  .primary, .ghost, .nav-item { transition:none }
+}
 
 /* Composer */
 .composer{
