@@ -1,6 +1,8 @@
-import { requireAuth } from "./middleware/requireAuth.js";
+// apps/server/src/index.ts
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
+import authRoute from "./routes/auth.js";          // 👈 mount auth routes
+// import { requireAuth } from "./middleware/requireAuth.js"; // use later to protect routes
 
 // ----- env -----
 const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
@@ -11,32 +13,35 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
 
 // ----- app -----
 const app = express();
-
 app.use(express.json());
 
-// CORS: allow the Vercel frontends you listed in Render env var
+// ----- CORS -----
 app.use(
   cors({
-    origin: (origin, cb) => {
-      // allow same-origin / curl
+    origin(origin, cb) {
+      // allow same-origin / curl / server-to-server
       if (!origin) return cb(null, true);
       if (allowedOrigins.includes(origin)) return cb(null, true);
+      if (/\.vercel\.app$/.test(origin)) return cb(null, true); // preview URLs
       return cb(new Error("Not allowed by CORS"));
     },
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
   })
 );
+// handle preflight quickly
+app.options("*", cors());
 
-// ---------- Public health check (no auth) ----------
+// ---------- Public health check ----------
 app.get("/health", (_req: Request, res: Response) => {
   res.status(200).json({ ok: true, ts: Date.now() });
 });
 
-// ---------- DEMO leads (public GET for now) ----------
-/**
- * NOTE: We’ll lock this behind auth once Week 1 auth is finished.
- * Keeping GET public avoids breaking the UI while we wire login.
- */
+// ---------- Mount API routes ----------
+app.use("/api/auth", authRoute);                    // 👈 now /api/auth/register & /login work
+
+// ---------- Demo leads (public for now) ----------
 app.get("/api/leads", (_req: Request, res: Response) => {
   res.json([
     { id: 1, name: "Test Lead", email: "lead@example.com" },
@@ -47,18 +52,20 @@ app.get("/api/leads", (_req: Request, res: Response) => {
 // Optional landing text
 app.get("/", (_req: Request, res: Response) => {
   res.type("text").send(
-    `GroScale API is running ✅
+`GroScale API is running ✅
 
 Try:
 /health
-GET /api/leads`
+POST /api/auth/register
+POST /api/auth/login
+GET  /api/leads`
   );
 });
 
 // 404
 app.use((_req, res) => res.status(404).json({ error: "Not found" }));
 
-// error handler
+// Error handler
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   const code = typeof err?.status === "number" ? err.status : 500;
   res.status(code).json({ error: err?.message || "Server error" });
