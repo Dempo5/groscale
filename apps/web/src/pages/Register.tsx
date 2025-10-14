@@ -10,29 +10,22 @@ export default function Register() {
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    setErr(null);
-    setOk(false);
-    setBusy(true);
-      try {
--   // ensure we pass a pure string, never undefined
--   await apiRegister(email.trim(), password, (name ?? "").trim());
--   // auto sign-in after successful registration
--   await login(email.trim(), password);
--   setOk(true);
--   window.location.href = "/dashboard";
-+   // register already sets the token; no need to login again
-+   await apiRegister(email.trim(), password, (name ?? "").trim());
-+   setOk(true);
-+   window.location.href = "/dashboard";
-  } catch (e: any) {
-      setErr(e?.message || "Could not create your account");
-    } finally {
-      setBusy(false);
-    }
+ async function onSubmit(e: FormEvent) {
+  e.preventDefault();
+  setErr(null);
+  setOk(false);
+  setBusy(true);
+  try {
+    // register already sets the token; no need to login again
+    await apiRegister(email.trim(), password, (name ?? "").trim());
+    setOk(true);
+    window.location.href = "/dashboard";
+  } catch (err: any) {
+    setErr(err?.message ?? "Could not create your account");
+  } finally {
+    setBusy(false);
   }
-
+}
   return (
     <div className="auth-shell">
       <main className="auth-wrapper">
