@@ -9,15 +9,15 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  password  String            // bcrypt hash
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  leads     Lead[]
+  id             String   @id @default(cuid())
+  email          String   @unique
+  name           String?
+  hashedPassword String   // <-- renamed this
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  leads          Lead[]
 }
+
 
 model Lead {
   id        String   @id @default(cuid())
