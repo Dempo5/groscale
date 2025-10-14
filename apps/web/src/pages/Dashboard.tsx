@@ -1,6 +1,6 @@
 // apps/web/src/pages/Dashboard.tsx
 import { useEffect, useMemo, useState } from "react";
-import "./dashboard-ios.css";
+import "./dashboard-v2.css"; // <— use the single, consolidated stylesheet
 import { getLeads, Lead, logout } from "../lib/api";
 
 type Msg = { id: string; from: "lead" | "me"; text: string; at: string };
@@ -29,6 +29,7 @@ export default function Dashboard() {
         console.error(e);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const selected = useMemo(
@@ -36,7 +37,7 @@ export default function Dashboard() {
     [leads, selectedId]
   );
 
-  // tiny demo messages; replace with real thread later
+  // demo thread; replace with live messages later
   const messages: Msg[] = useMemo(() => {
     if (!selected) return [];
     return [
@@ -86,21 +87,21 @@ export default function Dashboard() {
         </div>
         <div className="actions">
           <button
-            className="ghost"
+            className="btn"
             onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
             title="Toggle light/dark"
           >
             {theme === "light" ? "Dark" : "Light"}
           </button>
-          <button className="primary" onClick={onLogout}>
+          <button className="btn primary" onClick={onLogout}>
             Logout
           </button>
         </div>
       </header>
 
       <main className="p-work">
-        {/* left icon rail */}
-        <nav className="leftnav">
+        {/* Left glass rail */}
+        <nav className="nav-rail">
           {[
             { k: "analytics", icon: "📊" },
             { k: "contacts", icon: "👤" },
@@ -110,19 +111,19 @@ export default function Dashboard() {
             { k: "templates", icon: "📝" },
             { k: "uploads", icon: "📁" },
           ].map((it, i) => (
-            <div key={i} className={`nav-item ${i === 1 ? "active" : ""}`} title={it.k}>
+            <div key={i} className="icon" title={it.k}>
               <span aria-hidden>{it.icon}</span>
             </div>
           ))}
-          <div className="nav-spacer" />
-          <div className="nav-item" title="Settings">⚙️</div>
+          <div style={{ flex: 1 }} />
+          <div className="icon" title="Settings">⚙️</div>
         </nav>
 
-        {/* lead list */}
+        {/* Lead list */}
         <section className="panel">
           <div className="panel-head">
             <div className="title">Leads · {leads.length}</div>
-            <button className="ghost">+ New lead</button>
+            <button className="btn">+ New lead</button>
           </div>
           <div className="search">
             <input
@@ -138,7 +139,9 @@ export default function Dashboard() {
                 className={`row ${String(l.id) === String(selectedId) ? "selected" : ""}`}
                 onClick={() => setSelectedId(l.id)}
               >
-                <div className="avatar">{(l.name || l.email || "?").slice(0, 1).toUpperCase()}</div>
+                <div className="avatar">
+                  {(l.name || l.email || "?").slice(0, 1).toUpperCase()}
+                </div>
                 <div className="meta" style={{ flex: 1 }}>
                   <div className="name">{l.name || "—"}</div>
                   <div className="sub">{l.email}</div>
@@ -149,29 +152,41 @@ export default function Dashboard() {
           </ul>
         </section>
 
-        {/* thread */}
+        {/* Thread */}
         <section className="panel">
           <div className="thread">
             <div className="thread-head">
-              <div className="avatar">{(selected?.name || "T").slice(0, 1).toUpperCase()}</div>
+              <div className="avatar">
+                {(selected?.name || "T").slice(0, 1).toUpperCase()}
+              </div>
               <div style={{ fontWeight: 800 }}>
                 {selected?.name || "—"}{" "}
-                <span style={{ color: "var(--muted)", fontWeight: 500 }}>{selected?.email}</span>
+                <span style={{ color: "var(--muted)", fontWeight: 500 }}>
+                  {selected?.email}
+                </span>
               </div>
               <div className="spacer" />
-              <div className="pill" aria-hidden>Live</div>
+              <div className="pill" aria-hidden>
+                Live
+              </div>
             </div>
 
-            <div className="thread-tools">
-              <button className="ghost">Create Quote</button>
-              <button className="ghost">Call</button>
-              <button className="ghost">Schedule</button>
-              <button className="ghost">Add Tag</button>
+            <div className="panel-head" style={{ borderBottom: "1px solid var(--line)" }}>
+              <div className="small">Thread</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn">Create Quote</button>
+                <button className="btn">Call</button>
+                <button className="btn">Schedule</button>
+                <button className="btn">Add Tag</button>
+              </div>
             </div>
 
             <div className="messages" key={selected?.id ?? "none"}>
               {messages.map((m) => (
-                <div key={m.id} className={`bubble ${m.from === "me" ? "mine" : ""}`}>
+                <div
+                  key={m.id}
+                  className={`bubble ${m.from === "me" ? "mine" : ""} appear`}
+                >
                   {m.text}
                   <div className="stamp">{m.at}</div>
                 </div>
@@ -185,13 +200,15 @@ export default function Dashboard() {
                 onChange={(e) => setDraft(e.target.value)}
                 disabled
               />
-              <button className="ghost">Templates</button>
-              <button className="primary" disabled>Send</button>
+              <button className="btn">Templates</button>
+              <button className="btn primary" disabled>
+                Send
+              </button>
             </div>
           </div>
         </section>
 
-        {/* inspector */}
+        {/* Inspector */}
         <aside className="details">
           <div className="card">
             <div className="label">Contact</div>
@@ -219,7 +236,9 @@ export default function Dashboard() {
                 <div className="v">
                   <span>{selected?.email || "—"}</span>
                   {selected?.email && (
-                    <button className="pill" onClick={() => copy(selected.email)}>Copy</button>
+                    <button className="copy" onClick={() => copy(selected.email)}>
+                      Copy
+                    </button>
                   )}
                 </div>
               </div>
@@ -228,7 +247,9 @@ export default function Dashboard() {
                 <div className="v">
                   <span>{selected?.phone || "—"}</span>
                   {selected?.phone && (
-                    <button className="pill" onClick={() => copy(selected.phone!)}>Copy</button>
+                    <button className="copy" onClick={() => copy(selected.phone!)}>
+                      Copy
+                    </button>
                   )}
                 </div>
               </div>
@@ -239,7 +260,6 @@ export default function Dashboard() {
                 <span>ZIP</span>
                 <div className="v">
                   <span>—</span>
-                  {/* example: <button className="pill">Copy</button> */}
                 </div>
               </div>
               <div className="k"><span>Household size</span><div className="v"><span>—</span></div></div>
