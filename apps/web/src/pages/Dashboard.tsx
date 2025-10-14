@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listLeads, logout } from "../lib/api";
-import "./dashboard-v2.css";
+import "./dashboard-pitch.css";
 
 type Lead = {
   id: string | number;
@@ -21,6 +21,7 @@ export default function Dashboard() {
   const [err, setErr] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
+  // load leads
   useEffect(() => {
     (async () => {
       try {
@@ -39,7 +40,7 @@ export default function Dashboard() {
     })();
   }, []);
 
-  // keyboard: / to focus search
+  // "/" focuses search
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.key === "/") {
@@ -54,28 +55,22 @@ export default function Dashboard() {
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return leads;
-    return leads.filter(l =>
-      [l.name, l.email, l.phone].some(v => (v || "").toLowerCase().includes(s))
+    return leads.filter((l) =>
+      [l.name, l.email, l.phone].some((v) => (v || "").toLowerCase().includes(s))
     );
   }, [leads, q]);
 
   return (
-    <div className="gs-shell">
+    <div className="p-shell">
       {/* top bar */}
-      <header className="gs-topbar">
-        <div className="gs-left">
-          <div className="gs-logo">
-            <div className="dot" />
-            <span>GroScales</span>
-            <em>Sales</em>
-          </div>
-          <div className="gs-search">
-            <input ref={searchRef} value={q} onChange={e => setQ(e.target.value)} placeholder="Search leads" />
-            <kbd>/</kbd>
-          </div>
+      <header className="p-topbar">
+        <div className="brand">
+          <div className="dot" />
+          <span>GroScales</span>
+          <em>Conversations</em>
         </div>
-        <div className="gs-right">
-          <button className="ghost">New lead</button>
+
+        <div className="actions">
           <button
             className="ghost"
             onClick={() => {
@@ -88,28 +83,31 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* workspace */}
-      <div className="gs-work">
-        {/* left rail */}
-        <aside className="rail">
-          <a className="rail-item active" title="Leads">💼</a>
-          <a className="rail-item" title="Inbox">💬</a>
-          <a className="rail-item" title="Tasks">✅</a>
-          <a className="rail-item" title="Reports">📊</a>
-          <div className="rail-spacer" />
-          <a className="rail-item" title="Settings">⚙️</a>
-        </aside>
-
-        {/* list */}
-        <section className="panel list">
+      {/* three columns */}
+      <main className="p-work">
+        {/* LEFT: conversations */}
+        <section className="panel convo-list">
           <div className="panel-head">
-            <h2>Leads {loading ? "" : `· ${filtered.length}`}</h2>
+            <div className="title">Messages</div>
+            <button className="small ghost">+ New chat</button>
+          </div>
+
+          <div className="search">
+            <input
+              ref={searchRef}
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search messages…"
+            />
+            <kbd>/</kbd>
           </div>
 
           {err && <div className="alert">{err}</div>}
           {loading && (
             <div className="sk">
-              {Array.from({ length: 8 }).map((_, i) => <div key={i} className="sk-row" />)}
+              {Array.from({ length: 7 }).map((_, i) => (
+                <div key={i} className="sk-row" />
+              ))}
             </div>
           )}
 
@@ -118,7 +116,7 @@ export default function Dashboard() {
           )}
 
           <ul className="rows">
-            {filtered.map(l => {
+            {filtered.map((l) => {
               const selected = active?.id === l.id;
               return (
                 <li
@@ -126,11 +124,14 @@ export default function Dashboard() {
                   className={`row ${selected ? "selected" : ""}`}
                   onClick={() => setActive(l)}
                 >
-                  <div className="avatar">{(l.name || l.email).slice(0,1).toUpperCase()}</div>
+                  <div className="avatar">
+                    {(l.name || l.email).slice(0, 1).toUpperCase()}
+                  </div>
                   <div className="meta">
-                    <div className="title">{l.name || "Untitled lead"}</div>
+                    <div className="name">{l.name || "Untitled lead"}</div>
                     <div className="sub">
-                      {l.email}{l.phone ? ` · ${l.phone}` : ""} <span className="time">{fmt(l.createdAt)}</span>
+                      {l.email}
+                      {l.phone ? ` · ${l.phone}` : ""} <span className="time">{fmt(l.createdAt)}</span>
                     </div>
                   </div>
                 </li>
@@ -139,53 +140,79 @@ export default function Dashboard() {
           </ul>
         </section>
 
-        {/* conversation */}
-        <section className="panel convo">
+        {/* MIDDLE: messages thread (closer to left) */}
+        <section className="panel thread">
           {!active ? (
-            <div className="empty big">Select a lead to view conversation</div>
+            <div className="empty big">Select a conversation</div>
           ) : (
             <>
-              <div className="convo-head">
-                <div className="avatar lg">{(active.name || active.email).slice(0,1).toUpperCase()}</div>
+              <div className="thread-head">
+                <div className="avatar lg">
+                  {(active.name || active.email).slice(0, 1).toUpperCase()}
+                </div>
                 <div className="meta">
-                  <div className="title">{active.name || "Untitled lead"}</div>
-                  <div className="sub">{active.email}{active.phone ? ` · ${active.phone}` : ""}</div>
+                  <div className="name">{active.name || "Untitled lead"}</div>
+                  <div className="sub">
+                    {active.email}
+                    {active.phone ? ` · ${active.phone}` : ""}
+                  </div>
                 </div>
                 <div className="spacer" />
-                <button className="primary">Create quote</button>
+                <div className="presence">● Live</div>
               </div>
 
               <div className="messages">
-                {/* demo bubbles for now */}
+                {/* demo bubbles */}
                 <div className="bubble theirs">
-                  Hi! I’m exploring coverage options. What plans do you recommend?
-                  <div className="stamp">Oct 12 · 9:14 AM</div>
+                  Hi! I’m exploring a few health plans. Can you help?
+                  <div className="stamp">9:41 AM</div>
                 </div>
                 <div className="bubble mine">
-                  Great to meet you. I’ll compare Blue Cross + United and send a quick quote today.
-                  <div className="stamp">Oct 12 · 9:17 AM</div>
+                  Absolutely. I can compare Blue Cross and United and send a quick quote.
+                  <div className="stamp">9:42 AM</div>
                 </div>
               </div>
 
               <div className="composer">
-                <input placeholder="Type a message… (coming soon)" disabled />
-                <button className="primary" disabled>Send</button>
+                <input placeholder="Type your message… (coming soon)" disabled />
+                <div className="composer-actions">
+                  <button className="ghost small">Templates</button>
+                  <button className="ghost small">Fields</button>
+                  <button className="ghost small">Emoji</button>
+                  <button className="ghost small">Schedule</button>
+                </div>
+                <button className="primary" disabled>
+                  Send
+                </button>
               </div>
             </>
           )}
         </section>
 
-        {/* details */}
-        <section className="panel details">
+        {/* RIGHT: lead info like OnlySales */}
+        <aside className="panel details">
           {!active ? (
-            <div className="empty">No lead selected</div>
+            <div className="empty">Lead details</div>
           ) : (
             <>
               <div className="card">
-                <div className="label">Contact</div>
-                <div className="kv"><span>Email</span><b>{active.email}</b></div>
-                <div className="kv"><span>Phone</span><b>{active.phone || "—"}</b></div>
-                <div className="kv"><span>Created</span><b>{fmt(active.createdAt) || "—"}</b></div>
+                <div className="label">Lead</div>
+                <div className="kv">
+                  <span>Name</span>
+                  <b>{active.name || "—"}</b>
+                </div>
+                <div className="kv">
+                  <span>Email</span>
+                  <b>{active.email}</b>
+                </div>
+                <div className="kv">
+                  <span>Phone</span>
+                  <b>{active.phone || "—"}</b>
+                </div>
+                <div className="kv">
+                  <span>Created</span>
+                  <b>{fmt(active.createdAt) || "—"}</b>
+                </div>
               </div>
 
               <div className="card">
@@ -199,15 +226,15 @@ export default function Dashboard() {
               <div className="card">
                 <div className="label">Next steps</div>
                 <ul className="disc">
-                  <li>Confirm family size + DOB</li>
-                  <li>ZIP & preferences</li>
-                  <li>Schedule call</li>
+                  <li>Collect ZIP, DOB, dependents</li>
+                  <li>Confirm preferences</li>
+                  <li>Send quote</li>
                 </ul>
               </div>
             </>
           )}
-        </section>
-      </div>
+        </aside>
+      </main>
     </div>
   );
 }
