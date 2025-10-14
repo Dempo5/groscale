@@ -1,4 +1,3 @@
-// apps/server/src/routes/auth.ts
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { prisma } from "../db.js";
@@ -18,15 +17,15 @@ router.post("/register", async (req, res) => {
     const hashed = await bcrypt.hash(password, 12);
 
     const user = await prisma.user.create({
-      data: { email, name, password: hashed }, // <-- uses `password` field
-      select: { id: true, email: true, name: true }, // never return password
+      data: { email, name, password: hashed }, // <-- write to `password`
+      select: { id: true, email: true, name: true },
     });
 
     const token = signToken(user.id);
     res.json({ token, user });
   } catch (e: any) {
+    // Duplicate email
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-      // unique constraint (e.g., email)
       return res.status(409).json({ error: "Email already in use" });
     }
     console.error("register error:", e);
@@ -42,21 +41,17 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ error: "Email & password required" });
     }
 
-    // fetch password for comparison, then shape the response without it
-    const userWithSecret = await prisma.user.findUnique({
+    const u = await prisma.user.findUnique({
       where: { email },
-      select: { id: true, email: true, name: true, password: true },
+      select: { id: true, email: true, name: true, password: true }, // read `password`
     });
+    if (!u?.password) return res.status(401).json({ error: "Invalid credentials" });
 
-    if (!userWithSecret?.password) {
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
-
-    const ok = await bcrypt.compare(password, userWithSecret.password);
+    const ok = await bcrypt.compare(password, u.password);
     if (!ok) return res.status(401).json({ error: "Invalid credentials" });
 
-    const token = signToken(userWithSecret.id);
-    const user = { id: userWithSecret.id, email: userWithSecret.email, name: userWithSecret.name };
+    const token = signToken(u.id);
+    const user = { id: u.id, email: u.email, name: u.name };
     res.json({ token, user });
   } catch (e) {
     console.error("login error:", e);
