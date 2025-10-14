@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { listLeads, logout } from "../lib/api";
-import "./dashboard.css";
+import "./dashboard-v2.css";
 
 type Lead = {
   id: string | number;
@@ -10,146 +10,144 @@ type Lead = {
   createdAt?: string;
 };
 
-const formatTime = (iso?: string) => {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-};
+const fmt = (iso?: string) =>
+  iso ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
 
 export default function Dashboard() {
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [query, setQuery] = useState("");
-  const [activeId, setActiveId] = useState<string | number | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [q, setQ] = useState("");
+  const [active, setActive] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     (async () => {
       try {
         const data = await listLeads();
         setLeads(data);
-        setActiveId(data[0]?.id ?? null);
+        setActive(data[0] ?? null);
       } catch (e: any) {
-        // if token invalid, api.ts should throw "Unauthorized" -> bounce to login
-        if (String(e?.message || "").toLowerCase().includes("unauthorized")) {
+        if (String(e?.message).toLowerCase().includes("unauthorized")) {
           window.location.href = "/login";
           return;
         }
-        setErr(e?.message || "Failed to load leads");
+        setErr(e?.message || "Failed to load");
       } finally {
         setLoading(false);
       }
     })();
   }, []);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return leads;
-    return leads.filter(l =>
-      [l.name, l.email, l.phone].some(v => (v || "").toLowerCase().includes(q))
-    );
-  }, [leads, query]);
+  // keyboard: / to focus search
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "/") {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
 
-  const active = useMemo(
-    () => filtered.find((l) => l.id === activeId) || null,
-    [filtered, activeId]
-  );
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    if (!s) return leads;
+    return leads.filter(l =>
+      [l.name, l.email, l.phone].some(v => (v || "").toLowerCase().includes(s))
+    );
+  }, [leads, q]);
 
   return (
-    <div className="shell">
-      <header className="topbar">
-        <div className="brand">
-          <div className="logo-dot" />
-          <div className="logo-text">GroScales</div>
-          <span className="pill">Dashboard</span>
-        </div>
-
-        <div className="top-actions">
-          <div className="search">
-            <input
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="Search leads…"
-              aria-label="Search leads"
-            />
+    <div className="gs-shell">
+      {/* top bar */}
+      <header className="gs-topbar">
+        <div className="gs-left">
+          <div className="gs-logo">
+            <div className="dot" />
+            <span>GroScales</span>
+            <em>Sales</em>
+          </div>
+          <div className="gs-search">
+            <input ref={searchRef} value={q} onChange={e => setQ(e.target.value)} placeholder="Search leads" />
             <kbd>/</kbd>
           </div>
-
-          <button className="ghost" onClick={() => { logout(); window.location.href = "/login"; }}>
+        </div>
+        <div className="gs-right">
+          <button className="ghost">New lead</button>
+          <button
+            className="ghost"
+            onClick={() => {
+              logout();
+              window.location.href = "/login";
+            }}
+          >
             Logout
           </button>
         </div>
       </header>
 
-      <main className="workspace">
-        {/* Sidebar */}
-        <aside className="sidebar">
-          <div className="section-title">Queues</div>
-          <nav className="nav">
-            <a className="nav-item active"><span className="dot blue" /> All</a>
-            <a className="nav-item"><span className="dot green" /> New</a>
-            <a className="nav-item"><span className="dot amber" /> Follow-ups</a>
-            <a className="nav-item"><span className="dot purple" /> Won</a>
-            <a className="nav-item"><span className="dot gray" /> Archived</a>
-          </nav>
-
-          <div className="divider" />
-
-          <div className="small muted">
-            Tip: Press <kbd>/</kbd> to focus search. ↑/↓ to move, Enter to open.
-          </div>
+      {/* workspace */}
+      <div className="gs-work">
+        {/* left rail */}
+        <aside className="rail">
+          <a className="rail-item active" title="Leads">💼</a>
+          <a className="rail-item" title="Inbox">💬</a>
+          <a className="rail-item" title="Tasks">✅</a>
+          <a className="rail-item" title="Reports">📊</a>
+          <div className="rail-spacer" />
+          <a className="rail-item" title="Settings">⚙️</a>
         </aside>
 
-        {/* Lead list */}
-        <section className="list">
-          <div className="list-head">
+        {/* list */}
+        <section className="panel list">
+          <div className="panel-head">
             <h2>Leads {loading ? "" : `· ${filtered.length}`}</h2>
           </div>
 
-          {err && <div className="alert error">{err}</div>}
-          {loading && <div className="skeleton-list">
-            {Array.from({ length: 6 }).map((_, i) => <div key={i} className="sk-row" />)}
-          </div>}
-
-          {!loading && filtered.length === 0 && (
-            <div className="empty">
-              <div className="empty-icon">🗂️</div>
-              <div>No leads match “{query}”.</div>
+          {err && <div className="alert">{err}</div>}
+          {loading && (
+            <div className="sk">
+              {Array.from({ length: 8 }).map((_, i) => <div key={i} className="sk-row" />)}
             </div>
           )}
 
-          <ul className="rows" role="listbox" aria-label="Leads">
-            {filtered.map(l => (
-              <li
-                key={l.id}
-                className={`row ${activeId === l.id ? "selected" : ""}`}
-                onClick={() => setActiveId(l.id)}
-                role="option"
-                aria-selected={activeId === l.id}
-              >
-                <div className="avatar">{(l.name || l.email || "?").slice(0,1).toUpperCase()}</div>
-                <div className="meta">
-                  <div className="title">{l.name || "Untitled lead"}</div>
-                  <div className="sub">{l.email}{l.phone ? ` · ${l.phone}` : ""}</div>
-                </div>
-                <div className="time">{formatTime(l.createdAt)}</div>
-              </li>
-            ))}
+          {!loading && filtered.length === 0 && (
+            <div className="empty">No results for “{q}”.</div>
+          )}
+
+          <ul className="rows">
+            {filtered.map(l => {
+              const selected = active?.id === l.id;
+              return (
+                <li
+                  key={l.id}
+                  className={`row ${selected ? "selected" : ""}`}
+                  onClick={() => setActive(l)}
+                >
+                  <div className="avatar">{(l.name || l.email).slice(0,1).toUpperCase()}</div>
+                  <div className="meta">
+                    <div className="title">{l.name || "Untitled lead"}</div>
+                    <div className="sub">
+                      {l.email}{l.phone ? ` · ${l.phone}` : ""} <span className="time">{fmt(l.createdAt)}</span>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         </section>
 
-        {/* Details / conversation stub */}
-        <section className="detail">
+        {/* conversation */}
+        <section className="panel convo">
           {!active ? (
-            <div className="empty-detail">
-              <div className="empty-icon">✨</div>
-              <div>Select a lead to view details</div>
-            </div>
+            <div className="empty big">Select a lead to view conversation</div>
           ) : (
-            <div className="detail-card">
-              <div className="detail-head">
+            <>
+              <div className="convo-head">
                 <div className="avatar lg">{(active.name || active.email).slice(0,1).toUpperCase()}</div>
-                <div>
+                <div className="meta">
                   <div className="title">{active.name || "Untitled lead"}</div>
                   <div className="sub">{active.email}{active.phone ? ` · ${active.phone}` : ""}</div>
                 </div>
@@ -157,42 +155,59 @@ export default function Dashboard() {
                 <button className="primary">Create quote</button>
               </div>
 
-              <div className="tabs">
-                <button className="tab active">Overview</button>
-                <button className="tab">Notes</button>
-                <button className="tab">Timeline</button>
-              </div>
-
-              <div className="grid">
-                <div className="card">
-                  <div className="card-title">Contact</div>
-                  <div className="kv"><span>Email</span><b>{active.email}</b></div>
-                  <div className="kv"><span>Phone</span><b>{active.phone || "—"}</b></div>
-                  <div className="kv"><span>Created</span><b>{formatTime(active.createdAt)}</b></div>
+              <div className="messages">
+                {/* demo bubbles for now */}
+                <div className="bubble theirs">
+                  Hi! I’m exploring coverage options. What plans do you recommend?
+                  <div className="stamp">Oct 12 · 9:14 AM</div>
                 </div>
-
-                <div className="card">
-                  <div className="card-title">Next steps</div>
-                  <ul className="disc">
-                    <li>Confirm coverage preferences</li>
-                    <li>Collect DOB & ZIP for quote</li>
-                    <li>Schedule call</li>
-                  </ul>
-                </div>
-
-                <div className="card span-2">
-                  <div className="card-title">Activity</div>
-                  <div className="timeline">
-                    <div className="tl-row"><span className="dot blue" /> Lead created</div>
-                    <div className="tl-row"><span className="dot green" /> Email sent</div>
-                    <div className="tl-row"><span className="dot amber" /> Awaiting reply</div>
-                  </div>
+                <div className="bubble mine">
+                  Great to meet you. I’ll compare Blue Cross + United and send a quick quote today.
+                  <div className="stamp">Oct 12 · 9:17 AM</div>
                 </div>
               </div>
-            </div>
+
+              <div className="composer">
+                <input placeholder="Type a message… (coming soon)" disabled />
+                <button className="primary" disabled>Send</button>
+              </div>
+            </>
           )}
         </section>
-      </main>
+
+        {/* details */}
+        <section className="panel details">
+          {!active ? (
+            <div className="empty">No lead selected</div>
+          ) : (
+            <>
+              <div className="card">
+                <div className="label">Contact</div>
+                <div className="kv"><span>Email</span><b>{active.email}</b></div>
+                <div className="kv"><span>Phone</span><b>{active.phone || "—"}</b></div>
+                <div className="kv"><span>Created</span><b>{fmt(active.createdAt) || "—"}</b></div>
+              </div>
+
+              <div className="card">
+                <div className="label">Tags</div>
+                <div className="chips">
+                  <span className="chip green">new</span>
+                  <span className="chip blue">follow-up</span>
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="label">Next steps</div>
+                <ul className="disc">
+                  <li>Confirm family size + DOB</li>
+                  <li>ZIP & preferences</li>
+                  <li>Schedule call</li>
+                </ul>
+              </div>
+            </>
+          )}
+        </section>
+      </div>
     </div>
   );
 }
