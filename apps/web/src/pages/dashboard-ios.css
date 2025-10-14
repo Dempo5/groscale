@@ -1,0 +1,175 @@
+/* GroScales — iMessage-style Light UI
+   -------------------------------------------------- */
+:root{
+  --bg:#f5f7fb;
+  --panel:#ffffff;
+  --panel-weak:#f9fbff;
+  --line:#e6ebf2;
+  --muted:#6c7a89;
+  --text:#0c1620;
+
+  --brand:#2f8be6;          /* blue bubble */
+  --brand-700:#1f76d0;
+  --accent:#0ea5b6;         /* action accents */
+
+  --radius:14px;
+  --shadow:0 8px 24px rgba(12,22,32,.08);
+}
+
+/* Dark mode (optional) – toggled by [data-theme="dark"] on body */
+[data-theme="dark"]{
+  --bg:#0b0f15;
+  --panel:rgba(14,18,26,.78);
+  --panel-weak:rgba(18,22,30,.7);
+  --line:rgba(255,255,255,.08);
+  --muted:#9cb0c4;
+  --text:#eaf1f9;
+  --shadow:0 12px 28px rgba(0,0,0,.38);
+}
+
+/* Shell */
+.p-shell{
+  min-height:100vh;
+  background:
+    radial-gradient(900px 560px at 15% -10%, rgba(47,139,230,.08), transparent 60%),
+    radial-gradient(900px 600px at 120% 120%, rgba(14,165,182,.08), transparent 60%),
+    var(--bg);
+  color:var(--text);
+  font: 500 14px/1.55 system-ui, -apple-system, Segoe UI, Inter, Roboto, Arial;
+}
+
+/* Top bar */
+.p-topbar{
+  position:sticky;top:0;z-index:3;
+  height:60px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 16px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(255,255,255,.85),rgba(255,255,255,.65));
+  backdrop-filter:saturate(1.2) blur(10px);
+}
+.brand{display:flex;align-items:center;gap:10px;font-weight:900;letter-spacing:-.2px}
+.brand .dot{width:10px;height:10px;border-radius:50%;
+  background:linear-gradient(145deg,#2f8be6,#0ea5b6)}
+.actions{display:flex;gap:8px}
+
+/* Layout: left icons / list / thread / details */
+.p-work{
+  display:grid; gap:16px; padding:16px;
+  grid-template-columns: 64px 320px 1fr 360px;
+}
+@media (max-width:1280px){ .p-work{ grid-template-columns:64px 300px 1fr } .details{display:none} }
+@media (max-width:860px){ .p-work{ grid-template-columns:1fr } .leftnav{display:none} }
+
+/* Panels */
+.panel{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  overflow:hidden;
+}
+.panel-weak{ background:var(--panel-weak) }
+
+.panel-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 14px;border-bottom:1px solid var(--line);
+}
+.panel-head .title{font-weight:900}
+
+/* Left icon nav */
+.leftnav{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:12px;box-shadow:var(--shadow);
+  padding:8px;display:flex;flex-direction:column;align-items:center;gap:6px
+}
+.nav-item{
+  width:40px;height:40px;border-radius:10px;display:grid;place-items:center;
+  color:var(--muted); border:1px solid transparent; cursor:pointer;
+  background:var(--panel-weak);
+}
+.nav-item:hover{border-color:var(--line); color:var(--text)}
+.nav-item.active{ color:var(--brand); border-color:#cfe3fb; background:#f2f7ff }
+
+/* Search + buttons */
+.search{display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line)}
+.search input{
+  width:100%;height:36px;border:1px solid var(--line);border-radius:10px;
+  background:#fff;color:var(--text);padding:0 10px;outline:none;
+}
+.primary{
+  height:36px;padding:0 14px;border:0;border-radius:10px;color:#fff;
+  background:linear-gradient(180deg,var(--brand),var(--brand-700));
+  box-shadow:0 10px 24px rgba(47,139,230,.25);cursor:pointer
+}
+.ghost{
+  height:36px;padding:0 12px;border-radius:10px;color:var(--brand);
+  background:#f2f7ff;border:1px solid #cfe3fb;cursor:pointer
+}
+
+/* Lead list */
+.rows{list-style:none;margin:0;padding:0}
+.row{
+  display:flex;gap:12px;align-items:center; padding:12px 14px; cursor:pointer;
+  border-bottom:1px solid var(--line); transition:background .12s ease
+}
+.row:hover{ background:#f7f9ff }
+.row.selected{ background:#eef5ff; outline:1px solid #cfe3fb }
+.avatar{
+  width:36px;height:36px;border-radius:10px;display:grid;place-items:center;font-weight:800;
+  background:#eef3fa;border:1px solid var(--line)
+}
+.meta .name{ font-weight:800 }
+.meta .sub{ color:var(--muted); font-size:13px }
+
+/* Thread */
+.thread{ display:flex; flex-direction:column }
+.thread-head{
+  display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--line)
+}
+.thread-tools{ display:flex; gap:8px; padding:8px 12px; border-bottom:1px solid var(--line); background:var(--panel-weak) }
+.messages{ flex:1; overflow:auto; padding:14px; display:grid; gap:8px; background:#f6f9ff }
+
+/* iMessage-style bubbles */
+.bubble{
+  max-width:68%; padding:9px 12px; border-radius:16px; line-height:1.45;
+  background:#e9edf5; color:#0c1620; border:1px solid #dfe6ef;
+}
+.bubble.mine{
+  margin-left:auto; color:#fff;
+  background:linear-gradient(180deg,var(--brand),var(--brand-700));
+  border:1px solid #1e6fc5;
+}
+.bubble .stamp{ font-size:11px; opacity:.6; margin-top:4px }
+
+/* Composer */
+.composer{
+  display:grid; grid-template-columns:1fr auto auto; gap:8px; padding:12px; border-top:1px solid var(--line);
+  background:var(--panel);
+}
+.composer input{
+  height:38px;border-radius:18px;border:1px solid var(--line); padding:0 14px;
+  background:#fff;color:var(--text);
+}
+
+/* Details inspector */
+.details{ padding:12px; display:flex; flex-direction:column; gap:12px }
+.card{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px; box-shadow:var(--shadow) }
+.label{ font-size:12px; color:var(--muted); margin-bottom:6px }
+.kv-grid{ display:grid; grid-template-columns: 1fr 1fr; gap:8px 16px }
+.k {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:6px 0; border-bottom:1px dashed var(--line)
+}
+.k:last-child{ border-bottom:0 }
+.k .v{ display:flex; align-items:center; gap:6px }
+
+/* Copy pill */
+.pill{
+  display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:999px;
+  background:#f2f7ff;border:1px solid #cfe3fb;color:#0c1620;font-size:12px;cursor:pointer
+}
+.pill:hover{ filter:brightness(1.03) }
+
+/* Chips */
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{ padding:3px 8px; border-radius:999px; font-size:12px; background:#f2f7ff; border:1px solid #cfe3fb }
