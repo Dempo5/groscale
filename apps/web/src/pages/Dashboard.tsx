@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import "./dashboard-min.css";
+import "./dashboard-ios.css";
 import { getLeads, Lead, logout } from "../lib/api";
 
 type Msg = { id: string; from: "lead" | "me"; text: string; at: string };
