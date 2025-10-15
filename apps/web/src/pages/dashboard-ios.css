@@ -1,5 +1,5 @@
 /* apps/web/src/pages/dashboard-ios.css */
-/* Flat, neutral, premium – light & dark */
+/* Final GroScales refined CSS (flat + premium + fixed composer) */
 
 :root{
   /* Surfaces */
@@ -137,6 +137,7 @@ body{
   display:grid;gap:0;padding:14px;
   grid-template-columns: 220px 360px 1fr 300px; /* 300px right panel */
   transition:grid-template-columns .2s cubic-bezier(.2,.6,.2,1);
+  height: calc(100vh - 54px); /* fill below topbar */
 }
 .p-work.grid.rail-closed{grid-template-columns: 60px 360px 1fr 300px}
 
@@ -160,9 +161,12 @@ body{
 .panel{
   background:var(--surface-1);
   border-left:1px solid var(--line);
+  display:flex;
+  flex-direction:column;
+  min-height:0;
 }
 .list{border-left:1px solid var(--line)} /* left column edge */
-.details{border-right:1px solid var(--line)}
+.details{border-right:1px solid var(--line);overflow:auto;min-height:0}
 
 /* ---------- List column ---------- */
 .list{display:flex;flex-direction:column}
@@ -187,15 +191,32 @@ body{
 .meta .sub{color:var(--text-secondary);font-size:12px}
 
 /* ---------- Thread ---------- */
-.thread{display:flex;flex-direction:column}
+.thread{
+  display:flex;
+  flex-direction:column;
+  min-height:0;
+}
 .thread-title{padding:10px;border-bottom:1px solid var(--line)}
 .who{display:flex;align-items:center;gap:10px}
 .who-name{font-weight:700}
 .who-sub{color:var(--text-secondary);font-size:12px}
 
-.messages{padding:12px;display:flex;flex-direction:column;gap:10px;min-height:260px}
+.messages{
+  flex:1 1 auto;
+  overflow:auto;
+  padding:12px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  min-height:0;
+  padding-bottom:12px;
+}
 .bubble{
-  max-width:min(70ch, 64%);display:inline-block;padding:10px 12px;border-radius:10px;border:1px solid var(--line);
+  max-width:min(70ch, 64%);
+  display:inline-block;
+  padding:10px 12px;
+  border-radius:10px;
+  border:1px solid var(--line);
   background:color-mix(in srgb, var(--surface-1) 94%, var(--line));
   box-shadow:var(--shadow-1);
   transition:box-shadow .18s cubic-bezier(.2,.6,.2,1), transform .18s cubic-bezier(.2,.6,.2,1);
@@ -208,15 +229,23 @@ body{
 }
 .bubble .stamp{font-size:11px;color:var(--text-secondary);margin-top:4px}
 
+/* ---------- Composer pinned bottom ---------- */
 .composer{
-  margin:8px 10px 12px;display:grid;grid-template-columns: 1fr auto auto auto;gap:8px;
+  flex-shrink:0;
+  padding:8px 10px 10px;
+  border-top:1px solid var(--line);
+  background:var(--surface-1);
+  display:grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap:8px;
+  position:sticky;
+  bottom:0;
 }
 .composer input{
   height:36px;border:1px solid var(--line);border-radius:8px;padding:0 10px;background:var(--surface-1);outline:none;
 }
 
 /* ---------- Details (right) ---------- */
-.details{padding-bottom:12px}
 .section{border-bottom:1px solid var(--line)}
 .section:last-child{border-bottom:0}
 .section-title{padding:10px;font-weight:700;color:var(--text-primary)}
@@ -225,7 +254,7 @@ body{
 .copy-row{display:flex;align-items:center;gap:8px}
 .placeholder{color:var(--text-muted);font-style:normal}
 
-/* Tags — fixed contrast for light/dark */
+/* Tags */
 .tag-row{display:flex;gap:8px;padding:8px 10px}
 .tag{
   --t-bg:rgba(0,0,0,.06);--t-fg:#111;
