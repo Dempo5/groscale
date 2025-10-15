@@ -1,40 +1,50 @@
-/* GroScales premium refinement — minimalist, functional, production-level */
+/* GroScales — flat base, dynamic accents (tags + Copilot) */
 
 /* ---------------- Semantic Tokens ---------------- */
 :root{
-  /* Global */
+  /* Global neutral */
   --bg: #f7f8fa;
 
-  /* Surfaces (≈1–2% tone deltas) */
-  --surface-rail:   #f0f3f6;  /* sidebar */
-  --surface-list:   #f5f7f9;  /* contacts column */
+  /* Surfaces (very subtle deltas for separation) */
+  --surface-rail:   #f0f2f4;  /* sidebar */
+  --surface-list:   #f5f6f8;  /* contacts column */
   --surface-chat:   #ffffff;  /* chat column */
-  --surface-detail: #f2f5f7;  /* details column */
+  --surface-detail: #f2f4f6;  /* details column */
 
   /* Text */
   --text-primary:   #14181d;
-  --text-secondary: #2c3541;
+  --text-secondary: #2f3742;
   --text-muted:     #7a8594;
 
   /* Lines & shadow */
   --line:          #e3e7ee;
   --line-strong:   #d4dbe4;
   --shadow-xs:     0 1px 1px rgba(0,0,0,.04);
-  --shadow-sm:     0 1.5px 3px rgba(0,0,0,.06);
+  --shadow-sm:     0 2px 6px rgba(0,0,0,.06);
 
-  /* Accent (toned down) */
+  /* Accent (kept calm; tags carry the “color emotion”) */
   --accent:       #2a74ff;
   --accent-tint:  color-mix(in srgb, var(--accent) 10%, transparent);
 
-  /* Radii */
-  --r-8: 8px; --r-10: 10px;
+  /* Tag palette (users choose via data-color) */
+  --tag-blue:  #3478f6;
+  --tag-pink:  #f052a1;
+  --tag-red:   #ef4444;
+  --tag-green: #22c55e;
+  --tag-amber: #f59e0b;
+  --tag-purple:#8b5cf6;
+  --tag-cyan:  #06b6d4;
+  --tag-gray:  #8892a6;
 
-  /* Type scale (hierarchy) */
+  /* Radii & type */
+  --r-8: 8px; --r-10: 10px;
   --fs-11: 11px; --fs-12: 12px; --fs-13: 13px;
   --fs-14: 14px; --fs-15: 15px; --fs-16: 16px;
 
-  /* Easing / motion */
+  /* Motion */
   --ease: cubic-bezier(0.2, 0.6, 0.2, 1);
+  --t-fast: .16s;  /* 160ms */
+  --t-med:  .20s;  /* 200ms */
 }
 
 body[data-theme="dark"]{
@@ -57,7 +67,7 @@ body[data-theme="dark"]{
   --shadow-sm:     0 2px 6px rgba(0,0,0,.28);
 }
 
-/* ---------------- Base & Global Micro-Interactions ---------------- */
+/* ---------------- Base & Global Motion ---------------- */
 *{ box-sizing:border-box; }
 html,body,#root{ height:100%; }
 body{
@@ -66,16 +76,16 @@ body{
 }
 *{
   transition:
-    background-color .2s var(--ease),
-    color .2s var(--ease),
-    border-color .2s var(--ease),
-    box-shadow .2s var(--ease),
-    transform .2s var(--ease);
+    background-color var(--t-med) var(--ease),
+    color var(--t-med) var(--ease),
+    border-color var(--t-med) var(--ease),
+    box-shadow var(--t-med) var(--ease),
+    transform var(--t-med) var(--ease);
 }
 
 /* ---------------- Shell + Topbar ---------------- */
 .p-shell{ min-height:100vh; display:flex; flex-direction:column; }
-.matte{ backdrop-filter: saturate(115%) blur(6px); }
+.matte{ backdrop-filter: saturate(110%) blur(6px); }
 
 .p-topbar{
   position:sticky; top:0; z-index:30;
@@ -120,20 +130,19 @@ body{
 .menu-sep{ height:1px; background:var(--line); margin:4px 6px; }
 .menu-item.danger{ color:#e46a6a; }
 
-/* ---------------- Grid (Flush rail + push content) ---------------- */
+/* ---------------- Grid (flush rail + push layout) ---------------- */
 .p-work.grid{
   --rail-w: 232px;
   display:grid;
   grid-template-columns: var(--rail-w) 360px 1fr 340px;
   gap:0;
-  /* Rail open/close should push content smoothly */
-  transition: grid-template-columns .2s var(--ease);
+  transition: grid-template-columns var(--t-med) var(--ease);
   padding:0; /* flush left */
   border-top:1px solid var(--line);
 }
 .p-work.grid.rail-closed{ --rail-w: 64px; }
 
-/* ---------------- Rail (sidebar) ---------------- */
+/* ---------------- Rail ---------------- */
 .rail{
   background:var(--surface-rail);
   border-right:1px solid var(--line);
@@ -148,22 +157,22 @@ body{
   color:inherit; text-decoration:none; border:1px solid transparent;
 }
 .rail-item svg{ min-width:18px; opacity:.88; transform: translateZ(0); }
-.rail-item:hover{ background:color-mix(in srgb, var(--surface-chat) 90%, var(--surface-rail)); }
+.rail-item:hover{ background:color-mix(in srgb, var(--surface-chat) 92%, var(--surface-rail)); }
 .rail-item.active{ border-color:var(--line-strong); }
 .rail-active{
   content:""; position:absolute; left:-1px; top:6px; bottom:6px; width:2px;
-  border-radius:2px; background:var(--accent); opacity:.75;
+  border-radius:2px; background:var(--accent); opacity:.65;
 }
 .rail.collapsed .rail-item span{ display:none; }
 .rail-foot{ margin-top:auto; padding-top:6px; border-top:1px solid var(--line); }
 
-/* ---------------- Panels (surface tone separation) ---------------- */
+/* ---------------- Panels (flat, separated by tone) ---------------- */
 .panel{ border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
 .panel.list{   background:var(--surface-list);   border-left:1px solid var(--line); }
 .panel.thread{ background:var(--surface-chat); }
 .panel.details{background:var(--surface-detail); border-right:1px solid var(--line); }
 
-/* ---------------- List (contacts) ---------------- */
+/* ---------------- List ---------------- */
 .list{ display:flex; flex-direction:column; }
 .list-head{
   display:flex; align-items:center; justify-content:space-between;
@@ -215,12 +224,12 @@ body{
   border:1px solid var(--line);
   background:color-mix(in srgb, var(--surface-chat) 94%, var(--line));
   box-shadow: var(--shadow-xs);
-  animation: msgIn .18s var(--ease) both;
+  animation: msgIn var(--t-fast) var(--ease) both;
 }
 .bubble.mine{
   align-self:flex-end;
-  background:color-mix(in srgb, #8e97a4 22%, var(--surface-chat));
-  border-color:color-mix(in srgb, #8e97a4 40%, var(--line));
+  background:color-mix(in srgb, #8e97a4 20%, var(--surface-chat));
+  border-color:color-mix(in srgb, #8e97a4 38%, var(--line));
   box-shadow: var(--shadow-sm);
 }
 .bubble .stamp{ font-size:var(--fs-11); color:var(--text-muted); margin-top:4px; }
@@ -235,17 +244,53 @@ body{
   background:var(--surface-chat); outline:none; color:inherit;
 }
 
+/* Copilot (subtle living aura; flat by default) */
+.btn-copilot{
+  position:relative;
+  height:32px; padding:0 12px; border-radius:var(--r-8);
+  border:1px solid var(--line); background:var(--surface-chat);
+  display:inline-flex; align-items:center; gap:8px; cursor:pointer;
+  isolation:isolate; /* keep aura behind */
+}
+.btn-copilot .copilot-core{ display:inline-flex; align-items:center; gap:8px; z-index:2; }
+.btn-copilot .copilot-aura{
+  content:""; position:absolute; inset:-2px; border-radius:inherit; z-index:1; pointer-events:none;
+  opacity:0; filter:blur(8px);
+  background:
+    conic-gradient(from 0deg,
+      #ff6ec7 0deg, #a394ff 60deg, #6ccaff 120deg, #6dffa7 180deg,
+      #ffe66d 240deg, #ff9a6c 300deg, #ff6ec7 360deg);
+  transition: opacity var(--t-med) var(--ease), filter var(--t-med) var(--ease);
+}
+.btn-copilot:hover .copilot-aura{ opacity:.35; }
+.btn-copilot.is-active .copilot-aura{
+  opacity:.5; animation: copilot-breathe 2.2s var(--ease) infinite;
+}
+@keyframes copilot-breathe{
+  0%,100%{ filter: blur(10px); opacity:.36 }
+  50%     { filter: blur(14px); opacity:.52 }
+}
+
+/* Send */
+.btn-primary{
+  height:32px; padding:0 12px; border-radius:var(--r-8);
+  border:1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  background:var(--accent); color:#fff; cursor:pointer;
+  box-shadow:none;
+}
+.btn-primary:disabled{ opacity:.6; cursor:not-allowed; }
+.btn-primary:not(:disabled):hover{ filter:brightness(1.04); box-shadow:none; }
+.btn-primary.is-ready:hover{ box-shadow: 0 0 0 3px var(--accent-tint); }
+
 /* ---------------- Details (right) ---------------- */
 .group + .group{ border-top:1px solid var(--line); }
 .group-title{
   padding:10px 12px; font-size:var(--fs-12); color:var(--text-muted);
   text-transform:uppercase; letter-spacing:.04em;
 }
-
 .kv{
-  display:grid; grid-template-columns: 1fr auto; /* tight label/value grid */
-  align-items:center;
-  gap:8px; padding:10px 12px; border-bottom:1px solid var(--line);
+  display:grid; grid-template-columns: 1fr auto;
+  align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--line);
 }
 .kv:last-child{ border-bottom:0; }
 .kv label{ color:var(--text-muted); font-size:var(--fs-11); letter-spacing:.02em; text-transform:uppercase; }
@@ -257,22 +302,29 @@ body{
   border-radius:6px; padding:1px 6px; font-size:var(--fs-12);
 }
 
-/* ---------------- Buttons & Chips (toned down) ---------------- */
+/* Tag chips (the “emotional” color layer) */
+.tag-row{ display:flex; flex-wrap:wrap; gap:6px; padding:10px 12px; }
+.tag{
+  --tag-bg: var(--tag-gray);
+  display:inline-flex; align-items:center; gap:6px;
+  height:22px; padding:0 8px; border-radius:999px; font-size:var(--fs-12);
+  color:#fff; background:var(--tag-bg); border:1px solid color-mix(in srgb, var(--tag-bg) 55%, #0000);
+}
+.tag[data-color="blue"]  { --tag-bg: var(--tag-blue); }
+.tag[data-color="pink"]  { --tag-bg: var(--tag-pink); }
+.tag[data-color="red"]   { --tag-bg: var(--tag-red); }
+.tag[data-color="green"] { --tag-bg: var(--tag-green); }
+.tag[data-color="amber"] { --tag-bg: var(--tag-amber); }
+.tag[data-color="purple"]{ --tag-bg: var(--tag-purple); }
+.tag[data-color="cyan"]  { --tag-bg: var(--tag-cyan); }
+.tag[data-color="gray"]  { --tag-bg: var(--tag-gray); }
+
+/* Utility buttons */
 .btn-sm{
   height:32px; padding:0 10px; border:1px solid var(--line);
   border-radius:var(--r-8); background:var(--surface-chat); cursor:pointer;
 }
 .btn-sm:hover{ background:color-mix(in srgb, var(--surface-chat) 92%, var(--surface-list)); }
-
-.btn-primary{
-  height:32px; padding:0 12px; border-radius:var(--r-8);
-  border:1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
-  background:var(--accent); color:#fff; cursor:pointer;
-  box-shadow:none;
-}
-.btn-primary:disabled{ opacity:.6; cursor:not-allowed; }
-.btn-primary:not(:disabled):hover{ filter:brightness(1.04); box-shadow:none; }
-.btn-primary.is-ready:hover{ box-shadow: 0 0 0 3px var(--accent-tint); }
 
 .chip{
   height:24px; display:inline-flex; align-items:center; gap:6px;
@@ -281,7 +333,7 @@ body{
 }
 .chip:hover{ background:color-mix(in srgb, var(--surface-chat) 92%, var(--surface-detail)); }
 
-/* ---------------- A11y Focus ---------------- */
+/* A11y focus */
 :focus-visible{
   outline:0;
   box-shadow: 0 0 0 3px var(--accent-tint);
