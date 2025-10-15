@@ -116,6 +116,7 @@ export default function Dashboard() {
           title={railOpen ? "Collapse navigation" : "Expand navigation"}
           onClick={() => setRailOpen((v) => !v)}
         >
+          {/* chevrons reflect open/closed */}
           <Icon d={railOpen ? "M15 6l-6 6 6 6" : "M9 6l6 6-6 6"} />
         </button>
 
@@ -162,15 +163,16 @@ export default function Dashboard() {
       <main
         className={`p-work grid ${railOpen ? "rail-open" : "rail-closed"}`}
         style={{
-          ["--rail-w" as any]: railOpen ? "232px" : "64px",
-          ["--detail-w" as any]: "280px", // tighten right panel (260–300px)
+          ["--rail-w" as any]: railOpen ? "232px" : "64px", // flush left, pushes content
+          ["--detail-w" as any]: "260px",                    // trimmed 20px
         }}
       >
-        {/* RAIL (flush-left) */}
+        {/* RAIL (flush-left, anchored) */}
         <aside className={`rail ${railOpen ? "" : "collapsed"} matte`}>
           <nav>
+            {/* Contacts (fixed “shoulder” icon) */}
             <a className="rail-item active" title="Contacts" aria-current="page">
-              <Icon d="M16 11a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM3 20c0-4 4-7 9-7s9 3 9 7" />
+              <Icon d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm7 8a7 7 0 1 0-14 0" />
               {railOpen && <span>Contacts</span>}
               <span className="rail-active" />
             </a>
@@ -220,8 +222,9 @@ export default function Dashboard() {
               onChange={(e) => setQuery(e.target.value)}
               aria-label="Search contacts"
             />
+            {/* funnel filter icon */}
             <button className="icon-btn sm" title="Filter">
-              <Icon d="M3 5h18M6 12h12M10 19h4" />
+              <Icon d="M3 5h18M7 12h10M10 19h4" />
             </button>
           </div>
 
@@ -275,9 +278,9 @@ export default function Dashboard() {
               onChange={(e) => setDraft(e.target.value)}
             />
 
-            {/* AI Copilot — calm base, living aura on hover/active */}
+            {/* AI Copilot — slower, intentional pulse */}
             <button
-              className={`btn-copilot ${copilotBusy ? "is-active" : ""}`}
+              className={`btn-copilot slow ${copilotBusy ? "is-active" : ""}`}
               title="AI Copilot"
               onClick={() => setCopilotBusy((s) => !s)}
             >
