@@ -5,14 +5,16 @@ import { getLeads, Lead, logout } from "../lib/api";
 
 type Msg = { id: string; from: "lead" | "me"; text: string; at: string };
 
-const Icon = ({
+const OutlineIcon = ({
   d,
   size = 18,
   stroke = "currentColor",
+  strokeWidth = 1.5,
 }: {
   d: string;
   size?: number;
   stroke?: string;
+  strokeWidth?: number;
 }) => (
   <svg
     width={size}
@@ -20,7 +22,7 @@ const Icon = ({
     viewBox="0 0 24 24"
     fill="none"
     stroke={stroke}
-    strokeWidth="1.6"
+    strokeWidth={strokeWidth}
     strokeLinecap="round"
     strokeLinejoin="round"
     aria-hidden
@@ -37,7 +39,7 @@ export default function Dashboard() {
   const [draft, setDraft] = useState("");
   const [railOpen, setRailOpen] = useState(true);
 
-  // theme (persist)
+  // theme
   const [theme, setTheme] = useState<"light" | "dark">(
     (localStorage.getItem("gs_theme") as "light" | "dark") || "light"
   );
@@ -46,7 +48,7 @@ export default function Dashboard() {
     localStorage.setItem("gs_theme", theme);
   }, [theme]);
 
-  // load leads
+  // load leads once
   useEffect(() => {
     (async () => {
       try {
@@ -84,7 +86,7 @@ export default function Dashboard() {
     ];
   }, [selected?.id]);
 
-  // filter list
+  // filters
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return leads;
@@ -96,7 +98,6 @@ export default function Dashboard() {
     );
   }, [query, leads]);
 
-  // utils
   function copy(v?: string | null) {
     if (!v) return;
     navigator.clipboard?.writeText(v).catch(() => {});
@@ -104,17 +105,21 @@ export default function Dashboard() {
 
   // profile menu
   const [menuOpen, setMenuOpen] = useState(false);
+  function closeMenuSoon() {
+    setTimeout(() => setMenuOpen(false), 120);
+  }
 
   return (
     <div className="p-shell">
-      {/* Topbar (center brand, profile menu) */}
+      {/* TOP BAR (centered brand, account menu on right, rail toggle on left) */}
       <header className="p-topbar matte">
         <button
-          className="left-toggle icon-btn"
-          title={railOpen ? "Collapse menu" : "Expand menu"}
-          onClick={() => setRailOpen((o) => !o)}
+          className="icon-btn left-toggle"
+          aria-label="Toggle left rail"
+          title="Toggle left rail"
+          onClick={() => setRailOpen((v) => !v)}
         >
-          <Icon d={railOpen ? "M15 6l-6 6 6 6" : "M9 6l6 6-6 6"} />
+          <OutlineIcon d="M9 6l6 6-6 6" />
         </button>
 
         <div className="brand-center">GroScales</div>
@@ -131,14 +136,14 @@ export default function Dashboard() {
               <div className="avatar small">U</div>
             </button>
             {menuOpen && (
-              <div className="menu" role="menu" onMouseLeave={() => setMenuOpen(false)}>
+              <div className="menu" role="menu" onBlur={closeMenuSoon}>
                 <button
                   className="menu-item"
                   onClick={() =>
                     setTheme((t) => (t === "light" ? "dark" : "light"))
                   }
                 >
-                  <Icon d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                  <OutlineIcon d="M12 4a8 8 0 0 0 0 16 8 8 0 0 1 0-16z" />
                   {theme === "light" ? "Dark mode" : "Light mode"}
                 </button>
                 <div className="menu-sep" />
@@ -149,7 +154,7 @@ export default function Dashboard() {
                     window.location.href = "/login";
                   }}
                 >
-                  <Icon d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+                  <OutlineIcon d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
                   Logout
                 </button>
               </div>
@@ -158,46 +163,48 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* 3-column grid */}
-      <main className={`p-work grid ${railOpen ? "rail-open" : "rail-closed"}`}>
-        {/* Left rail (outline icons; minimal) */}
+      {/* 3-column work area (contacts / chat / details) */}
+      <main
+        className={`p-work grid ${railOpen ? "rail-open" : "rail-closed"}`}
+      >
+        {/* LEFT RAIL — outline icons, minimal */}
         <aside className={`rail ${railOpen ? "" : "collapsed"} matte`}>
           <nav>
-            {/* Corrected “shoulder” contacts icon */}
             <a className="rail-item active" title="Contacts">
-              <Icon d="M16 11a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM3 20c0-4 4-7 9-7s9 3 9 7" />
+              {/* fixed shoulder contact icon */}
+              <OutlineIcon d="M16 11a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM3 20c0-4 4-7 9-7s9 3 9 7" />
               {railOpen && <span>Contacts</span>}
             </a>
             <a className="rail-item" title="Workflows">
-              <Icon d="M4 6h16M4 12h10M4 18h7" />
+              <OutlineIcon d="M4 6h16M4 12h12M4 18h8" />
               {railOpen && <span>Workflows</span>}
             </a>
             <a className="rail-item" title="Phone numbers">
-              <Icon d="M6 2h12v20H6zM9 18h6" />
+              <OutlineIcon d="M6 2h12v20H6zM9 18h6" />
               {railOpen && <span>Phone numbers</span>}
             </a>
             <a className="rail-item" title="Tags">
-              <Icon d="M3 6h8l8 8-8 8H3V6zM7 10h0" />
+              <OutlineIcon d="M20 12l-8 8-8-8 8-8 8 8z" />
               {railOpen && <span>Tags</span>}
             </a>
             <a className="rail-item" title="Templates">
-              <Icon d="M4 4h16v6H4zM4 14h10" />
+              <OutlineIcon d="M4 4h16v6H4zM4 14h10" />
               {railOpen && <span>Templates</span>}
             </a>
             <a className="rail-item" title="Uploads">
-              <Icon d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16" />
+              <OutlineIcon d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16" />
               {railOpen && <span>Uploads</span>}
             </a>
           </nav>
           <div className="rail-foot">
             <a className="rail-item" title="Settings">
-              <Icon d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.07a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06c.46-.46.6-1.14.33-1.73A1.65 1.65 0 0 0 3 13H3a2 2 0 1 1 0-4h.07c.67 0 1.28-.38 1.55-.97.27-.59.13-1.27-.33-1.73l-.06-.06A2 2 0 1 1 7.06 2.4l.06.06c.46.46 1.14.6 1.73.33.59-.27.97-.88.97-1.55V1a2 2 0 1 1 4 0v.07c0 .67.38 1.28.97 1.55.59.27 1.27.13 1.73-.33l.06-.06A2 2 0 1 1 20.6 4.4l-.06.06c-.46.46-.6 1.14-.33 1.73.27.59.88.97 1.55.97H22a2 2 0 1 1 0 4h-.07c-.67 0-1.28.38-1.55.97-.27.59-.13 1.27.33 1.73l.06.06z" />
+              <OutlineIcon d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.07a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06c.46-.46.6-1.14.33-1.73A1.65 1.65 0 0 0 3 13H3a2 2 0 1 1 0-4h.07c.67 0 1.28-.38 1.55-.97.27-.59.13-1.27-.33-1.73l-.06-.06A2 2 0 1 1 7.06 2.4l.06.06c.46.46 1.14.6 1.73.33.59-.27.97-.88.97-1.55V1a2 2 0 1 1 4 0v.07c0 .67.38 1.28.97 1.55.59.27 1.27.13 1.73-.33l.06-.06A2 2 0 1 1 20.6 4.4l-.06.06c-.46.46-.6 1.14-.33 1.73.27.59.88.97 1.55.97H22a2 2 0 1 1 0 4h-.07c-.67 0-1.28.38-1.55.97-.27.59-.13 1.27.33 1.73l.06.06z" />
               {railOpen && <span>Settings</span>}
             </a>
           </div>
         </aside>
 
-        {/* List */}
+        {/* LIST */}
         <section className="panel list matte">
           <div className="list-head">
             <div className="h">Contacts</div>
@@ -207,15 +214,16 @@ export default function Dashboard() {
           </div>
 
           <div className="search">
-            <Icon d="M11 19a8 8 0 1 1 5.29-14.29L21 9l-4 4" />
+            <OutlineIcon d="M11 19a8 8 0 1 1 5.29-14.29L21 9l-4 4" />
             <input
               placeholder="Search…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              aria-label="Search contacts"
             />
-            {/* filter button on right of search */}
             <button className="icon-btn sm" title="Filter">
-              <Icon d="M3 5h18M6 12h12M10 19h4" />
+              {/* filter icon */}
+              <OutlineIcon d="M3 5h18l-7 8v6l-4 2v-8L3 5z" />
             </button>
           </div>
 
@@ -223,13 +231,15 @@ export default function Dashboard() {
             {filtered.map((l) => (
               <li
                 key={String(l.id)}
-                className={`row ${String(l.id) === String(selectedId) ? "selected" : ""}`}
+                className={`row ${
+                  String(l.id) === String(selectedId) ? "selected" : ""
+                }`}
                 onClick={() => setSelectedId(l.id)}
               >
                 <div className="avatar">
                   {(l.name || l.email || "?").slice(0, 1).toUpperCase()}
                 </div>
-                <div className="meta">
+                <div className="meta" style={{ flex: 1 }}>
                   <div className="name">{l.name || "—"}</div>
                   <div className="sub">{l.email}</div>
                 </div>
@@ -239,7 +249,7 @@ export default function Dashboard() {
           </ul>
         </section>
 
-        {/* Thread */}
+        {/* THREAD */}
         <section className="panel thread matte">
           <div className="thread-title">
             <div className="who">
@@ -253,10 +263,12 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* messages fill the remaining height; composer pinned to bottom */}
           <div className="messages" key={selected?.id ?? "none"}>
             {messages.map((m) => (
-              <div key={m.id} className={`bubble ${m.from === "me" ? "mine" : ""}`}>
+              <div
+                key={m.id}
+                className={`bubble ${m.from === "me" ? "mine" : ""}`}
+              >
                 <div className="txt">{m.text}</div>
                 <div className="stamp">{m.at}</div>
               </div>
@@ -268,46 +280,114 @@ export default function Dashboard() {
               placeholder="Send a message…"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              disabled
             />
             <button className="btn-sm">Templates</button>
-            <button className="btn-primary" disabled>Send</button>
+            <button
+              className={`btn-primary ${draft.trim() ? "is-ready" : ""}`}
+              disabled={!draft.trim()}
+              title={draft.trim() ? "Send" : "Type a message to send"}
+            >
+              Send
+            </button>
           </div>
         </section>
 
-        {/* Details */}
+        {/* DETAILS */}
         <aside className="panel details matte">
-          <div className="section-head">
-            <div className="section-title">Contact</div>
-          </div>
+          <div className="group">
+            <div className="group-title">Personal Info</div>
 
-          {[
-            ["Full name", selected?.name || "—", selected?.name],
-            ["First name", (selected?.name || "").split(" ")[0] || "—", (selected?.name || "").split(" ")[0]],
-            ["Last name", (selected?.name || "").split(" ").slice(1).join(" ") || "—", (selected?.name || "").split(" ").slice(1).join(" ")],
-            ["Email", selected?.email || "—", selected?.email],
-            ["Phone", selected?.phone || "—", selected?.phone],
-            ["DOB", "—", null],
-            ["Age", "—", null],
-            ["City", "—", null],
-            ["State", "—", null],
-            ["ZIP", "—", null],
-            ["Household size", "—", null],
-            ["Quote", "—", null],
-            ["Created", selected?.createdAt || "—", selected?.createdAt],
-          ].map(([label, value, copyable], i) => (
-            <div className="kv" key={i}>
-              <label>{label}</label>
+            <div className="kv">
+              <label>Full name</label>
+              <span>{selected?.name || "—"}</span>
+            </div>
+            <div className="kv">
+              <label>First name</label>
+              <span>{(selected?.name || "").split(" ")[0] || "—"}</span>
+            </div>
+            <div className="kv">
+              <label>Last name</label>
+              <span>
+                {(selected?.name || "").split(" ").slice(1).join(" ") || "—"}
+              </span>
+            </div>
+
+            <div className="kv">
+              <label>Email</label>
               <span className="copy-row">
-                <span>{value as string}</span>
-                {!!copyable && (
-                  <button className="chip" title="Copy" onClick={() => copy(copyable as string)}>
-                    <Icon d="M16 3H5a2 2 0 0 0-2 2v11M8 7h11a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z" />
+                <span>{selected?.email || "—"}</span>
+                {!!selected?.email && (
+                  <button
+                    className="chip"
+                    onClick={() => copy(selected.email)}
+                    title="Copy email"
+                  >
+                    <OutlineIcon d="M8 7h9a2 2 0 0 1 2 2v9H8a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zM6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8" />
+                    Copy
                   </button>
                 )}
               </span>
             </div>
-          ))}
+
+            <div className="kv">
+              <label>Phone</label>
+              <span className="copy-row">
+                <span>{selected?.phone || "—"}</span>
+                {!!selected?.phone && (
+                  <button
+                    className="chip"
+                    onClick={() => copy(selected.phone!)}
+                    title="Copy phone"
+                  >
+                    <OutlineIcon d="M8 7h9a2 2 0 0 1 2 2v9H8a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zM6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8" />
+                    Copy
+                  </button>
+                )}
+              </span>
+            </div>
+          </div>
+
+          <div className="group">
+            <div className="group-title">Demographics</div>
+            <div className="kv">
+              <label>DOB</label>
+              <span>—</span>
+            </div>
+            <div className="kv">
+              <label>Age</label>
+              <span>—</span>
+            </div>
+            <div className="kv">
+              <label>City</label>
+              <span>—</span>
+            </div>
+            <div className="kv">
+              <label>State</label>
+              <span>—</span>
+            </div>
+            <div className="kv">
+              <label>ZIP</label>
+              <span className="copy-row">
+                <span>—</span>
+              </span>
+            </div>
+            <div className="kv">
+              <label>Household size</label>
+              <span>—</span>
+            </div>
+          </div>
+
+          <div className="group">
+            <div className="group-title">System Info</div>
+            <div className="kv">
+              <label>Quote</label>
+              <span>—</span>
+            </div>
+            <div className="kv">
+              <label>Created</label>
+              <span>{selected?.createdAt || "—"}</span>
+            </div>
+          </div>
         </aside>
       </main>
     </div>
