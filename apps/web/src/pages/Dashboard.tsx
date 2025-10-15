@@ -42,7 +42,7 @@ export default function Dashboard() {
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [railOpen, setRailOpen] = useState(true);
-  const [copilotBusy, setCopilotBusy] = useState(false); // UI animation state only
+  const [copilotBusy, setCopilotBusy] = useState(false);
 
   const [theme, setTheme] = useState<"light" | "dark">(
     (localStorage.getItem("gs_theme") as "light" | "dark") || "light"
@@ -161,9 +161,12 @@ export default function Dashboard() {
       {/* Grid: rail / list / thread / details */}
       <main
         className={`p-work grid ${railOpen ? "rail-open" : "rail-closed"}`}
-        style={{ ["--rail-w" as any]: railOpen ? "232px" : "64px" }}
+        style={{
+          ["--rail-w" as any]: railOpen ? "232px" : "64px",
+          ["--detail-w" as any]: "280px", // tighten right panel (260–300px)
+        }}
       >
-        {/* RAIL (flat, neutral) */}
+        {/* RAIL (flush-left) */}
         <aside className={`rail ${railOpen ? "" : "collapsed"} matte`}>
           <nav>
             <a className="rail-item active" title="Contacts" aria-current="page">
@@ -272,15 +275,11 @@ export default function Dashboard() {
               onChange={(e) => setDraft(e.target.value)}
             />
 
-            {/* AI Copilot — flat by default, subtle living glow */}
+            {/* AI Copilot — calm base, living aura on hover/active */}
             <button
               className={`btn-copilot ${copilotBusy ? "is-active" : ""}`}
               title="AI Copilot"
-              onClick={() => {
-                // purely visual toggle; wire to real action later
-                setCopilotBusy((s) => !s);
-                // setTimeout(() => setCopilotBusy(false), 2500);
-              }}
+              onClick={() => setCopilotBusy((s) => !s)}
             >
               <span className="copilot-core">
                 <Icon d="M12 2l2.5 4.5L19 8l-4.5 2L12 15l-2.5-5L5 8l4.5-1.5L12 2z" />
@@ -356,14 +355,12 @@ export default function Dashboard() {
             <div className="kv"><label>Household size</label><span className="placeholder">Not provided</span></div>
           </div>
 
-          {/* Tag color is the “emotional layer” */}
           <div className="group">
             <div className="group-title">Tags</div>
             <div className="tag-row">
               <span className="tag" data-color="blue">new</span>
               <span className="tag" data-color="pink">follow-up</span>
               <span className="tag" data-color="green">warm</span>
-              {/* Users can pick their own; just set data-color */}
             </div>
           </div>
 
