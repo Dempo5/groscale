@@ -42,6 +42,7 @@ export default function Dashboard() {
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [railOpen, setRailOpen] = useState(true);
+  const [copilotBusy, setCopilotBusy] = useState(false); // UI animation state only
 
   const [theme, setTheme] = useState<"light" | "dark">(
     (localStorage.getItem("gs_theme") as "light" | "dark") || "light"
@@ -107,7 +108,7 @@ export default function Dashboard() {
 
   return (
     <div className="p-shell">
-      {/* Topbar (flush, centered brand) */}
+      {/* Topbar (neutral, centered brand) */}
       <header className="p-topbar matte">
         <button
           className="icon-btn left-toggle"
@@ -157,12 +158,12 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* Grid: rail (flush-left) / list / thread / details */}
+      {/* Grid: rail / list / thread / details */}
       <main
         className={`p-work grid ${railOpen ? "rail-open" : "rail-closed"}`}
         style={{ ["--rail-w" as any]: railOpen ? "232px" : "64px" }}
       >
-        {/* RAIL */}
+        {/* RAIL (flat, neutral) */}
         <aside className={`rail ${railOpen ? "" : "collapsed"} matte`}>
           <nav>
             <a className="rail-item active" title="Contacts" aria-current="page">
@@ -193,13 +194,13 @@ export default function Dashboard() {
           </nav>
           <div className="rail-foot">
             <a className="rail-item" title="Settings">
-              <Icon d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.07a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06c.46-.46.6-1.14.33-1.73A1.65 1.65 0 0 0 3 13H3a2 2 0 1 1 0-4h.07c.67 0 1.28-.38 1.55-.97.27-.59.13-1.27-.33-1.73l-.06-.06A2 2 0 1 1 7.06 2.4" />
+              <Icon d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.07a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06c.46-.46.6-1.14.33-1.73A1.65 1.65 0 0 0 3 13" />
               {railOpen && <span>Settings</span>}
             </a>
           </div>
         </aside>
 
-        {/* LIST */}
+        {/* LIST (contacts) */}
         <section className="panel list matte">
           <div className="list-head">
             <div className="h">Contacts</div>
@@ -241,7 +242,7 @@ export default function Dashboard() {
           </ul>
         </section>
 
-        {/* THREAD */}
+        {/* THREAD (chat) */}
         <section className="panel thread matte">
           <div className="thread-title">
             <div className="who">
@@ -270,7 +271,24 @@ export default function Dashboard() {
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
             />
-            <button className="btn-sm">Templates</button>
+
+            {/* AI Copilot — flat by default, subtle living glow */}
+            <button
+              className={`btn-copilot ${copilotBusy ? "is-active" : ""}`}
+              title="AI Copilot"
+              onClick={() => {
+                // purely visual toggle; wire to real action later
+                setCopilotBusy((s) => !s);
+                // setTimeout(() => setCopilotBusy(false), 2500);
+              }}
+            >
+              <span className="copilot-core">
+                <Icon d="M12 2l2.5 4.5L19 8l-4.5 2L12 15l-2.5-5L5 8l4.5-1.5L12 2z" />
+                <span>Copilot</span>
+              </span>
+              <span className="copilot-aura" aria-hidden />
+            </button>
+
             <button
               className={`btn-primary ${draft.trim() ? "is-ready" : ""}`}
               disabled={!draft.trim()}
@@ -281,7 +299,7 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* DETAILS */}
+        {/* DETAILS (right) */}
         <aside className="panel details matte">
           <div className="group">
             <div className="group-title">Personal Info</div>
@@ -336,6 +354,17 @@ export default function Dashboard() {
             <div className="kv"><label>State</label><span className="placeholder">Not provided</span></div>
             <div className="kv"><label>ZIP</label><span className="placeholder">Not provided</span></div>
             <div className="kv"><label>Household size</label><span className="placeholder">Not provided</span></div>
+          </div>
+
+          {/* Tag color is the “emotional layer” */}
+          <div className="group">
+            <div className="group-title">Tags</div>
+            <div className="tag-row">
+              <span className="tag" data-color="blue">new</span>
+              <span className="tag" data-color="pink">follow-up</span>
+              <span className="tag" data-color="green">warm</span>
+              {/* Users can pick their own; just set data-color */}
+            </div>
           </div>
 
           <div className="group">
