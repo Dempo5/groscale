@@ -5,6 +5,7 @@ import { getLeads, Lead, logout } from "../lib/api";
 
 type Msg = { id: string; from: "lead" | "me"; text: string; at: string };
 
+/* ---------- tiny outline icons (no emojis) ---------- */
 const Icon = ({
   d,
   size = 18,
@@ -29,7 +30,26 @@ const Icon = ({
   </svg>
 );
 
+const ContactsIcon = () => (
+  <Icon d="M16 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM4 20a6 6 0 0 1 12 0H4Z" />
+);
+const WorkflowsIcon = () => <Icon d="M4 6h16M4 12h12M4 18h8" />;
+const NumbersIcon = () => <Icon d="M6 2h12v20H6zM9 18h6" />;
+const TagIcon = () => <Icon d="M20 12 12 20 4 12l6-6 10 10Z" />;
+const TemplatesIcon = () => <Icon d="M4 4h16v6H4zM4 14h12M4 18h8" />;
+const UploadsIcon = () => <Icon d="M12 3v12m0 0-4-4m4 4 4-4M4 21h16" />;
+const SettingsIcon = () => (
+  <Icon d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" />
+);
+const ChevronIcon = ({ left = false }) => (
+  <Icon d={left ? "M15 18 9 12l6-6" : "M9 6l6 6-6 6"} />
+);
+const SearchIcon = () => <Icon d="M11 19a8 8 0 1 1 5.3-14.3L21 9l-4 4" />;
+const FilterIcon = () => <Icon d="M3 5h18M6 12h12M10 19h8" />;
+const CopyIcon = () => <Icon d="M9 9h9v12H9zM6 3h9v6" />;
+
 export default function Dashboard() {
+  // data
   const [leads, setLeads] = useState<Lead[]>([]);
   const [selectedId, setSelectedId] = useState<string | number | null>(null);
   const [query, setQuery] = useState("");
@@ -37,6 +57,7 @@ export default function Dashboard() {
   const [railOpen, setRailOpen] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
 
+  // theme (light | dark)
   const [theme, setTheme] = useState<"light" | "dark">(
     (localStorage.getItem("gs_theme") as "light" | "dark") || "light"
   );
@@ -45,6 +66,7 @@ export default function Dashboard() {
     localStorage.setItem("gs_theme", theme);
   }, [theme]);
 
+  // load leads
   useEffect(() => {
     (async () => {
       try {
@@ -57,9 +79,12 @@ export default function Dashboard() {
     })();
   }, []);
 
-  const selected =
-    useMemo(() => leads.find((l) => String(l.id) === String(selectedId)) || null, [leads, selectedId]);
+  const selected = useMemo(
+    () => leads.find((l) => String(l.id) === String(selectedId)) || null,
+    [leads, selectedId]
+  );
 
+  // demo thread
   const messages: Msg[] = useMemo(() => {
     if (!selected) return [];
     return [
@@ -72,12 +97,14 @@ export default function Dashboard() {
       {
         id: "m2",
         from: "me",
-        text: "Great to meet you. I’ll compare Blue Cross and United and send a quick quote today.",
+        text:
+          "Great to meet you. I’ll compare Blue Cross and United and send a quick quote today.",
         at: "9:17 AM",
       },
     ];
   }, [selected?.id]);
 
+  // search filter
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return leads;
@@ -89,115 +116,102 @@ export default function Dashboard() {
     );
   }, [query, leads]);
 
-  function copy(text?: string | null) {
-    if (!text) return;
-    navigator.clipboard?.writeText(text).catch(() => {});
+  // small util
+  function copy(v?: string | null) {
+    if (!v) return;
+    navigator.clipboard?.writeText(v).catch(() => {});
   }
-  function copyAll() {
-    const parts = [
-      selected?.name,
-      selected?.email,
-      selected?.phone,
-      // placeholders for future structured fields
-      "DOB: —",
-      "Age: —",
-      "City: —",
-      "State: —",
-      "ZIP: —",
-      "Household size: —",
-      "Quote: —",
-      selected?.createdAt ? `Created: ${selected.createdAt}` : undefined,
-    ].filter(Boolean);
-    copy(parts.join("\n"));
-  }
+
+  const CopyChip = ({ value }: { value?: string | null }) =>
+    value ? (
+      <button className="chip copy-chip" onClick={() => copy(value)} title="Copy">
+        <CopyIcon />
+      </button>
+    ) : (
+      <span className="copy-spacer" />
+    );
 
   return (
     <div className="p-shell matte">
       {/* TOP BAR */}
       <header className="p-topbar matte">
         <button
-          className="icon-btn left-toggle"
-          aria-label="Toggle navigation"
-          title="Toggle navigation"
+          className="icon-btn rail-toggle"
+          aria-label="Toggle left rail"
           onClick={() => setRailOpen((v) => !v)}
+          title={railOpen ? "Collapse" : "Expand"}
         >
-          {/* chevron points in/out */}
-          <Icon d={railOpen ? "M14 6l-6 6 6 6" : "M10 6l6 6-6 6"} />
+          <ChevronIcon left={railOpen} />
         </button>
 
         <div className="brand-center">GroScales</div>
 
-        <div className="top-actions">
-          <div className="profile">
-            <button
-              className="profile-btn"
-              onClick={() => setMenuOpen((o) => !o)}
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-              title="Account"
-            >
-              <div className="avatar small">U</div>
-            </button>
-            {menuOpen && (
-              <div className="menu" role="menu" onMouseLeave={() => setMenuOpen(false)}>
-                <button
-                  className="menu-item"
-                  onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
-                >
-                  <Icon d="M12 3v18M3 12h18" />
-                  {theme === "light" ? "Dark mode" : "Light mode"}
-                </button>
-                <div className="menu-sep" />
-                <button
-                  className="menu-item danger"
-                  onClick={() => {
-                    logout();
-                    window.location.href = "/login";
-                  }}
-                >
-                  <Icon d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-                  Logout
-                </button>
-              </div>
-            )}
-          </div>
+        <div className="profile">
+          <button
+            className="profile-btn"
+            onClick={() => setMenuOpen((o) => !o)}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            title="Account"
+          >
+            <div className="avatar small">U</div>
+          </button>
+          {menuOpen && (
+            <div className="menu" role="menu" onMouseLeave={() => setMenuOpen(false)}>
+              <button
+                className="menu-item"
+                onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
+              >
+                {theme === "light" ? "Dark mode" : "Light mode"}
+              </button>
+              <div className="menu-sep" />
+              <button
+                className="menu-item danger"
+                onClick={() => {
+                  logout();
+                  window.location.href = "/login";
+                }}
+              >
+                Logout
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
-      {/* MAIN GRID */}
+      {/* WORK AREA */}
       <main className={`p-work grid ${railOpen ? "rail-open" : "rail-closed"}`}>
-        {/* LEFT RAIL — outline icons only */}
+        {/* LEFT RAIL */}
         <aside className={`rail ${railOpen ? "" : "collapsed"} matte`}>
           <nav>
             <a className="rail-item active" title="Contacts">
-              <Icon d="M16 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM4 20a7 7 0 0 1 12 0" />
+              <ContactsIcon />
               {railOpen && <span>Contacts</span>}
             </a>
             <a className="rail-item" title="Workflows">
-              <Icon d="M4 6h16M4 12h12M4 18h8" />
+              <WorkflowsIcon />
               {railOpen && <span>Workflows</span>}
             </a>
             <a className="rail-item" title="Phone numbers">
-              <Icon d="M6 2h12v20H6zM9 18h6" />
+              <NumbersIcon />
               {railOpen && <span>Phone numbers</span>}
             </a>
             <a className="rail-item" title="Tags">
-              {/* tag outline */}
-              <Icon d="M20 12l-7.2 7.2A2 2 0 0 1 10.4 20L4 13.6V6h7.6L20 12zM8 9h.01" />
+              <TagIcon />
               {railOpen && <span>Tags</span>}
             </a>
             <a className="rail-item" title="Templates">
-              <Icon d="M4 4h16v6H4zM4 14h12M4 18h8" />
+              <TemplatesIcon />
               {railOpen && <span>Templates</span>}
             </a>
             <a className="rail-item" title="Uploads">
-              <Icon d="M12 3v10m0 0l-4-4m4 4l4-4M4 21h16" />
+              <UploadsIcon />
               {railOpen && <span>Uploads</span>}
             </a>
           </nav>
           <div className="rail-foot">
             <a className="rail-item" title="Settings">
-              <Icon d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM19.4 15a1.7 1.7 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.82-.33V21a2 2 0 1 1-4 0v-.07a1.7 1.7 0 0 0-1.82.33l-.06.06A2 2 0 1 1 4.2 16.88l.06-.06c.46-.46.6-1.14.33-1.73A1.7 1.7 0 0 0 3 13a2 2 0 1 1 0-4 1.7 1.7 0 0 0 1.55-.97c.27-.59.13-1.27-.33-1.73l-.06-.06A2 2 0 1 1 7.06 2.4l.06.06c.46.46 1.14.6 1.73.33.59-.27.97-.88.97-1.55V1a2 2 0 1 1 4 0v.07c0 .67.38 1.28.97 1.55.59.27 1.27.13 1.73-.33l.06-.06A2 2 0 1 1 20.6 4.4l-.06.06c-.46.46-.6 1.14-.33 1.73.27.59.88.97 1.55.97A2 2 0 1 1 22 11a1.7 1.7 0 0 0-1.55.97z" />
+              <SettingsIcon />
               {railOpen && <span>Settings</span>}
             </a>
           </div>
@@ -207,18 +221,19 @@ export default function Dashboard() {
         <section className="panel list matte">
           <div className="list-head">
             <div className="h">Contacts</div>
-            <div className="list-head-actions">
-              <div className="search">
-                <Icon d="M11 19a8 8 0 1 1 5.29-14.29L21 9l-4 4" />
-                <input
-                  placeholder="Search…"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-              </div>
-              <button className="btn-outline">Filter</button>
-              <button className="btn-outline">+ New</button>
-            </div>
+            <button className="btn-sm">+ New</button>
+          </div>
+
+          <div className="search">
+            <SearchIcon />
+            <input
+              placeholder="Search…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            <button className="icon-btn" title="Filter">
+              <FilterIcon />
+            </button>
           </div>
 
           <ul className="rows">
@@ -267,7 +282,7 @@ export default function Dashboard() {
               onChange={(e) => setDraft(e.target.value)}
               disabled
             />
-            <button className="btn-outline">Templates</button>
+            <button className="btn-sm">Templates</button>
             <button className="btn-primary" disabled>
               Send
             </button>
@@ -276,39 +291,54 @@ export default function Dashboard() {
 
         {/* DETAILS */}
         <aside className="panel details matte">
-          <div className="section-head">
+          <div className="section">
             <div className="section-title">Contact</div>
-            <button className="btn-outline sm" onClick={copyAll}>
-              Copy all
-            </button>
-          </div>
-          {[
-            ["Full name", selected?.name],
-            ["First name", (selected?.name || "").split(" ")[0] || "—"],
-            ["Last name", (selected?.name || "").split(" ").slice(1).join(" ") || "—"],
-            ["Email", selected?.email || "—", selected?.email],
-            ["Phone", selected?.phone || "—", selected?.phone],
-            ["DOB", "—"],
-            ["Age", "—"],
-            ["City", "—"],
-            ["State", "—"],
-            ["ZIP", "—"],
-            ["Household size", "—"],
-            ["Quote", "—"],
-            ["Created", selected?.createdAt || "—"],
-          ].map(([label, value, copyVal]) => (
-            <div className="kv" key={label}>
-              <label>{label}</label>
-              <span className="copy-row">
-                <span>{value as string}</span>
-                {copyVal ? (
-                  <button className="chip" onClick={() => copy(copyVal as string)}>
-                    Copy
-                  </button>
-                ) : null}
-              </span>
+
+            <div className="kv">
+              <label>Full name</label>
+              <span>{selected?.name || "—"}</span>
+              <CopyChip value={selected?.name || undefined} />
             </div>
-          ))}
+
+            <div className="kv">
+              <label>First name</label>
+              <span>{(selected?.name || "").split(" ")[0] || "—"}</span>
+              <CopyChip value={(selected?.name || "").split(" ")[0] || undefined} />
+            </div>
+
+            <div className="kv">
+              <label>Last name</label>
+              <span>{(selected?.name || "").split(" ").slice(1).join(" ") || "—"}</span>
+              <CopyChip
+                value={(selected?.name || "").split(" ").slice(1).join(" ") || undefined}
+              />
+            </div>
+
+            <div className="kv">
+              <label>Email</label>
+              <span>{selected?.email || "—"}</span>
+              <CopyChip value={selected?.email} />
+            </div>
+
+            <div className="kv">
+              <label>Phone</label>
+              <span>{selected?.phone || "—"}</span>
+              <CopyChip value={selected?.phone} />
+            </div>
+
+            <div className="kv"><label>DOB</label><span>—</span><span /></div>
+            <div className="kv"><label>Age</label><span>—</span><span /></div>
+            <div className="kv"><label>City</label><span>—</span><span /></div>
+            <div className="kv"><label>State</label><span>—</span><span /></div>
+            <div className="kv"><label>ZIP</label><span>—</span><span /></div>
+            <div className="kv"><label>Household size</label><span>—</span><span /></div>
+            <div className="kv"><label>Quote</label><span>—</span><span /></div>
+            <div className="kv">
+              <label>Created</label>
+              <span>{selected?.createdAt || "—"}</span>
+              <CopyChip value={selected?.createdAt} />
+            </div>
+          </div>
         </aside>
       </main>
     </div>
