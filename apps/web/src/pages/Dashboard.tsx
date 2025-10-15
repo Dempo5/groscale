@@ -5,7 +5,7 @@ import { getLeads, Lead, logout } from "../lib/api";
 
 type Msg = { id: string; from: "lead" | "me"; text: string; at: string };
 
-const OutlineIcon = ({
+const Icon = ({
   d,
   size = 18,
   stroke = "currentColor",
@@ -31,15 +31,18 @@ const OutlineIcon = ({
   </svg>
 );
 
+function placeholder(v?: string | null) {
+  const clean = typeof v === "string" ? v.trim() : "";
+  return clean ? clean : <span className="placeholder">Not provided</span>;
+}
+
 export default function Dashboard() {
-  // data
   const [leads, setLeads] = useState<Lead[]>([]);
   const [selectedId, setSelectedId] = useState<string | number | null>(null);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [railOpen, setRailOpen] = useState(true);
 
-  // theme
   const [theme, setTheme] = useState<"light" | "dark">(
     (localStorage.getItem("gs_theme") as "light" | "dark") || "light"
   );
@@ -48,7 +51,6 @@ export default function Dashboard() {
     localStorage.setItem("gs_theme", theme);
   }, [theme]);
 
-  // load leads once
   useEffect(() => {
     (async () => {
       try {
@@ -66,7 +68,6 @@ export default function Dashboard() {
     [leads, selectedId]
   );
 
-  // demo thread
   const messages: Msg[] = useMemo(() => {
     if (!selected) return [];
     return [
@@ -86,7 +87,6 @@ export default function Dashboard() {
     ];
   }, [selected?.id]);
 
-  // filters
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return leads;
@@ -103,23 +103,19 @@ export default function Dashboard() {
     navigator.clipboard?.writeText(v).catch(() => {});
   }
 
-  // profile menu
   const [menuOpen, setMenuOpen] = useState(false);
-  function closeMenuSoon() {
-    setTimeout(() => setMenuOpen(false), 120);
-  }
 
   return (
     <div className="p-shell">
-      {/* TOP BAR (centered brand, account menu on right, rail toggle on left) */}
+      {/* Topbar (flush, centered brand) */}
       <header className="p-topbar matte">
         <button
           className="icon-btn left-toggle"
-          aria-label="Toggle left rail"
-          title="Toggle left rail"
+          aria-label={railOpen ? "Collapse navigation" : "Expand navigation"}
+          title={railOpen ? "Collapse navigation" : "Expand navigation"}
           onClick={() => setRailOpen((v) => !v)}
         >
-          <OutlineIcon d="M9 6l6 6-6 6" />
+          <Icon d={railOpen ? "M15 6l-6 6 6 6" : "M9 6l6 6-6 6"} />
         </button>
 
         <div className="brand-center">GroScales</div>
@@ -136,14 +132,12 @@ export default function Dashboard() {
               <div className="avatar small">U</div>
             </button>
             {menuOpen && (
-              <div className="menu" role="menu" onBlur={closeMenuSoon}>
+              <div className="menu" role="menu" onMouseLeave={() => setMenuOpen(false)}>
                 <button
                   className="menu-item"
-                  onClick={() =>
-                    setTheme((t) => (t === "light" ? "dark" : "light"))
-                  }
+                  onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
                 >
-                  <OutlineIcon d="M12 4a8 8 0 0 0 0 16 8 8 0 0 1 0-16z" />
+                  <Icon d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z" />
                   {theme === "light" ? "Dark mode" : "Light mode"}
                 </button>
                 <div className="menu-sep" />
@@ -154,7 +148,7 @@ export default function Dashboard() {
                     window.location.href = "/login";
                   }}
                 >
-                  <OutlineIcon d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+                  <Icon d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
                   Logout
                 </button>
               </div>
@@ -163,42 +157,43 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* 3-column work area (contacts / chat / details) */}
+      {/* Grid: rail (flush-left) / list / thread / details */}
       <main
         className={`p-work grid ${railOpen ? "rail-open" : "rail-closed"}`}
+        style={{ ["--rail-w" as any]: railOpen ? "232px" : "64px" }}
       >
-        {/* LEFT RAIL — outline icons, minimal */}
+        {/* RAIL */}
         <aside className={`rail ${railOpen ? "" : "collapsed"} matte`}>
           <nav>
-            <a className="rail-item active" title="Contacts">
-              {/* fixed shoulder contact icon */}
-              <OutlineIcon d="M16 11a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM3 20c0-4 4-7 9-7s9 3 9 7" />
+            <a className="rail-item active" title="Contacts" aria-current="page">
+              <Icon d="M16 11a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM3 20c0-4 4-7 9-7s9 3 9 7" />
               {railOpen && <span>Contacts</span>}
+              <span className="rail-active" />
             </a>
             <a className="rail-item" title="Workflows">
-              <OutlineIcon d="M4 6h16M4 12h12M4 18h8" />
+              <Icon d="M4 6h16M4 12h12M4 18h8" />
               {railOpen && <span>Workflows</span>}
             </a>
             <a className="rail-item" title="Phone numbers">
-              <OutlineIcon d="M6 2h12v20H6zM9 18h6" />
+              <Icon d="M6 2h12v20H6zM9 18h6" />
               {railOpen && <span>Phone numbers</span>}
             </a>
             <a className="rail-item" title="Tags">
-              <OutlineIcon d="M20 12l-8 8-8-8 8-8 8 8z" />
+              <Icon d="M3 6h8l8 8-8 8H3zM7 10h0" />
               {railOpen && <span>Tags</span>}
             </a>
             <a className="rail-item" title="Templates">
-              <OutlineIcon d="M4 4h16v6H4zM4 14h10" />
+              <Icon d="M4 4h16v6H4zM4 14h10" />
               {railOpen && <span>Templates</span>}
             </a>
             <a className="rail-item" title="Uploads">
-              <OutlineIcon d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16" />
+              <Icon d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16" />
               {railOpen && <span>Uploads</span>}
             </a>
           </nav>
           <div className="rail-foot">
             <a className="rail-item" title="Settings">
-              <OutlineIcon d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.07a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06c.46-.46.6-1.14.33-1.73A1.65 1.65 0 0 0 3 13H3a2 2 0 1 1 0-4h.07c.67 0 1.28-.38 1.55-.97.27-.59.13-1.27-.33-1.73l-.06-.06A2 2 0 1 1 7.06 2.4l.06.06c.46.46 1.14.6 1.73.33.59-.27.97-.88.97-1.55V1a2 2 0 1 1 4 0v.07c0 .67.38 1.28.97 1.55.59.27 1.27.13 1.73-.33l.06-.06A2 2 0 1 1 20.6 4.4l-.06.06c-.46.46-.6 1.14-.33 1.73.27.59.88.97 1.55.97H22a2 2 0 1 1 0 4h-.07c-.67 0-1.28.38-1.55.97-.27.59-.13 1.27.33 1.73l.06.06z" />
+              <Icon d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.07a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06c.46-.46.6-1.14.33-1.73A1.65 1.65 0 0 0 3 13H3a2 2 0 1 1 0-4h.07c.67 0 1.28-.38 1.55-.97.27-.59.13-1.27-.33-1.73l-.06-.06A2 2 0 1 1 7.06 2.4" />
               {railOpen && <span>Settings</span>}
             </a>
           </div>
@@ -214,7 +209,7 @@ export default function Dashboard() {
           </div>
 
           <div className="search">
-            <OutlineIcon d="M11 19a8 8 0 1 1 5.29-14.29L21 9l-4 4" />
+            <Icon d="M11 19a8 8 0 1 1 5.29-14.29L21 9l-4 4" />
             <input
               placeholder="Search…"
               value={query}
@@ -222,8 +217,7 @@ export default function Dashboard() {
               aria-label="Search contacts"
             />
             <button className="icon-btn sm" title="Filter">
-              {/* filter icon */}
-              <OutlineIcon d="M3 5h18l-7 8v6l-4 2v-8L3 5z" />
+              <Icon d="M3 5h18M6 12h12M10 19h4" />
             </button>
           </div>
 
@@ -231,17 +225,15 @@ export default function Dashboard() {
             {filtered.map((l) => (
               <li
                 key={String(l.id)}
-                className={`row ${
-                  String(l.id) === String(selectedId) ? "selected" : ""
-                }`}
+                className={`row ${String(l.id) === String(selectedId) ? "selected" : ""}`}
                 onClick={() => setSelectedId(l.id)}
               >
                 <div className="avatar">
                   {(l.name || l.email || "?").slice(0, 1).toUpperCase()}
                 </div>
                 <div className="meta" style={{ flex: 1 }}>
-                  <div className="name">{l.name || "—"}</div>
-                  <div className="sub">{l.email}</div>
+                  <div className="name">{placeholder(l.name as string)}</div>
+                  <div className="sub">{placeholder(l.email)}</div>
                 </div>
               </li>
             ))}
@@ -257,18 +249,15 @@ export default function Dashboard() {
                 {(selected?.name || "T").slice(0, 1).toUpperCase()}
               </div>
               <div className="who-meta">
-                <div className="who-name">{selected?.name || "—"}</div>
-                <div className="who-sub">{selected?.email}</div>
+                <div className="who-name">{placeholder(selected?.name)}</div>
+                <div className="who-sub">{placeholder(selected?.email)}</div>
               </div>
             </div>
           </div>
 
           <div className="messages" key={selected?.id ?? "none"}>
             {messages.map((m) => (
-              <div
-                key={m.id}
-                className={`bubble ${m.from === "me" ? "mine" : ""}`}
-              >
+              <div key={m.id} className={`bubble ${m.from === "me" ? "mine" : ""}`}>
                 <div className="txt">{m.text}</div>
                 <div className="stamp">{m.at}</div>
               </div>
@@ -299,47 +288,39 @@ export default function Dashboard() {
 
             <div className="kv">
               <label>Full name</label>
-              <span>{selected?.name || "—"}</span>
+              <span>{placeholder(selected?.name)}</span>
             </div>
             <div className="kv">
               <label>First name</label>
-              <span>{(selected?.name || "").split(" ")[0] || "—"}</span>
+              <span>
+                {placeholder(((selected?.name || "").split(" ")[0] || "") as string)}
+              </span>
             </div>
             <div className="kv">
               <label>Last name</label>
               <span>
-                {(selected?.name || "").split(" ").slice(1).join(" ") || "—"}
+                {placeholder(((selected?.name || "").split(" ").slice(1).join(" ")) as string)}
               </span>
             </div>
-
             <div className="kv">
               <label>Email</label>
               <span className="copy-row">
-                <span>{selected?.email || "—"}</span>
+                <span>{placeholder(selected?.email)}</span>
                 {!!selected?.email && (
-                  <button
-                    className="chip"
-                    onClick={() => copy(selected.email)}
-                    title="Copy email"
-                  >
-                    <OutlineIcon d="M8 7h9a2 2 0 0 1 2 2v9H8a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zM6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8" />
+                  <button className="chip" onClick={() => copy(selected.email)} title="Copy email">
+                    <Icon d="M8 7h9a2 2 0 0 1 2 2v9H8a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zM6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8" />
                     Copy
                   </button>
                 )}
               </span>
             </div>
-
             <div className="kv">
               <label>Phone</label>
               <span className="copy-row">
-                <span>{selected?.phone || "—"}</span>
+                <span>{placeholder(selected?.phone)}</span>
                 {!!selected?.phone && (
-                  <button
-                    className="chip"
-                    onClick={() => copy(selected.phone!)}
-                    title="Copy phone"
-                  >
-                    <OutlineIcon d="M8 7h9a2 2 0 0 1 2 2v9H8a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zM6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8" />
+                  <button className="chip" onClick={() => copy(selected.phone!)} title="Copy phone">
+                    <Icon d="M8 7h9a2 2 0 0 1 2 2v9H8a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zM6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8" />
                     Copy
                   </button>
                 )}
@@ -349,44 +330,18 @@ export default function Dashboard() {
 
           <div className="group">
             <div className="group-title">Demographics</div>
-            <div className="kv">
-              <label>DOB</label>
-              <span>—</span>
-            </div>
-            <div className="kv">
-              <label>Age</label>
-              <span>—</span>
-            </div>
-            <div className="kv">
-              <label>City</label>
-              <span>—</span>
-            </div>
-            <div className="kv">
-              <label>State</label>
-              <span>—</span>
-            </div>
-            <div className="kv">
-              <label>ZIP</label>
-              <span className="copy-row">
-                <span>—</span>
-              </span>
-            </div>
-            <div className="kv">
-              <label>Household size</label>
-              <span>—</span>
-            </div>
+            <div className="kv"><label>DOB</label><span className="placeholder">Not provided</span></div>
+            <div className="kv"><label>Age</label><span className="placeholder">Not provided</span></div>
+            <div className="kv"><label>City</label><span className="placeholder">Not provided</span></div>
+            <div className="kv"><label>State</label><span className="placeholder">Not provided</span></div>
+            <div className="kv"><label>ZIP</label><span className="placeholder">Not provided</span></div>
+            <div className="kv"><label>Household size</label><span className="placeholder">Not provided</span></div>
           </div>
 
           <div className="group">
             <div className="group-title">System Info</div>
-            <div className="kv">
-              <label>Quote</label>
-              <span>—</span>
-            </div>
-            <div className="kv">
-              <label>Created</label>
-              <span>{selected?.createdAt || "—"}</span>
-            </div>
+            <div className="kv"><label>Quote</label><span className="placeholder">Not provided</span></div>
+            <div className="kv"><label>Created</label><span>{placeholder(selected?.createdAt)}</span></div>
           </div>
         </aside>
       </main>
