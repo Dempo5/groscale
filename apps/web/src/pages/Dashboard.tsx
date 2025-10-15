@@ -1,6 +1,6 @@
 // apps/web/src/pages/Dashboard.tsx
 import { useEffect, useMemo, useState } from "react";
-import "./dashboard-ios.css"; // keep using the single css
+import "./dashboard-ios.css";
 import { getLeads, Lead, logout } from "../lib/api";
 
 type Msg = { id: string; from: "lead" | "me"; text: string; at: string };
@@ -33,11 +33,14 @@ export default function Dashboard() {
   // data
   const [leads, setLeads] = useState<Lead[]>([]);
   const [selectedId, setSelectedId] = useState<string | number | null>(null);
+
+  // ui state
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [railOpen, setRailOpen] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
 
-  // theme (light by default, dark = neutral gray)
+  // theme (light default; dark is neutral gray)
   const [theme, setTheme] = useState<"light" | "dark">(
     (localStorage.getItem("gs_theme") as "light" | "dark") || "light"
   );
@@ -46,7 +49,7 @@ export default function Dashboard() {
     localStorage.setItem("gs_theme", theme);
   }, [theme]);
 
-  // load leads once
+  // load leads
   useEffect(() => {
     (async () => {
       try {
@@ -84,7 +87,7 @@ export default function Dashboard() {
     ];
   }, [selected?.id]);
 
-  // filters
+  // filter
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return leads;
@@ -96,34 +99,40 @@ export default function Dashboard() {
     );
   }, [query, leads]);
 
-  // util
+  // utils
   function copy(v?: string | null) {
     if (!v) return;
     navigator.clipboard?.writeText(v).catch(() => {});
   }
-
-  // profile menu
-  const [menuOpen, setMenuOpen] = useState(false);
-  function closeMenuSoon() {
-    setTimeout(() => setMenuOpen(false), 100);
+  function copyAll() {
+    const obj = {
+      name: selected?.name ?? "",
+      first: (selected?.name || "").split(" ")[0] ?? "",
+      last: (selected?.name || "").split(" ").slice(1).join(" "),
+      email: selected?.email ?? "",
+      phone: selected?.phone ?? "",
+      dob: "",
+      age: "",
+      city: "",
+      state: "",
+      zip: "",
+      household: "",
+      quote: "",
+      created: selected?.createdAt ?? "",
+    };
+    const text = Object.entries(obj)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join("\n");
+    navigator.clipboard?.writeText(text);
   }
 
   return (
     <div className="p-shell matte">
-      {/* TOP BAR (matte, minimal) */}
+      {/* TOP BAR — minimal */}
       <header className="p-topbar matte">
         <div className="brand">GroScales</div>
 
         <div className="top-actions">
-          <button
-            className="icon-btn"
-            aria-label="Toggle left rail"
-            title="Toggle left rail"
-            onClick={() => setRailOpen((v) => !v)}
-          >
-            <OutlineIcon d="M9 6l6 6-6 6" /> {/* chevron right */}
-          </button>
-
           <div className="profile">
             <button
               className="profile-btn"
@@ -135,7 +144,7 @@ export default function Dashboard() {
               <div className="avatar small">U</div>
             </button>
             {menuOpen && (
-              <div className="menu" role="menu" onBlur={closeMenuSoon}>
+              <div className="menu" role="menu" onBlur={() => setTimeout(()=>setMenuOpen(false),100)}>
                 <button
                   className="menu-item"
                   onClick={() =>
@@ -162,12 +171,22 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* 3-column WORK AREA */}
-      <main
-        className={`p-work grid ${railOpen ? "rail-open" : "rail-closed"}`}
-      >
-        {/* LEFT RAIL — minimal outline icons */}
+      {/* GRID: rail | list | rule | thread | details */}
+      <main className={`p-work grid ${railOpen ? "rail-open" : "rail-closed"}`}>
+        {/* LEFT RAIL with its own toggle */}
         <aside className={`rail ${railOpen ? "" : "collapsed"} matte`}>
+          <div className="rail-head">
+            <button
+              className="icon-btn"
+              aria-label={railOpen ? "Collapse" : "Expand"}
+              title={railOpen ? "Collapse" : "Expand"}
+              onClick={() => setRailOpen((v) => !v)}
+            >
+              <OutlineIcon d={railOpen ? "M15 6l-6 6 6 6" : "M9 6l6 6-6 6"} />
+            </button>
+            {railOpen && <div className="rail-title">Menu</div>}
+          </div>
+
           <nav>
             <a className="rail-item active" title="Contacts">
               <OutlineIcon d="M16 11c1.66 0 3-1.34 3-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zM5 20c0-3.31 2.69-6 6-6h2" />
@@ -177,7 +196,7 @@ export default function Dashboard() {
               <OutlineIcon d="M4 6h16M4 12h10M4 18h7" />
               {railOpen && <span>Workflows</span>}
             </a>
-            <a className="rail-item" title="Numbers">
+            <a className="rail-item" title="Phone numbers">
               <OutlineIcon d="M6 2h12v20H6zM9 18h6" />
               {railOpen && <span>Phone numbers</span>}
             </a>
@@ -194,15 +213,16 @@ export default function Dashboard() {
               {railOpen && <span>Uploads</span>}
             </a>
           </nav>
+
           <div className="rail-foot">
             <a className="rail-item" title="Settings">
-              <OutlineIcon d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.07a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06c.46-.46.6-1.14.33-1.73A1.65 1.65 0 0 0 3 13H3a2 2 0 1 1 0-4h.07c.67 0 1.28-.38 1.55-.97.27-.59.13-1.27-.33-1.73l-.06-.06A2 2 0 1 1 7.06 2.4l.06.06c.46.46 1.14.6 1.73.33.59-.27.97-.88.97-1.55V1a2 2 0 1 1 4 0v.07c0 .67.38 1.28.97 1.55.59.27 1.27.13 1.73-.33l.06-.06A2 2 0 1 1 20.6 4.4l-.06.06c-.46.46-.6 1.14-.33 1.73.27.59.88.97 1.55.97H22a2 2 0 1 1 0 4h-.07c-.67 0-1.28.38-1.55.97-.27.59-.13 1.27.33 1.73l.06.06z" />
+              <OutlineIcon d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" />
               {railOpen && <span>Settings</span>}
             </a>
           </div>
         </aside>
 
-        {/* LIST (with thin separators) */}
+        {/* LIST */}
         <section className="panel list matte">
           <div className="list-head">
             <div className="h">Contacts</div>
@@ -216,6 +236,9 @@ export default function Dashboard() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
+            <button className="btn-sm ghost" title="Filter">
+              Filter
+            </button>
           </div>
 
           <ul className="rows">
@@ -227,9 +250,9 @@ export default function Dashboard() {
                 }`}
                 onClick={() => setSelectedId(l.id)}
               >
-                <div className="avatar">{(l.name || l.email || "?")
-                  .slice(0, 1)
-                  .toUpperCase()}</div>
+                <div className="avatar">
+                  {(l.name || l.email || "?").slice(0, 1).toUpperCase()}
+                </div>
                 <div className="meta">
                   <div className="name">{l.name || "—"}</div>
                   <div className="sub">{l.email}</div>
@@ -240,13 +263,16 @@ export default function Dashboard() {
           </ul>
         </section>
 
-        {/* THREAD (center) */}
+        {/* THIN VERTICAL RULE (not a gap) */}
+        <div className="vrule" aria-hidden />
+
+        {/* THREAD */}
         <section className="panel thread matte">
           <div className="thread-title">
             <div className="who">
-              <div className="avatar">{(selected?.name || "T")
-                .slice(0, 1)
-                .toUpperCase()}</div>
+              <div className="avatar">
+                {(selected?.name || "T").slice(0, 1).toUpperCase()}
+              </div>
               <div className="who-meta">
                 <div className="who-name">{selected?.name || "—"}</div>
                 <div className="who-sub">{selected?.email}</div>
@@ -277,52 +303,44 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* DETAILS (right) */}
+        {/* DETAILS */}
         <aside className="panel details matte">
           <div className="section">
-            <div className="section-title">Contact</div>
-            <div className="kv">
-              <label>Full name</label>
-              <span>{selected?.name || "—"}</span>
+            <div className="section-title">
+              Contact
+              <span className="spacer" />
+              <button className="chip" onClick={copyAll}>
+                Copy all
+              </button>
             </div>
-            <div className="kv">
-              <label>First name</label>
-              <span>{(selected?.name || "").split(" ")[0] || "—"}</span>
-            </div>
-            <div className="kv">
-              <label>Last name</label>
-              <span>{(selected?.name || "").split(" ").slice(1).join(" ") || "—"}</span>
-            </div>
-            <div className="kv">
-              <label>Email</label>
-              <span className="copy-row">
-                <span>{selected?.email || "—"}</span>
-                {!!selected?.email && (
-                  <button className="chip" onClick={() => copy(selected.email)}>
-                    Copy
-                  </button>
-                )}
-              </span>
-            </div>
-            <div className="kv">
-              <label>Phone</label>
-              <span className="copy-row">
-                <span>{selected?.phone || "—"}</span>
-                {!!selected?.phone && (
-                  <button className="chip" onClick={() => copy(selected.phone!)}>
-                    Copy
-                  </button>
-                )}
-              </span>
-            </div>
-            <div className="kv"><label>DOB</label><span>—</span></div>
-            <div className="kv"><label>Age</label><span>—</span></div>
-            <div className="kv"><label>City</label><span>—</span></div>
-            <div className="kv"><label>State</label><span>—</span></div>
-            <div className="kv"><label>ZIP</label><span>—</span></div>
-            <div className="kv"><label>Household size</label><span>—</span></div>
-            <div className="kv"><label>Quote</label><span>—</span></div>
-            <div className="kv"><label>Created</label><span>{selected?.createdAt || "—"}</span></div>
+
+            {[
+              ["Full name", selected?.name],
+              ["First name", (selected?.name || "").split(" ")[0] || "—"],
+              ["Last name", (selected?.name || "").split(" ").slice(1).join(" ") || "—"],
+              ["Email", selected?.email],
+              ["Phone", selected?.phone],
+              ["DOB", "—"],
+              ["Age", "—"],
+              ["City", "—"],
+              ["State", "—"],
+              ["ZIP", "—"],
+              ["Household size", "—"],
+              ["Quote", "—"],
+              ["Created", selected?.createdAt || "—"],
+            ].map(([label, value]) => (
+              <div className="kv" key={label as string}>
+                <label>{label}</label>
+                <span className="copy-row">
+                  <span>{value || "—"}</span>
+                  {!!value && value !== "—" && (
+                    <button className="chip" onClick={() => copy(String(value))}>
+                      Copy
+                    </button>
+                  )}
+                </span>
+              </div>
+            ))}
           </div>
         </aside>
       </main>
