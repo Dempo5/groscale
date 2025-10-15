@@ -1,16 +1,16 @@
 // apps/web/src/pages/Dashboard.tsx
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "./dashboard-ios.css";
 import { getLeads, Lead, logout } from "../lib/api";
 
 type Msg = { id: string; from: "lead" | "me"; text: string; at: string };
 
 const Icon = ({
-  path,
+  d,
   size = 18,
   stroke = "currentColor",
 }: {
-  path: string;
+  d: string;
   size?: number;
   stroke?: string;
 }) => (
@@ -20,51 +20,24 @@ const Icon = ({
     viewBox="0 0 24 24"
     fill="none"
     stroke={stroke}
-    strokeWidth="1.5"
+    strokeWidth="1.6"
     strokeLinecap="round"
     strokeLinejoin="round"
     aria-hidden
   >
-    <path d={path} />
+    <path d={d} />
   </svg>
 );
 
-// Crisp outline icons (no emojis)
-const paths = {
-  chevronRight: "M9 6l6 6-6 6",
-  // Contacts (full shoulder)
-  user: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7 7a7 7 0 0 0-14 0",
-  // Workflows (rows)
-  rows: "M4 6h16M4 12h12M4 18h8",
-  // Phone
-  phone: "M22 16.92V19a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.9 3.18 2 2 0 0 1 4.86 1h2.18a2 2 0 0 1 2 1.72 12.66 12.66 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l2.27-1.2a2 2 0 0 1 2.11.45 12.66 12.66 0 0 0 2.81.7A2 2 0 0 1 22 16.92Z",
-  // Tag
-  tag:
-    "M20.59 13.41 13.41 20.59a2 2 0 0 1-2.83 0L3 13V3h10l7.59 7.59a2 2 0 0 1 0 2.82Z M7.5 7.5h.01",
-  // Template / doc
-  doc: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12V8L14 2Z M14 2v6h6",
-  // Upload
-  upload: "M12 3v12M8 9l4-4 4 4M4 21h16",
-  // Gear
-  gear:
-    "M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M19.4 15a1.7 1.7 0 0 0 .39 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 13.5 20V21a2 2 0 1 1-4 0v-1a1.7 1.7 0 0 0-1.5-.6 1.7 1.7 0 0 0-1.88.39l-.06.06A2 2 0 1 1 2.71 17l.06-.06A1.7 1.7 0 0 0 3 15c0-.5-.2-.97-.54-1.33L2.4 13.6A2 2 0 1 1 5.23 10.8l.06.06c.46.46 1.14.6 1.73.33.59-.27.97-.88.97-1.55V9a2 2 0 1 1 4 0v.07c0 .67.38 1.28.97 1.55.59.27 1.27.13 1.73-.33l.06-.06A2 2 0 1 1 21.29 13l-.06.06c-.34.36-.53.83-.53 1.34Z",
-  // Search
-  search: "M11 19a8 8 0 1 1 5.29-14.29L21 9l-4 4",
-  // Filter funnel
-  filter:
-    "M3 4h18M6 10h12M9 16h6M11 20h2",
-  // Copy
-  copy:
-    "M9 9h9a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Zm-4-4h9a2 2 0 0 1 2 2v1",
-};
-
 export default function Dashboard() {
+  // data
   const [leads, setLeads] = useState<Lead[]>([]);
   const [selectedId, setSelectedId] = useState<string | number | null>(null);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [railOpen, setRailOpen] = useState(true);
 
+  // theme (persist)
   const [theme, setTheme] = useState<"light" | "dark">(
     (localStorage.getItem("gs_theme") as "light" | "dark") || "light"
   );
@@ -73,6 +46,7 @@ export default function Dashboard() {
     localStorage.setItem("gs_theme", theme);
   }, [theme]);
 
+  // load leads
   useEffect(() => {
     (async () => {
       try {
@@ -90,6 +64,7 @@ export default function Dashboard() {
     [leads, selectedId]
   );
 
+  // demo thread
   const messages: Msg[] = useMemo(() => {
     if (!selected) return [];
     return [
@@ -109,6 +84,7 @@ export default function Dashboard() {
     ];
   }, [selected?.id]);
 
+  // filter list
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return leads;
@@ -120,129 +96,126 @@ export default function Dashboard() {
     );
   }, [query, leads]);
 
+  // utils
   function copy(v?: string | null) {
     if (!v) return;
     navigator.clipboard?.writeText(v).catch(() => {});
   }
 
+  // profile menu
   const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    function onDocClick(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, []);
 
   return (
-    <div className="p-shell matte">
-      {/* TOP BAR */}
+    <div className="p-shell">
+      {/* Topbar (center brand, profile menu) */}
       <header className="p-topbar matte">
         <button
-          className="icon-btn left-toggle"
-          aria-label="Toggle left rail"
-          onClick={() => setRailOpen((v) => !v)}
-          title="Toggle menu"
+          className="left-toggle icon-btn"
+          title={railOpen ? "Collapse menu" : "Expand menu"}
+          onClick={() => setRailOpen((o) => !o)}
         >
-          <Icon path={paths.chevronRight} />
+          <Icon d={railOpen ? "M15 6l-6 6 6 6" : "M9 6l6 6-6 6"} />
         </button>
 
         <div className="brand-center">GroScales</div>
 
-        <div className="top-actions" ref={menuRef}>
-          <button
-            className="profile-btn"
-            onClick={() => setMenuOpen((o) => !o)}
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            title="Account"
-          >
-            <div className="avatar small">U</div>
-          </button>
-          {menuOpen && (
-            <div className="menu" role="menu">
-              <button
-                className="menu-item"
-                onClick={() =>
-                  setTheme((t) => (t === "light" ? "dark" : "light"))
-                }
-              >
-                {theme === "light" ? "Dark mode" : "Light mode"}
-              </button>
-              <div className="menu-sep" />
-              <button
-                className="menu-item danger"
-                onClick={() => {
-                  logout();
-                  window.location.href = "/login";
-                }}
-              >
-                Logout
-              </button>
-            </div>
-          )}
+        <div className="top-actions">
+          <div className="profile">
+            <button
+              className="profile-btn"
+              onClick={() => setMenuOpen((o) => !o)}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              title="Account"
+            >
+              <div className="avatar small">U</div>
+            </button>
+            {menuOpen && (
+              <div className="menu" role="menu" onMouseLeave={() => setMenuOpen(false)}>
+                <button
+                  className="menu-item"
+                  onClick={() =>
+                    setTheme((t) => (t === "light" ? "dark" : "light"))
+                  }
+                >
+                  <Icon d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                  {theme === "light" ? "Dark mode" : "Light mode"}
+                </button>
+                <div className="menu-sep" />
+                <button
+                  className="menu-item danger"
+                  onClick={() => {
+                    logout();
+                    window.location.href = "/login";
+                  }}
+                >
+                  <Icon d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+                  Logout
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
-      {/* GRID */}
+      {/* 3-column grid */}
       <main className={`p-work grid ${railOpen ? "rail-open" : "rail-closed"}`}>
-        {/* LEFT RAIL */}
+        {/* Left rail (outline icons; minimal) */}
         <aside className={`rail ${railOpen ? "" : "collapsed"} matte`}>
           <nav>
+            {/* Corrected “shoulder” contacts icon */}
             <a className="rail-item active" title="Contacts">
-              <Icon path={paths.user} />
+              <Icon d="M16 11a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM3 20c0-4 4-7 9-7s9 3 9 7" />
               {railOpen && <span>Contacts</span>}
             </a>
             <a className="rail-item" title="Workflows">
-              <Icon path={paths.rows} />
+              <Icon d="M4 6h16M4 12h10M4 18h7" />
               {railOpen && <span>Workflows</span>}
             </a>
             <a className="rail-item" title="Phone numbers">
-              <Icon path={paths.phone} />
+              <Icon d="M6 2h12v20H6zM9 18h6" />
               {railOpen && <span>Phone numbers</span>}
             </a>
             <a className="rail-item" title="Tags">
-              <Icon path={paths.tag} />
+              <Icon d="M3 6h8l8 8-8 8H3V6zM7 10h0" />
               {railOpen && <span>Tags</span>}
             </a>
             <a className="rail-item" title="Templates">
-              <Icon path={paths.doc} />
+              <Icon d="M4 4h16v6H4zM4 14h10" />
               {railOpen && <span>Templates</span>}
             </a>
             <a className="rail-item" title="Uploads">
-              <Icon path={paths.upload} />
+              <Icon d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16" />
               {railOpen && <span>Uploads</span>}
             </a>
           </nav>
           <div className="rail-foot">
             <a className="rail-item" title="Settings">
-              <Icon path={paths.gear} />
+              <Icon d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.07a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06c.46-.46.6-1.14.33-1.73A1.65 1.65 0 0 0 3 13H3a2 2 0 1 1 0-4h.07c.67 0 1.28-.38 1.55-.97.27-.59.13-1.27-.33-1.73l-.06-.06A2 2 0 1 1 7.06 2.4l.06.06c.46.46 1.14.6 1.73.33.59-.27.97-.88.97-1.55V1a2 2 0 1 1 4 0v.07c0 .67.38 1.28.97 1.55.59.27 1.27.13 1.73-.33l.06-.06A2 2 0 1 1 20.6 4.4l-.06.06c-.46.46-.6 1.14-.33 1.73.27.59.88.97 1.55.97H22a2 2 0 1 1 0 4h-.07c-.67 0-1.28.38-1.55.97-.27.59-.13 1.27.33 1.73l.06.06z" />
               {railOpen && <span>Settings</span>}
             </a>
           </div>
         </aside>
 
-        {/* LIST */}
+        {/* List */}
         <section className="panel list matte">
           <div className="list-head">
             <div className="h">Contacts</div>
             <div className="list-head-actions">
-              <button className="btn-outline sm">+ New</button>
+              <button className="btn-sm">+ New</button>
             </div>
           </div>
 
           <div className="search">
-            <Icon path={paths.search} />
+            <Icon d="M11 19a8 8 0 1 1 5.29-14.29L21 9l-4 4" />
             <input
               placeholder="Search…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
-            <button className="icon-btn" title="Filter">
-              <Icon path={paths.filter} />
+            {/* filter button on right of search */}
+            <button className="icon-btn sm" title="Filter">
+              <Icon d="M3 5h18M6 12h12M10 19h4" />
             </button>
           </div>
 
@@ -250,9 +223,7 @@ export default function Dashboard() {
             {filtered.map((l) => (
               <li
                 key={String(l.id)}
-                className={`row ${
-                  String(l.id) === String(selectedId) ? "selected" : ""
-                }`}
+                className={`row ${String(l.id) === String(selectedId) ? "selected" : ""}`}
                 onClick={() => setSelectedId(l.id)}
               >
                 <div className="avatar">
@@ -268,7 +239,7 @@ export default function Dashboard() {
           </ul>
         </section>
 
-        {/* THREAD */}
+        {/* Thread */}
         <section className="panel thread matte">
           <div className="thread-title">
             <div className="who">
@@ -277,18 +248,15 @@ export default function Dashboard() {
               </div>
               <div className="who-meta">
                 <div className="who-name">{selected?.name || "—"}</div>
-                <div className="who-sub">{selected?.email || "—"}</div>
+                <div className="who-sub">{selected?.email}</div>
               </div>
             </div>
           </div>
 
-          {/* Scrollable messages; composer docked at bottom */}
+          {/* messages fill the remaining height; composer pinned to bottom */}
           <div className="messages" key={selected?.id ?? "none"}>
             {messages.map((m) => (
-              <div
-                key={m.id}
-                className={`bubble ${m.from === "me" ? "mine" : ""}`}
-              >
+              <div key={m.id} className={`bubble ${m.from === "me" ? "mine" : ""}`}>
                 <div className="txt">{m.text}</div>
                 <div className="stamp">{m.at}</div>
               </div>
@@ -302,71 +270,42 @@ export default function Dashboard() {
               onChange={(e) => setDraft(e.target.value)}
               disabled
             />
-            <button className="btn-outline sm">Templates</button>
-            <button className="btn-primary" disabled>
-              Send
-            </button>
+            <button className="btn-sm">Templates</button>
+            <button className="btn-primary" disabled>Send</button>
           </div>
         </section>
 
-        {/* DETAILS */}
+        {/* Details */}
         <aside className="panel details matte">
           <div className="section-head">
             <div className="section-title">Contact</div>
           </div>
 
           {[
-            ["Full name", selected?.name || "—"],
-            ["First name", (selected?.name || "").split(" ")[0] || "—"],
-            ["Last name", (selected?.name || "").split(" ").slice(1).join(" ") || "—"],
-          ].map(([label, val]) => (
-            <div className="kv" key={label}>
+            ["Full name", selected?.name || "—", selected?.name],
+            ["First name", (selected?.name || "").split(" ")[0] || "—", (selected?.name || "").split(" ")[0]],
+            ["Last name", (selected?.name || "").split(" ").slice(1).join(" ") || "—", (selected?.name || "").split(" ").slice(1).join(" ")],
+            ["Email", selected?.email || "—", selected?.email],
+            ["Phone", selected?.phone || "—", selected?.phone],
+            ["DOB", "—", null],
+            ["Age", "—", null],
+            ["City", "—", null],
+            ["State", "—", null],
+            ["ZIP", "—", null],
+            ["Household size", "—", null],
+            ["Quote", "—", null],
+            ["Created", selected?.createdAt || "—", selected?.createdAt],
+          ].map(([label, value, copyable], i) => (
+            <div className="kv" key={i}>
               <label>{label}</label>
-              <span>{val}</span>
-            </div>
-          ))}
-
-          <div className="kv">
-            <label>Email</label>
-            <span className="copy-row">
-              <span>{selected?.email || "—"}</span>
-              {!!selected?.email && (
-                <button className="icon-btn xs" onClick={() => copy(selected.email)} title="Copy email">
-                  <Icon path={paths.copy} size={16} />
-                </button>
-              )}
-            </span>
-          </div>
-
-          <div className="kv">
-            <label>Phone</label>
-            <span className="copy-row">
-              <span>{selected?.phone || "—"}</span>
-              {!!selected?.phone && (
-                <button
-                  className="icon-btn xs"
-                  onClick={() => copy(selected.phone!)}
-                  title="Copy phone"
-                >
-                  <Icon path={paths.copy} size={16} />
-                </button>
-              )}
-            </span>
-          </div>
-
-          {[
-            ["DOB", "—"],
-            ["Age", "—"],
-            ["City", "—"],
-            ["State", "—"],
-            ["ZIP", "—"],
-            ["Household size", "—"],
-            ["Quote", "—"],
-            ["Created", selected?.createdAt || "—"],
-          ].map(([label, val]) => (
-            <div className="kv" key={label}>
-              <label>{label}</label>
-              <span>{val}</span>
+              <span className="copy-row">
+                <span>{value as string}</span>
+                {!!copyable && (
+                  <button className="chip" title="Copy" onClick={() => copy(copyable as string)}>
+                    <Icon d="M16 3H5a2 2 0 0 0-2 2v11M8 7h11a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z" />
+                  </button>
+                )}
+              </span>
             </div>
           ))}
         </aside>
