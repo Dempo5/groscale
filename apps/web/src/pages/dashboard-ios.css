@@ -1,32 +1,31 @@
-/* GroScales — flat base, dynamic accents (tags + Copilot) */
+/* GroScales — flat base, premium balance, alive on interaction */
 
-/* ---------------- Semantic Tokens ---------------- */
+/* ---------------- Tokens ---------------- */
 :root{
-  /* Global neutral */
   --bg: #f7f8fa;
 
-  /* Surfaces (very subtle deltas for separation) */
-  --surface-rail:   #f0f2f4;  /* sidebar */
-  --surface-list:   #f5f6f8;  /* contacts column */
-  --surface-chat:   #ffffff;  /* chat column */
-  --surface-detail: #f2f4f6;  /* details column */
+  /* Surfaces (tiny deltas for separation) */
+  --surface-rail:   #f0f2f4;
+  --surface-list:   #f5f6f8;
+  --surface-chat:   #ffffff;
+  --surface-detail: #f2f4f6;
 
   /* Text */
   --text-primary:   #14181d;
   --text-secondary: #2f3742;
   --text-muted:     #7a8594;
 
-  /* Lines & shadow */
-  --line:          #e3e7ee;
-  --line-strong:   #d4dbe4;
-  --shadow-xs:     0 1px 1px rgba(0,0,0,.04);
-  --shadow-sm:     0 2px 6px rgba(0,0,0,.06);
+  /* Lines + subtle depth */
+  --line:        #e3e7ee;
+  --line-strong: #d4dbe4;
+  --shadow-xs:   0 1px 4px rgba(0,0,0,.05);
+  --shadow-sm:   0 2px 8px rgba(0,0,0,.06);
 
-  /* Accent (kept calm; tags carry the “color emotion”) */
-  --accent:       #2a74ff;
-  --accent-tint:  color-mix(in srgb, var(--accent) 10%, transparent);
+  /* Accent (kept calm; tags & copilot carry emotion) */
+  --accent:      #2a74ff;
+  --accent-tint: color-mix(in srgb, var(--accent) 12%, transparent);
 
-  /* Tag palette (users choose via data-color) */
+  /* Tag palette */
   --tag-blue:  #3478f6;
   --tag-pink:  #f052a1;
   --tag-red:   #ef4444;
@@ -43,12 +42,11 @@
 
   /* Motion */
   --ease: cubic-bezier(0.2, 0.6, 0.2, 1);
-  --t-fast: .16s;  /* 160ms */
-  --t-med:  .20s;  /* 200ms */
+  --t-fast: .16s;
+  --t-med:  .20s;
 }
 
 body[data-theme="dark"]{
-  /* Depth mapping: 0E1116 → 111417 → 15191D */
   --bg: #0e1116;
 
   --surface-rail:   #111417;
@@ -63,11 +61,11 @@ body[data-theme="dark"]{
   --line:          #252b33;
   --line-strong:   #313a45;
 
-  --shadow-xs:     0 1px 1px rgba(0,0,0,.25);
-  --shadow-sm:     0 2px 6px rgba(0,0,0,.28);
+  --shadow-xs:     0 1px 4px rgba(0,0,0,.25);
+  --shadow-sm:     0 2px 8px rgba(0,0,0,.28);
 }
 
-/* ---------------- Base & Global Motion ---------------- */
+/* ---------------- Base ---------------- */
 *{ box-sizing:border-box; }
 html,body,#root{ height:100%; }
 body{
@@ -80,13 +78,14 @@ body{
     color var(--t-med) var(--ease),
     border-color var(--t-med) var(--ease),
     box-shadow var(--t-med) var(--ease),
-    transform var(--t-med) var(--ease);
+    transform var(--t-med) var(--ease),
+    grid-template-columns var(--t-med) var(--ease);
 }
 
-/* ---------------- Shell + Topbar ---------------- */
 .p-shell{ min-height:100vh; display:flex; flex-direction:column; }
 .matte{ backdrop-filter: saturate(110%) blur(6px); }
 
+/* ---------------- Topbar ---------------- */
 .p-topbar{
   position:sticky; top:0; z-index:30;
   height:56px; display:flex; align-items:center; justify-content:center;
@@ -101,7 +100,6 @@ body{
   position:absolute; right:10px; top:50%; transform:translateY(-50%);
   display:flex; align-items:center; gap:10px;
 }
-
 .icon-btn{
   height:32px; width:32px; display:grid; place-items:center;
   border:1px solid var(--line); border-radius:var(--r-8);
@@ -109,7 +107,6 @@ body{
 }
 .icon-btn.sm{ height:30px; width:30px; }
 .icon-btn:hover{ background:color-mix(in srgb, var(--surface-chat) 92%, var(--surface-list)); }
-
 .profile-btn{ all:unset; cursor:pointer; }
 .avatar{
   width:28px; height:28px; border-radius:50%;
@@ -117,36 +114,23 @@ body{
   border:1px solid var(--line); background:var(--surface-chat);
 }
 
-.menu{
-  position:absolute; right:0; margin-top:8px; padding:6px;
-  background:var(--surface-chat); border:1px solid var(--line-strong);
-  border-radius:10px; box-shadow:var(--shadow-sm);
-}
-.menu-item{
-  display:flex; align-items:center; gap:8px; padding:8px 10px; width:190px;
-  border-radius:8px; background:transparent; border:0; color:inherit; cursor:pointer;
-}
-.menu-item:hover{ background: color-mix(in srgb, var(--surface-chat) 92%, var(--surface-detail)); }
-.menu-sep{ height:1px; background:var(--line); margin:4px 6px; }
-.menu-item.danger{ color:#e46a6a; }
-
-/* ---------------- Grid (flush rail + push layout) ---------------- */
+/* ---------------- Grid (flush-left rail, push content) ---------------- */
 .p-work.grid{
+  /* Flush to the far left; rail pushes content smoothly */
   --rail-w: 232px;
+  --detail-w: 280px; /* tighten right panel (260–300) */
   display:grid;
-  grid-template-columns: var(--rail-w) 360px 1fr 340px;
+  grid-template-columns: var(--rail-w) 360px 1fr var(--detail-w);
   gap:0;
-  transition: grid-template-columns var(--t-med) var(--ease);
-  padding:0; /* flush left */
+  padding:0;              /* 0 gap left edge */
   border-top:1px solid var(--line);
 }
-.p-work.grid.rail-closed{ --rail-w: 64px; }
+.p-work.grid.rail-closed{ --rail-w: 64px; } /* rail stays anchored left */
 
 /* ---------------- Rail ---------------- */
 .rail{
   background:var(--surface-rail);
   border-right:1px solid var(--line);
-  box-shadow:var(--shadow-xs);
   padding:8px 6px; display:flex; flex-direction:column; gap:6px;
 }
 .rail nav{ display:flex; flex-direction:column; gap:4px; }
@@ -156,17 +140,17 @@ body{
   height:34px; padding:0 10px; border-radius:var(--r-8);
   color:inherit; text-decoration:none; border:1px solid transparent;
 }
-.rail-item svg{ min-width:18px; opacity:.88; transform: translateZ(0); }
+.rail-item svg{ min-width:18px; opacity:.88; }
 .rail-item:hover{ background:color-mix(in srgb, var(--surface-chat) 92%, var(--surface-rail)); }
 .rail-item.active{ border-color:var(--line-strong); }
 .rail-active{
-  content:""; position:absolute; left:-1px; top:6px; bottom:6px; width:2px;
-  border-radius:2px; background:var(--accent); opacity:.65;
+  content:""; position:absolute; left:-1px; top:6px; bottom:6px; width:2px; border-radius:2px;
+  background:var(--accent); opacity:.65;
 }
 .rail.collapsed .rail-item span{ display:none; }
 .rail-foot{ margin-top:auto; padding-top:6px; border-top:1px solid var(--line); }
 
-/* ---------------- Panels (flat, separated by tone) ---------------- */
+/* ---------------- Panels (tone-separated, equal rhythm) ---------------- */
 .panel{ border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
 .panel.list{   background:var(--surface-list);   border-left:1px solid var(--line); }
 .panel.thread{ background:var(--surface-chat); }
@@ -196,7 +180,6 @@ body{
 .row:hover{ background:color-mix(in srgb, var(--surface-chat) 92%, var(--surface-list)); }
 .row.selected{ background:color-mix(in srgb, var(--surface-chat) 95%, var(--surface-list)); border-color:var(--line-strong); }
 .row.selected::before{ content:""; position:absolute; left:-1px; top:6px; bottom:6px; width:2px; border-radius:2px; background:var(--accent); }
-
 .avatar{
   width:28px; height:28px; border-radius:50%;
   display:grid; place-items:center; font-weight:700;
@@ -214,7 +197,8 @@ body{
 
 .messages{
   flex:1; min-height:260px;
-  overflow:auto; padding:12px; display:flex; flex-direction:column; gap:8px;
+  overflow:auto; padding:12px;
+  display:flex; flex-direction:column; gap:8px;
   scroll-behavior:smooth; overscroll-behavior-y:contain;
 }
 .bubble{
@@ -223,6 +207,7 @@ body{
   padding:8px 10px; border-radius:10px;
   border:1px solid var(--line);
   background:color-mix(in srgb, var(--surface-chat) 94%, var(--line));
+  /* subtle blurred shadow for light layering */
   box-shadow: var(--shadow-xs);
   animation: msgIn var(--t-fast) var(--ease) both;
 }
@@ -235,6 +220,7 @@ body{
 .bubble .stamp{ font-size:var(--fs-11); color:var(--text-muted); margin-top:4px; }
 @keyframes msgIn{ from{opacity:.0; transform:translateY(4px)} to{opacity:1; transform:translateY(0)} }
 
+/* Composer — keep input tight; buttons to the right */
 .composer{
   margin:10px 12px 12px;
   display:grid; grid-template-columns: 1fr auto auto; gap:8px;
@@ -244,13 +230,13 @@ body{
   background:var(--surface-chat); outline:none; color:inherit;
 }
 
-/* Copilot (subtle living aura; flat by default) */
+/* Copilot — subtle breathing rainbow aura (purposeful accent) */
 .btn-copilot{
   position:relative;
   height:32px; padding:0 12px; border-radius:var(--r-8);
   border:1px solid var(--line); background:var(--surface-chat);
   display:inline-flex; align-items:center; gap:8px; cursor:pointer;
-  isolation:isolate; /* keep aura behind */
+  isolation:isolate;
 }
 .btn-copilot .copilot-core{ display:inline-flex; align-items:center; gap:8px; z-index:2; }
 .btn-copilot .copilot-aura{
@@ -279,10 +265,11 @@ body{
   box-shadow:none;
 }
 .btn-primary:disabled{ opacity:.6; cursor:not-allowed; }
-.btn-primary:not(:disabled):hover{ filter:brightness(1.04); box-shadow:none; }
+.btn-primary:not(:disabled):hover{ filter:brightness(1.04); }
 .btn-primary.is-ready:hover{ box-shadow: 0 0 0 3px var(--accent-tint); }
 
-/* ---------------- Details (right) ---------------- */
+/* ---------------- Details (right) — tighter width & grid-aligned ---------------- */
+.panel.details{ width: var(--detail-w); }
 .group + .group{ border-top:1px solid var(--line); }
 .group-title{
   padding:10px 12px; font-size:var(--fs-12); color:var(--text-muted);
@@ -290,19 +277,24 @@ body{
 }
 .kv{
   display:grid; grid-template-columns: 1fr auto;
-  align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--line);
+  align-items:center;
+  gap:8px; padding:8px 12px; /* even 8px rhythm */
+  border-bottom:1px solid var(--line);
 }
 .kv:last-child{ border-bottom:0; }
-.kv label{ color:var(--text-muted); font-size:var(--fs-11); letter-spacing:.02em; text-transform:uppercase; }
+.kv label{
+  color:var(--text-muted); font-size:var(--fs-11);
+  letter-spacing:.02em; text-transform:uppercase; line-height:1.25;
+}
 .copy-row{ display:inline-flex; align-items:center; gap:8px; }
 .placeholder{
   color:var(--text-muted);
-  background: color-mix(in srgb, var(--surface-detail) 90%, transparent);
+  background: color-mix(in srgb, var(--surface-detail) 92%, transparent);
   border:1px dashed var(--line);
   border-radius:6px; padding:1px 6px; font-size:var(--fs-12);
 }
 
-/* Tag chips (the “emotional” color layer) */
+/* Tag chips (user-selected color = meaning) */
 .tag-row{ display:flex; flex-wrap:wrap; gap:6px; padding:10px 12px; }
 .tag{
   --tag-bg: var(--tag-gray);
@@ -319,7 +311,7 @@ body{
 .tag[data-color="cyan"]  { --tag-bg: var(--tag-cyan); }
 .tag[data-color="gray"]  { --tag-bg: var(--tag-gray); }
 
-/* Utility buttons */
+/* Utilities */
 .btn-sm{
   height:32px; padding:0 10px; border:1px solid var(--line);
   border-radius:var(--r-8); background:var(--surface-chat); cursor:pointer;
