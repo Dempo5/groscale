@@ -100,6 +100,15 @@ export async function importLeads(rows: Array<Record<string, any>>) {
   //   body: JSON.stringify({ rows }),
   // });
 
+// apps/web/src/lib/api.ts  — add this at the bottom with your other exports
+export async function uploadLeads(payload: { csv?: string; leads?: any[] }) {
+  return request<{ ok: boolean; normalizedCount: number }>("/api/uploads", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+
   // Otherwise, do it raw to avoid breaking anything:
   const token = getToken?.() || localStorage.getItem("token");
   const res = await fetch(`${API_BASE}/api/uploads/import`, {
