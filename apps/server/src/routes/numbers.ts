@@ -110,21 +110,23 @@ router.post("/purchase", async (req, res) => {
 
     // 3) Upsert in DB
     const saved = await prisma.phoneNumber.upsert({
-      where: { sid: purchased.sid },
-      create: {
-        sid: purchased.sid,
-        number: purchased.phoneNumber!,
-        friendlyName: purchased.friendlyName ?? null,
-        capabilities: purchased.capabilities as any,
-        isDefault: !!makeDefault,
-      },
-      update: {
-        number: purchased.phoneNumber!,
-        friendlyName: purchased.friendlyName ?? null,
-        capabilities: purchased.capabilities as any,
-        isDefault: !!makeDefault,
-      },
-    });
+  where: { sid: purchased.sid },
+  create: {
+    sid: purchased.sid,
+    number: purchased.phoneNumber!,
+    friendlyName: purchased.friendlyName ?? null,
+    capabilities: purchased.capabilities as any,
+    isDefault: !!makeDefault,
+    ownerId: null, // 👈 important: Prisma wants this field declared
+  },
+  update: {
+    number: purchased.phoneNumber!,
+    friendlyName: purchased.friendlyName ?? null,
+    capabilities: purchased.capabilities as any,
+    isDefault: !!makeDefault,
+    ownerId: null,
+  },
+});
 
     // If makeDefault => unset others
     if (makeDefault) {
