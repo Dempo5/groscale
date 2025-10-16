@@ -5,10 +5,7 @@ import cors from "cors";
 // ⚠️ NodeNext/ESM requires .js in relative imports
 import authRoute from "./routes/auth.js";
 import uploadsRouter from "./routes/uploads.js";
-
-// apps/server/src/index.ts
 import numbersRouter from "./routes/numbers.js";
-app.use("/api/numbers", numbersRouter);
 
 // ----- env -----
 const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
@@ -46,6 +43,7 @@ app.get("/health", (_req: Request, res: Response) => {
 // ---------- API routes ----------
 app.use("/api/auth", authRoute);
 app.use("/api/uploads", uploadsRouter);
+app.use("/api/numbers", numbersRouter); // ✅ moved here (after app is defined)
 
 // ---------- Demo leads (placeholder) ----------
 app.get("/api/leads", (_req: Request, res: Response) => {
