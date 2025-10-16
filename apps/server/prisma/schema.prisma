@@ -48,9 +48,7 @@ model User {
 }
 
 // ---------------- Leads ----------------
-// NOTE: removed global @unique on email to avoid CSV import conflicts.
-// Keep email optional; many lead sources don’t have both email & phone.
-// Add owner-scoped indexes to keep queries fast.
+// Email/phone optional to support CSVs; dedupe is in app logic.
 model Lead {
   id        String   @id @default(cuid())
   name      String
@@ -67,36 +65,37 @@ model Lead {
   tags      LeadTag[]
   threads   MessageThread[]
 
-  // helpful indexes (dedupe checks are done in app logic)
   @@index([ownerId, email])
   @@index([ownerId, phone])
 }
 
 // ---------------- Phone numbers (Twilio) ----------------
+// NOTE: ownerId is optional *for now* to match your current server
+// route which doesn’t attach a user. Make it required later.
 model PhoneNumber {
   id            String   @id @default(cuid())
-  sid           String   @unique                // Twilio PN SID
+  sid           String   @unique                // Twilio PN SID (PN...)
   number        String   @unique                // E.164: +1...
   friendlyName  String?
-  capabilities  Json?                           // { sms: true, mms: false, voice: false }
+  capabilities  Json?
   isDefault     Boolean  @default(false)
 
-  ownerId       String
-  owner         User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId       String?                          // <-- make required when auth is ready
+  owner         User?    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   purchasedAt   DateTime @default(now())
-
-  // for messaging service linkage if you use it
   messagingServiceSid String? @db.VarChar(34)
 
   @@index([ownerId, isDefault])
 }
 
 // ---------------- Uploads (history rows for the page) ----------------
+// ownerId optional now; make required once uploads are tied to a user.
 model Upload {
   id         String       @id @default(cuid())
-  ownerId    String
-  owner      User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  ownerId    String?
+  owner      User?        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   fileName   String
   byteSize   Int
@@ -104,8 +103,8 @@ model Upload {
   duplicates Int          @default(0)
   invalids   Int          @default(0)
   status     UploadStatus @default(PROCESSING)
-  error      String?      // short error summary for tooltip
-  reportUrl  String?      // optional: link to a CSV/JSON validation report
+  error      String?
+  reportUrl  String?
 
   createdAt  DateTime     @default(now())
 
@@ -115,6 +114,7 @@ model Upload {
 // ---------------- Messaging (for SMS inbox) ----------------
 model MessageThread {
   id          String       @id @default(cuid())
+
   ownerId     String
   owner       User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
@@ -139,10 +139,10 @@ model Message {
   direction    MessageDirection
   body         String
   status       MessageStatus    @default(QUEUED)
-  error        String?          // last error if FAILED
+  error        String?
 
   // Twilio metadata
-  externalSid  String? @unique  // Twilio Message SID (SM...)
+  externalSid  String?  @unique  // Twilio Message SID (SM...)
   toNumber     String?          // E.164
   fromNumber   String?          // E.164
 
@@ -151,14 +151,15 @@ model Message {
   @@index([threadId, createdAt])
 }
 
-// ---------------- Tags & Templates (light scaffolding) ----------------
+// ---------------- Tags & Templates ----------------
 model Tag {
   id        String   @id @default(cuid())
+
   ownerId   String
   owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   name      String
-  color     String?  // e.g., #10B981, or token like "green"
+  color     String?  // e.g. #10B981 or token name
 
   leads     LeadTag[]
 
@@ -178,11 +179,12 @@ model LeadTag {
 
 model Template {
   id        String   @id @default(cuid())
+
   ownerId   String
   owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   name      String
-  body      String   // message content (use {{placeholders}} later)
+  body      String   // message content ({{placeholders}} later)
   createdAt DateTime @default(now())
 
   @@unique([ownerId, name])
