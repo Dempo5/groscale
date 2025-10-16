@@ -15,6 +15,10 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
 const app = express();
 app.use(express.json());
 
+// ✅ Add this line to register your uploads route
+import uploadsRouter from "./routes/uploads.js";
+app.use("/api/uploads", uploadsRouter);
+
 // ----- CORS -----
 app.use(
   cors({
