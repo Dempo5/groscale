@@ -1,250 +1,235 @@
-// apps/web/src/pages/Uploads.tsx
-import { useMemo, useRef, useState } from "react";
-import { uploadLeads } from "../lib/api"; // path matches apps/web/src/lib/api.ts
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { uploadLeads, getUploadHistory } from "../lib/api"; // <- see API notes below
 
-type PreviewRow = {
-  name?: string;
-  email?: string;
-  phone?: string;
+type UploadRow = {
+  id: string;
+  filename: string;
+  uploadedAt: string;      // ISO
+  leads: number;
+  duplicates: number;
+  invalids: number;
+  status: "success" | "partial" | "failed";
+  downloadUrl?: string | null;
 };
 
-type Summary = {
+type ImportSummary = {
   ok: boolean;
   inserted: number;
   skipped: number;
+  invalids?: number;
   errors?: string[];
 };
 
+function Icon({ d, size = 18 }: { d: string; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d={d} />
+    </svg>
+  );
+}
+
 export default function Uploads() {
-  const [file, setFile] = useState<File | null>(null);
-  const [rows, setRows] = useState<PreviewRow[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [summary, setSummary] = useState<Summary | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [summary, setSummary] = useState<ImportSummary | null>(null);
+  const [rows, setRows] = useState<UploadRow[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0] || null;
-    if (!f) return;
-    setFile(f);
-    setSummary(null);
-    readFilePreview(f);
-  }
-
-  function readFilePreview(f: File) {
-    const reader = new FileReader();
-    reader.onload = () => {
+  // Load history from API (fallback to empty if API not present yet)
+  useEffect(() => {
+    (async () => {
       try {
-        // Accept CSV or JSON. Minimal CSV support: name,email,phone
-        const text = String(reader.result || "");
-        if (/^\s*[\{\[]/.test(text)) {
-          const arr = JSON.parse(text) as any[];
-          const out = arr
-            .map((r) => ({
-              name: r.name ?? r.fullName ?? "",
-              email: r.email ?? "",
-              phone: r.phone ?? r.phoneNumber ?? "",
-            }))
-            .filter((r) => r.name || r.email || r.phone);
-          setRows(out.slice(0, 50)); // preview first 50
-        } else {
-          const lines = text.split(/\r?\n/).filter(Boolean);
-          const header = (lines[0] || "").split(",").map((s) => s.trim().toLowerCase());
-          const idxName = header.findIndex((h) => /name|full ?name/.test(h));
-          const idxEmail = header.findIndex((h) => /email/.test(h));
-          const idxPhone = header.findIndex((h) => /phone/.test(h));
-          const out: PreviewRow[] = [];
-          for (let i = 1; i < lines.length; i++) {
-            const cols = lines[i].split(",").map((s) => s.trim());
-            out.push({
-              name: idxName >= 0 ? cols[idxName] : "",
-              email: idxEmail >= 0 ? cols[idxEmail] : "",
-              phone: idxPhone >= 0 ? cols[idxPhone] : "",
-            });
-            if (out.length >= 50) break;
-          }
-          setRows(out);
-        }
+        const h = await getUploadHistory(); // returns UploadRow[]
+        setRows(h);
       } catch {
         setRows([]);
       }
-    };
-    reader.readAsText(f);
-  }
-
-  async function onUpload() {
-    if (!file || uploading) return;
-    setUploading(true);
-    setSummary(null);
-    try {
-      const res = await uploadLeads(file); // returns { ok, inserted, skipped, errors? }
-      setSummary(res as Summary);
-    } catch (e) {
-      setSummary({ ok: false, inserted: 0, skipped: 0, errors: ["Upload failed"] });
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  const hasPreview = rows.length > 0;
-
-  const previewCols = useMemo(() => {
-    // build column widths in a minimal way (no new CSS needed)
-    return { name: "40%", email: "35%", phone: "25%" };
+    })();
   }, []);
 
+  const onFiles = useCallback(async (files: FileList | null) => {
+    if (!files || !files.length) return;
+    const file = files[0];
+    setBusy(true);
+    setSummary(null);
+    try {
+      const res = await uploadLeads(file); // { ok, inserted, skipped, invalids?, errors? }
+      const stamp = new Date().toISOString();
+
+      // Best guess status from server summary
+      const status: UploadRow["status"] = res.ok
+        ? (res.invalids || res.skipped ? "partial" : "success")
+        : "failed";
+
+      // Optimistic prepend to history
+      setRows((prev) => [
+        {
+          id: crypto.randomUUID(),
+          filename: file.name,
+          uploadedAt: stamp,
+          leads: (res.inserted ?? 0) + (res.skipped ?? 0) + (res.invalids ?? 0),
+          duplicates: res.skipped ?? 0,
+          invalids: res.invalids ?? 0,
+          status,
+          downloadUrl: undefined,
+        },
+        ...prev,
+      ]);
+
+      setSummary(res);
+    } catch {
+      setSummary({ ok: false, inserted: 0, skipped: 0, invalids: 0, errors: ["Upload failed"] });
+    } finally {
+      setBusy(false);
+      if (inputRef.current) inputRef.current.value = ""; // clear picker
+    }
+  }, []);
+
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    onFiles(e.dataTransfer?.files ?? null);
+  }
+
+  function onDrag(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  const zoneClass = useMemo(
+    () =>
+      `uploads-zone ${dragOver ? "is-over" : ""} ${busy ? "is-busy" : ""}`,
+    [dragOver, busy]
+  );
+
   return (
-    <div className="p-shell" style={{ minHeight: "100vh" }}>
+    <div className="p-shell matte" style={{ minHeight: "100vh" }}>
       <main className="p-work grid rail-open" style={{ gridTemplateColumns: "1fr" }}>
         <section className="panel matte" style={{ padding: 16 }}>
-          <div
-            className="list-head"
-            style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
-          >
+          <div className="list-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div className="h">Uploads</div>
-            <div className="list-head-actions" style={{ display: "flex", gap: 8 }}>
-              <button
-                className="btn-outline sm"
-                onClick={() => inputRef.current?.click()}
-                aria-label="Choose file"
-              >
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn-outline sm" onClick={() => inputRef.current?.click()}>
                 Choose file
               </button>
-              <button
-                className="btn-primary"
-                onClick={onUpload}
-                disabled={!file || uploading}
-                aria-disabled={!file || uploading}
-              >
-                {uploading ? "Uploading…" : "Upload"}
-              </button>
+              <input
+                ref={inputRef}
+                type="file"
+                accept=".csv,application/json,text/csv,application/vnd.ms-excel"
+                onChange={(e) => onFiles(e.target.files)}
+                style={{ display: "none" }}
+              />
             </div>
           </div>
 
-          <input
-            ref={inputRef}
-            type="file"
-            accept=".csv,application/json,text/csv,application/vnd.ms-excel"
-            onChange={onPickFile}
-            style={{ display: "none" }}
-          />
-
-          {/* Drop zone area */}
+          {/* Drag & Drop Zone */}
           <div
+            className={zoneClass}
+            onDragEnter={() => setDragOver(true)}
+            onDragOver={onDrag}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={onDrop}
+            role="button"
+            tabIndex={0}
             onClick={() => inputRef.current?.click()}
-            style={{
-              marginTop: 12,
-              padding: 20,
-              border: "1px dashed var(--line)",
-              borderRadius: 10,
-              background: "var(--panel)",
-              cursor: "pointer",
-            }}
-            aria-label="Click to select a CSV or JSON file"
+            onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && inputRef.current?.click()}
+            aria-label="Upload CSV or JSON by dropping here or click to choose a file"
           >
-            {file ? (
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontWeight: 600 }}>{file.name}</span>
-                <span style={{ color: "var(--muted)" }}>
-                  {Math.ceil(file.size / 1024)} KB selected
-                </span>
-              </div>
-            ) : (
-              <div style={{ color: "var(--muted)" }}>
-                Drag a <strong>CSV</strong> or <strong>JSON</strong> file here, or click to browse.
-              </div>
-            )}
+            <div className="uploads-zone__icon">
+              <Icon d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16" size={22} />
+            </div>
+            <div className="uploads-zone__text">
+              <div className="uploads-zone__title">Drop a CSV or JSON file</div>
+              <div className="uploads-zone__hint">or click to browse</div>
+            </div>
           </div>
 
-          {/* Preview */}
-          {hasPreview && (
-            <div style={{ marginTop: 14, borderTop: "1px solid var(--line)", paddingTop: 14 }}>
-              <div style={{ fontWeight: 700, marginBottom: 8 }}>Preview (first 50 rows)</div>
-              <div
-                style={{
-                  border: "1px solid var(--line)",
-                  borderRadius: 10,
-                  overflow: "hidden",
-                }}
-              >
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: `${previewCols.name} ${previewCols.email} ${previewCols.phone}`,
-                    padding: "8px 10px",
-                    borderBottom: "1px solid var(--line)",
-                    color: "var(--text-secondary)",
-                    fontSize: 12,
-                  }}
-                >
-                  <div>Name</div>
-                  <div>Email</div>
-                  <div>Phone</div>
-                </div>
-                <div>
-                  {rows.map((r, i) => (
-                    <div
-                      key={i}
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: `${previewCols.name} ${previewCols.email} ${previewCols.phone}`,
-                        padding: "8px 10px",
-                        borderTop: i ? "1px solid var(--line)" : "none",
-                      }}
-                    >
-                      <div>{r.name || <span style={{ color: "var(--muted)" }}>—</span>}</div>
-                      <div>{r.email || <span style={{ color: "var(--muted)" }}>—</span>}</div>
-                      <div>{r.phone || <span style={{ color: "var(--muted)" }}>—</span>}</div>
-                    </div>
-                  ))}
-                </div>
+          {/* Result summary (subtle, flat) */}
+          {summary && (
+            <div className="uploads-summary">
+              <div className="uploads-summary__row">
+                <span>Inserted</span>
+                <strong>{summary.inserted}</strong>
               </div>
+              <div className="uploads-summary__row">
+                <span>Duplicates</span>
+                <strong>{summary.skipped ?? 0}</strong>
+              </div>
+              <div className="uploads-summary__row">
+                <span>Invalids</span>
+                <strong>{summary.invalids ?? 0}</strong>
+              </div>
+              {!summary.ok && (
+                <div className="uploads-summary__error">
+                  {summary.errors?.[0] ?? "Upload failed"}
+                </div>
+              )}
             </div>
           )}
 
-          {/* Summary */}
-          {summary && (
-            <div
-              style={{
-                marginTop: 14,
-                borderTop: "1px solid var(--line)",
-                paddingTop: 14,
-                display: "grid",
-                gap: 8,
-              }}
-            >
-              <div style={{ fontWeight: 700 }}>Import summary</div>
-              <div style={{ display: "flex", gap: 16, color: "var(--text-secondary)" }}>
-                <div>
-                  Inserted: <strong style={{ color: "var(--text-primary)" }}>{summary.inserted}</strong>
-                </div>
-                <div>
-                  Skipped: <strong style={{ color: "var(--text-primary)" }}>{summary.skipped}</strong>
-                </div>
-                {!summary.ok && <div style={{ color: "#e46a6a" }}>Failed</div>}
+          {/* History */}
+          <div className="uploads-history">
+            <div className="uploads-history__head">Upload history</div>
+
+            <div className="uploads-table">
+              <div className="uploads-table__row uploads-table__row--head">
+                <div>File</div>
+                <div>Date/Time</div>
+                <div className="num">Leads</div>
+                <div className="num">Dupes</div>
+                <div className="num">Invalid</div>
+                <div>Status</div>
+                <div className="act" aria-hidden />
               </div>
-              {summary.errors?.length ? (
-                <div
-                  style={{
-                    border: "1px solid var(--line)",
-                    borderRadius: 10,
-                    padding: 10,
-                    background: "color-mix(in srgb, var(--panel) 92%, var(--line))",
-                  }}
-                >
-                  <div style={{ fontWeight: 600, marginBottom: 6 }}>Errors</div>
-                  <ul style={{ margin: 0, paddingLeft: 16 }}>
-                    {summary.errors.map((e, i) => (
-                      <li key={i} style={{ color: "var(--muted)" }}>
-                        {e}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
+
+              {rows.length ? (
+                rows.map((r) => (
+                  <div key={r.id} className="uploads-table__row">
+                    <div className="filecell" title={r.filename}>
+                      <Icon d="M14 2H6a2 2 0 0 0-2 2v16l4-2 4 2 4-2 4 2V8z" size={16} />
+                      <span className="truncate">{r.filename}</span>
+                    </div>
+                    <div>{fmtDate(r.uploadedAt)}</div>
+                    <div className="num">{r.leads}</div>
+                    <div className="num">{r.duplicates}</div>
+                    <div className="num">{r.invalids}</div>
+                    <div>
+                      <StatusPill status={r.status} />
+                    </div>
+                    <div className="act">
+                      {r.downloadUrl ? (
+                        <a className="icon-btn subtle" href={r.downloadUrl} title="Download file">
+                          <Icon d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
+                        </a>
+                      ) : (
+                        <button className="icon-btn subtle" disabled title="No download available">
+                          <Icon d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="uploads-empty">No uploads yet.</div>
+              )}
             </div>
-          )}
+          </div>
         </section>
       </main>
     </div>
   );
+}
+
+function fmtDate(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString();
+}
+
+function StatusPill({ status }: { status: "success" | "partial" | "failed" }) {
+  const label =
+    status === "success" ? "Success" : status === "partial" ? "Partial" : "Failed";
+  return <span className={`pill pill--${status}`}>{label}</span>;
 }
