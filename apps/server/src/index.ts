@@ -43,7 +43,7 @@ app.get("/health", (_req: Request, res: Response) => {
 // ---------- API routes ----------
 app.use("/api/auth", authRoute);
 app.use("/api/uploads", uploadsRouter);
-app.use("/api/numbers", numbersRouter); // ✅ moved here (after app is defined)
+app.use("/api/numbers", numbersRouter); // ✅ moved here — safe and clean
 
 // ---------- Demo leads (placeholder) ----------
 app.get("/api/leads", (_req: Request, res: Response) => {
