@@ -1,150 +1,139 @@
 // apps/web/src/pages/Uploads.tsx
 import { useMemo, useState } from "react";
-import { importLeads } from "../lib/api";
-import "./dashboard-ios.css";
+import { uploadLeads } from "../lib/api";
 
-// lightweight CSV parser (handles quotes, commas, headers)
-function parseCSV(text: string): Array<Record<string, string>> {
-  const rows: string[][] = [];
-  let cur = "", row: string[] = [], inQuotes = false;
+type Row = Record<string, string>;
 
-  const pushCell = () => { row.push(cur); cur = ""; };
-  const pushRow  = () => { rows.push(row); row = []; };
-
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (c === '"') {
-      if (inQuotes && text[i + 1] === '"') { cur += '"'; i++; }
-      else inQuotes = !inQuotes;
-    } else if (c === "," && !inQuotes) {
-      pushCell();
-    } else if ((c === "\n" || c === "\r") && !inQuotes) {
-      if (c === "\r" && text[i + 1] === "\n") i++; // handle CRLF
-      pushCell(); pushRow();
-    } else {
-      cur += c;
-    }
-  }
-  // trailing cell/row
-  if (cur.length || row.length) { pushCell(); pushRow(); }
-
-  if (!rows.length) return [];
-  const headers = rows[0].map(h => h.trim().toLowerCase());
-  return rows.slice(1).filter(r => r.some(Boolean)).map(r => {
-    const obj: Record<string, string> = {};
-    for (let i = 0; i < headers.length; i++) obj[headers[i] || `col_${i}`] = (r[i] ?? "").trim();
-    return obj;
+function parseCsvLoose(csv: string): Row[] {
+  // NOTE: very lightweight CSV parsing for preview.
+  // Good enough for simple CSVs (no embedded commas/quotes).
+  const lines = csv
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (!lines.length) return [];
+  const headers = lines[0].split(",").map((h) => h.trim());
+  return lines.slice(1).map((line) => {
+    const parts = line.split(",").map((p) => p.trim());
+    const row: Row = {};
+    headers.forEach((h, i) => (row[h] = parts[i] ?? ""));
+    return row;
   });
 }
 
 export default function Uploads() {
+  const [mode, setMode] = useState<"paste" | "file">("paste");
+  const [csv, setCsv] = useState("");
   const [fileName, setFileName] = useState<string | null>(null);
-  const [rows, setRows] = useState<Array<Record<string, string>>>([]);
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const stats = useMemo(() => {
-    if (!rows.length) return null;
-    let withEmailOrPhone = 0;
-    for (const r of rows) {
-      const email = (r.email ?? "").trim();
-      const phone = (r.phone ?? "").trim();
-      if (email || phone) withEmailOrPhone++;
-    }
-    return { total: rows.length, usable: withEmailOrPhone };
-  }, [rows]);
-
-  async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
-    setErr(null); setMsg(null);
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setFileName(file.name);
-    const text = await file.text();
-    const parsed = parseCSV(text);
-    setRows(parsed);
-  }
+  const rows = useMemo(() => parseCsvLoose(csv), [csv]);
+  const sample = rows.slice(0, 12); // preview up to 12 rows
 
   async function onUpload() {
-    if (!rows.length) return;
-    setBusy(true); setErr(null); setMsg(null);
+    setLoading(true);
+    setError(null);
+    setResult(null);
     try {
-      const payload = rows.map(r => ({
-        name:  r.name  ?? r.full_name ?? `${r.first ?? ""} ${r.last ?? ""}`.trim(),
-        email: r.email,
-        phone: r.phone,
-        city:  r.city,
-        state: r.state,
-        zip:   r.zip ?? r.postal ?? r.zipcode,
-      }));
-      const res = await importLeads(payload);
-      setMsg(`Imported: ${res.created} • Updated: ${res.updated} • Skipped: ${res.skipped}`);
+      // Send raw CSV to the server. It normalizes / validates.
+      const res = await uploadLeads({ csv });
+      setResult(`Imported ${res.normalizedCount} leads successfully.`);
     } catch (e: any) {
-      setErr(e?.message || "Upload failed");
+      setError(e?.message || "Upload failed");
     } finally {
-      setBusy(false);
+      setLoading(false);
     }
+  }
+
+  function onFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setFileName(f.name);
+    const reader = new FileReader();
+    reader.onload = () => setCsv(String(reader.result || ""));
+    reader.readAsText(f);
   }
 
   return (
-    <div className="panel" style={{ padding: 12, display: "grid", gap: 12 }}>
-      <div className="list-head">
-        <div className="h">Uploads</div>
-        <div className="list-head-actions" style={{ display: "flex", gap: 8 }}>
-          <label className="btn-outline sm" style={{ cursor: "pointer" }}>
-            <input type="file" accept=".csv" onChange={onPick} style={{ display: "none" }} />
-            Choose CSV
-          </label>
-          <button className="btn-primary" disabled={!rows.length || busy} onClick={onUpload}>
-            {busy ? "Uploading…" : "Import"}
+    <div className="p-uploads">
+      <header className="uploads-head">
+        <div className="title">Uploads</div>
+        <div className="tabs">
+          <button
+            className={`tab ${mode === "paste" ? "active" : ""}`}
+            onClick={() => setMode("paste")}
+          >
+            Paste CSV
+          </button>
+          <button
+            className={`tab ${mode === "file" ? "active" : ""}`}
+            onClick={() => setMode("file")}
+          >
+            File Upload
           </button>
         </div>
-      </div>
+      </header>
 
-      {fileName && (
-        <div className="row" style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <strong>{fileName}</strong>
-          {stats && (
-            <span className="sub">
-              {stats.total} rows • {stats.usable} usable (has email or phone)
-            </span>
-          )}
+      <section className="uploads-input">
+        {mode === "paste" ? (
+          <textarea
+            placeholder="firstName,lastName,email,phone&#10;Ada,Lovelace,ada@example.com,555-123-4567"
+            value={csv}
+            onChange={(e) => setCsv(e.target.value)}
+          />
+        ) : (
+          <label className="filepick">
+            <input type="file" accept=".csv" onChange={onFileSelected} />
+            <span>{fileName || "Choose a .csv file…"}</span>
+          </label>
+        )}
+        <div className="hint">
+          Tip: Required columns should at least include{" "}
+          <code>firstName</code>, <code>lastName</code>, or{" "}
+          <code>email</code>. (Your server will normalize anything extra.)
         </div>
-      )}
+      </section>
 
-      <div className="row" style={{ opacity: 0.8 }}>
-        Supported headers: <code>name</code>, <code>email</code>, <code>phone</code>, <code>city</code>, <code>state</code>, <code>zip</code>.
-        <span style={{ marginLeft: 8 }}>Also accepts <code>first/last</code> or <code>full_name</code>.</span>
-      </div>
-
-      {err && <div className="row" style={{ color: "#e66" }}>{err}</div>}
-      {msg && <div className="row" style={{ color: "var(--muted)" }}>{msg}</div>}
+      <section className="uploads-actions">
+        <button
+          className="btn-primary"
+          disabled={!csv || loading}
+          onClick={onUpload}
+        >
+          {loading ? "Uploading…" : "Import leads"}
+        </button>
+        {result && <div className="ok">{result}</div>}
+        {error && <div className="err">{error}</div>}
+      </section>
 
       {!!rows.length && (
-        <div className="panel" style={{ border: "1px solid var(--line)", padding: 10 }}>
-          <div className="small" style={{ opacity: 0.8, marginBottom: 6 }}>
-            Preview (first 8)
+        <section className="uploads-preview">
+          <div className="label">
+            Preview ({sample.length} of {rows.length})
           </div>
-          <div style={{ display: "grid", gap: 6 }}>
-            {rows.slice(0, 8).map((r, i) => (
-              <div key={i} className="row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 100px", gap: 8 }}>
-                <div className="sub">{r.name || `${r.first ?? ""} ${r.last ?? ""}`.trim() || "—"}</div>
-                <div className="sub">{r.email || "—"}</div>
-                <div className="sub">{r.phone || "—"}</div>
-                <div className="sub">{r.city  || "—"}</div>
-                <div className="sub">{r.state || "—"}</div>
-                <div className="sub">{r.zip   || r.postal || r.zipcode || "—"}</div>
-              </div>
-            ))}
+          <div className="table">
+            <div className="thead">
+              {Object.keys(sample[0] || {}).map((h) => (
+                <div key={h} className="th">
+                  {h}
+                </div>
+              ))}
+            </div>
+            <div className="tbody">
+              {sample.map((r, i) => (
+                <div key={i} className="tr">
+                  {Object.keys(sample[0] || {}).map((h) => (
+                    <div key={h} className="td">
+                      {r[h]}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
-
-      {!rows.length && (
-        <div className="row" style={{ opacity: 0.7 }}>
-          No file selected. Click <b>Choose CSV</b> to begin.
-        </div>
+        </section>
       )}
     </div>
   );
