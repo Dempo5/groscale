@@ -115,6 +115,12 @@ export async function logout(): Promise<void> {
   }
 }
 
+// --- auth state helper (used by ProtectedRoute, etc.) ---
+export function isAuthed(): boolean {
+  return !!getToken();
+}
+
+
 // -------- leads (demo) --------
 export async function getLeads(): Promise<Lead[]> {
   return http<Lead[]>("/api/leads");
