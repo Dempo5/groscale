@@ -1,10 +1,7 @@
-import { Navigate, useLocation } from "react-router-dom";
+// apps/web/src/components/auth-gates/ProtectedRoute.tsx
+import { Navigate } from "react-router-dom";
 import { isAuthed } from "../../lib/api";
 
-type Props = { children: JSX.Element };
-
-export default function ProtectedRoute({ children }: Props) {
-  const authed = isAuthed();
-  const loc = useLocation();
-  return authed ? children : <Navigate to="/login" state={{ from: loc }} replace />;
+export default function ProtectedRoute({ children }: { children: JSX.Element }) {
+  return isAuthed() ? children : <Navigate to="/login" replace />;
 }
