@@ -1,72 +1,107 @@
-import { useState, FormEvent } from "react";
-import { useNavigate, Link } from "react-router-dom";
-import { login, setToken } from "../lib/api";
+// apps/web/src/pages/Login.tsx
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { login } from "../lib/api";
+import "./dashboard-ios.css"; // reuse your tokens
 
 export default function Login() {
   const nav = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  async function onSubmit(e: FormEvent) {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!email || !password) return setErr("Enter email & password");
     setErr(null);
-    setLoading(true);
+    setBusy(true);
     try {
-      const res = await login({ email, password });
-      // res may contain { token } | { jwt } | { accessToken } — api.ts normalizes this
-      const token =
-        (res as any).token || (res as any).jwt || (res as any).accessToken;
-
-      if (!token) throw new Error("No token returned from server");
-
-      // ✅ only one argument
-      setToken(token);
+      await login({ email, password });
       nav("/dashboard", { replace: true });
     } catch (e: any) {
-      setErr(e?.message || "Login failed");
+      setErr(e?.message || "Sign in failed");
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   }
 
   return (
-    <div className="auth-wrap">
-      <form className="auth-card" onSubmit={onSubmit}>
-        <h1 className="auth-title">Sign in</h1>
+    <div className="p-shell" style={{ minHeight: "100vh" }}>
+      <header className="p-topbar matte" style={{ justifyContent: "center" }}>
+        <div className="brand-center">GroScales</div>
+      </header>
 
-        {err && <div className="auth-error">{err}</div>}
+      <main style={{ display:"grid", placeItems:"center", padding:"48px 16px" }}>
+        <form
+          onSubmit={onSubmit}
+          style={{
+            width: "100%",
+            maxWidth: 420,
+            border: "1px solid var(--line)",
+            background: "var(--panel)",
+            borderRadius: "12px",
+            padding: 20,
+          }}
+        >
+          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Sign in</h1>
 
-        <label className="auth-label">Email</label>
-        <input
-          className="auth-input"
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          autoComplete="username"
-          placeholder="you@example.com"
-        />
+          {err && (
+            <div style={{ marginTop: 10, color: "#c24d4d", fontSize: 13 }}>
+              {err}
+            </div>
+          )}
 
-        <label className="auth-label">Password</label>
-        <input
-          className="auth-input"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoComplete="current-password"
-          placeholder="••••••••"
-        />
+          <div style={{ marginTop: 14 }}>
+            <label style={{ display: "block", fontSize: 12, color: "var(--text-secondary, var(--muted))" }}>
+              Email
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              style={{
+                width: "100%", height: 36, marginTop: 6,
+                border: "1px solid var(--line)", borderRadius: 8,
+                background: "var(--panel)", color: "var(--ink)",
+                padding: "0 10px", outline: "none",
+              }}
+            />
+          </div>
 
-        <button className="btn-primary" disabled={loading}>
-          {loading ? "Signing in…" : "Sign in"}
-        </button>
+          <div style={{ marginTop: 12 }}>
+            <label style={{ display: "block", fontSize: 12, color: "var(--text-secondary, var(--muted))" }}>
+              Password
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              style={{
+                width: "100%", height: 36, marginTop: 6,
+                border: "1px solid var(--line)", borderRadius: 8,
+                background: "var(--panel)", color: "var(--ink)",
+                padding: "0 10px", outline: "none",
+              }}
+            />
+          </div>
 
-        <div className="auth-foot">
-          No account? <Link to="/register">Create one</Link>
-        </div>
-      </form>
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:16 }}>
+            <button
+              type="submit"
+              disabled={busy}
+              className="btn-primary"
+              style={{ height: 36, padding: "0 14px" }}
+            >
+              {busy ? "Signing in…" : "Sign in"}
+            </button>
+            <span style={{ fontSize: 13, color: "var(--muted)" }}>
+              No account? <Link to="/register">Create one</Link>
+            </span>
+          </div>
+        </form>
+      </main>
     </div>
   );
 }
