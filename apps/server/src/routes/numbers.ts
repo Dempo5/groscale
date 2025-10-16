@@ -18,15 +18,15 @@ if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !SERVER_BASE_URL) {
 
 const client = twilio(TWILIO_ACCOUNT_SID!, TWILIO_AUTH_TOKEN!);
 
+// helpers ----------------------------------------------------
 const toBool = (v: any) => v === true || v === "true" || v === "1";
 
-// --- helper: set inbound webhook on the number
 async function ensureInbound(pnSid: string) {
   const inbound = `${SERVER_BASE_URL}/api/twilio/webhook/inbound`;
   await client.incomingPhoneNumbers(pnSid).update({ smsUrl: inbound, smsMethod: "POST" });
 }
 
-// --- GET /api/numbers/available
+// GET /api/numbers/available --------------------------------
 router.get("/available", async (req, res) => {
   try {
     const country = (req.query.country as string) || "US";
@@ -47,15 +47,16 @@ router.get("/available", async (req, res) => {
     };
 
     const list = await client.availablePhoneNumbers(country).local.list(filter);
-    const rows = list.map(n => ({
+    const rows = list.map((n: any) => ({
       friendlyName: n.friendlyName,
-      phoneNumber: n.phoneNumber!,
+      phoneNumber: n.phoneNumber as string,
       locality: n.locality,
       region: n.region,
       isoCountry: n.isoCountry,
       postalCode: n.postalCode,
-      capabilities: n.capabilities,
+      capabilities: n.capabilities, // { sms, mms, voice }
     }));
+
     res.json({ ok: true, data: rows });
   } catch (e: any) {
     console.error(e);
@@ -63,13 +64,16 @@ router.get("/available", async (req, res) => {
   }
 });
 
-// --- GET /api/numbers/mine  (list owned numbers)
+// GET /api/numbers/mine  ------------------------------------
 router.get("/mine", async (_req, res) => {
-  const rows = await prisma.phoneNumber.findMany({ orderBy: { createdAt: "desc" } });
+  // NOTE: your model uses "purchasedAt" (not createdAt)
+  const rows = await prisma.phoneNumber.findMany({
+    orderBy: { purchasedAt: "desc" },
+  });
   res.json({ ok: true, data: rows });
 });
 
-// --- POST /api/numbers/default  { sid: "PN..." }
+// POST /api/numbers/default  { sid }
 router.post("/default", async (req, res) => {
   const { sid } = req.body as { sid: string };
   if (!sid) return res.status(400).json({ ok: false, error: "sid required" });
@@ -82,13 +86,22 @@ router.post("/default", async (req, res) => {
   res.json({ ok: true });
 });
 
-// --- POST /api/numbers/purchase
-// { country, phoneNumber, makeDefault?, messagingServiceSid? }
+// POST /api/numbers/purchase --------------------------------
+// body: { country, phoneNumber, makeDefault?, messagingServiceSid? }
 router.post("/purchase", async (req, res) => {
   try {
-    const { country, phoneNumber, makeDefault, messagingServiceSid } = req.body as {
-      country: string; phoneNumber: string; makeDefault?: boolean; messagingServiceSid?: string;
+    const {
+      country,
+      phoneNumber,
+      makeDefault,
+      messagingServiceSid,
+    } = req.body as {
+      country: string;
+      phoneNumber: string;
+      makeDefault?: boolean;
+      messagingServiceSid?: string;
     };
+
     if (!country || !phoneNumber) {
       return res.status(400).json({ ok: false, error: "country and phoneNumber required" });
     }
@@ -100,35 +113,46 @@ router.post("/purchase", async (req, res) => {
       smsMethod: "POST",
     });
 
-    // 2) Attach to messaging service (optional)
+    // 2) Attach to a Messaging Service (optional)
     const msid = messagingServiceSid || TWILIO_MESSAGING_SERVICE_SID;
     if (msid) {
-      await client.messaging.v1.services(msid).phoneNumbers.create({ phoneNumberSid: purchased.sid });
+      await client.messaging.v1.services(msid)
+        .phoneNumbers
+        .create({ phoneNumberSid: purchased.sid });
     } else {
+      // still ensure inbound webhook
       await ensureInbound(purchased.sid);
     }
 
-    // 3) Upsert in DB
-    const saved = await prisma.phoneNumber.upsert({
-  where: { sid: purchased.sid },
-  create: {
-    sid: purchased.sid,
-    number: purchased.phoneNumber!,
-    friendlyName: purchased.friendlyName ?? null,
-    capabilities: purchased.capabilities as any,
-    isDefault: !!makeDefault,
-    ownerId: null, // 👈 important: Prisma wants this field declared
-  },
-  update: {
-    number: purchased.phoneNumber!,
-    friendlyName: purchased.friendlyName ?? null,
-    capabilities: purchased.capabilities as any,
-    isDefault: !!makeDefault,
-    ownerId: null,
-  },
-});
+    // Optional owner: if you attach auth later, set ownerId from req.user.id
+    const ownerId: string | null = null;
 
-    // If makeDefault => unset others
+    // 3) Upsert in DB (shape works whether ownerId is optional or required)
+    const createData: any = {
+      sid: purchased.sid,
+      number: purchased.phoneNumber!,
+      friendlyName: purchased.friendlyName ?? null,
+      capabilities: purchased.capabilities as any,
+      isDefault: !!makeDefault,
+      purchasedAt: new Date(),
+    };
+    if (ownerId) createData.ownerId = ownerId;
+
+    const updateData: any = {
+      number: purchased.phoneNumber!,
+      friendlyName: purchased.friendlyName ?? null,
+      capabilities: purchased.capabilities as any,
+      isDefault: !!makeDefault,
+    };
+    if (ownerId) updateData.ownerId = ownerId;
+
+    const saved = await prisma.phoneNumber.upsert({
+      where: { sid: purchased.sid },
+      create: createData,
+      update: updateData,
+    });
+
+    // 4) If making default, unset others
     if (makeDefault) {
       await prisma.phoneNumber.updateMany({
         where: { sid: { not: saved.sid } },
