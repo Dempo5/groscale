@@ -1,3 +1,4 @@
+// ---------------- Generators & datasource ----------------
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,6 +8,29 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ---------------- Enums ----------------
+enum UploadStatus {
+  PENDING
+  PROCESSING
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+enum MessageDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum MessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+  RECEIVED
+}
+
+// ---------------- Core auth ----------------
 model User {
   id             String   @id @default(cuid())
   email          String   @unique
@@ -14,16 +38,152 @@ model User {
   hashedPassword String
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
-  leads          Lead[]
+
+  leads         Lead[]
+  phoneNumbers  PhoneNumber[]
+  uploads       Upload[]
+  templates     Template[]
+  tags          Tag[]
+  threads       MessageThread[]
 }
 
+// ---------------- Leads ----------------
+// NOTE: removed global @unique on email to avoid CSV import conflicts.
+// Keep email optional; many lead sources don’t have both email & phone.
+// Add owner-scoped indexes to keep queries fast.
 model Lead {
   id        String   @id @default(cuid())
   name      String
-  email     String   @unique
+  email     String?  @db.VarChar(191)
   phone     String?  @db.VarChar(30)
+
   ownerId   String
-  owner     User     @relation(fields: [ownerId], references: [id])
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // relations
+  tags      LeadTag[]
+  threads   MessageThread[]
+
+  // helpful indexes (dedupe checks are done in app logic)
+  @@index([ownerId, email])
+  @@index([ownerId, phone])
+}
+
+// ---------------- Phone numbers (Twilio) ----------------
+model PhoneNumber {
+  id            String   @id @default(cuid())
+  sid           String   @unique                // Twilio PN SID
+  number        String   @unique                // E.164: +1...
+  friendlyName  String?
+  capabilities  Json?                           // { sms: true, mms: false, voice: false }
+  isDefault     Boolean  @default(false)
+
+  ownerId       String
+  owner         User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  purchasedAt   DateTime @default(now())
+
+  // for messaging service linkage if you use it
+  messagingServiceSid String? @db.VarChar(34)
+
+  @@index([ownerId, isDefault])
+}
+
+// ---------------- Uploads (history rows for the page) ----------------
+model Upload {
+  id         String       @id @default(cuid())
+  ownerId    String
+  owner      User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  fileName   String
+  byteSize   Int
+  leads      Int          @default(0)
+  duplicates Int          @default(0)
+  invalids   Int          @default(0)
+  status     UploadStatus @default(PROCESSING)
+  error      String?      // short error summary for tooltip
+  reportUrl  String?      // optional: link to a CSV/JSON validation report
+
+  createdAt  DateTime     @default(now())
+
+  @@index([ownerId, createdAt])
+}
+
+// ---------------- Messaging (for SMS inbox) ----------------
+model MessageThread {
+  id          String       @id @default(cuid())
+  ownerId     String
+  owner       User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  leadId      String
+  lead        Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  // which Twilio number carried the thread (use default if null)
+  phoneNumberSid String?   @db.VarChar(34)
+  lastMessageAt  DateTime  @default(now())
+
+  messages    Message[]
+
+  @@index([ownerId, lastMessageAt])
+  @@index([leadId])
+}
+
+model Message {
+  id           String           @id @default(cuid())
+  threadId     String
+  thread       MessageThread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  direction    MessageDirection
+  body         String
+  status       MessageStatus    @default(QUEUED)
+  error        String?          // last error if FAILED
+
+  // Twilio metadata
+  externalSid  String? @unique  // Twilio Message SID (SM...)
+  toNumber     String?          // E.164
+  fromNumber   String?          // E.164
+
+  createdAt    DateTime         @default(now())
+
+  @@index([threadId, createdAt])
+}
+
+// ---------------- Tags & Templates (light scaffolding) ----------------
+model Tag {
+  id        String   @id @default(cuid())
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  name      String
+  color     String?  // e.g., #10B981, or token like "green"
+
+  leads     LeadTag[]
+
+  createdAt DateTime @default(now())
+  @@unique([ownerId, name])
+}
+
+model LeadTag {
+  leadId  String
+  lead    Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  tagId   String
+  tag     Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([leadId, tagId])
+}
+
+model Template {
+  id        String   @id @default(cuid())
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  name      String
+  body      String   // message content (use {{placeholders}} later)
+  createdAt DateTime @default(now())
+
+  @@unique([ownerId, name])
 }
