@@ -1,13 +1,17 @@
 // apps/web/src/lib/api.ts
-import { setToken, clearToken, getToken } from "./auth";
-export { getToken } from "./auth"; // keep older imports working
 
-type User = { id: string; email: string; name?: string | null };
+/**
+ * Frontend API helpers — kept minimal and typed.
+ * Uses relative paths so it works with a reverse proxy or same-origin dev.
+ * If you need a fixed server URL, set VITE_API_URL and we’ll prefix with it.
+ */
 
 const API_BASE =
-  (import.meta.env.VITE_API_URL?.replace(/\/+$/, "") ||
-    "https://groscale.onrender.com"); // fallback to your Render URL
+  (import.meta as any).env?.VITE_API_URL
+    ? String((import.meta as any).env.VITE_API_URL).replace(/\/$/, "")
+    : ""; // empty = same origin
 
+// ---------- Types ----------
 export type Lead = {
   id: string | number;
   name: string;
@@ -16,109 +20,84 @@ export type Lead = {
   createdAt?: string;
 };
 
-async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
-  const headers = new Headers(opts.headers as HeadersInit);
-  if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+export type UploadSummary = {
+  ok: boolean;
+  inserted: number;
+  skipped: number;
+  errors?: string[];
+  sample?: Record<string, unknown>[];
+};
 
-  const token = getToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-
-  const res = await fetch(`${API_BASE}${path}`, { ...opts, headers, credentials: "omit" });
-  const text = await res.text().catch(() => "");
-
-  if (res.status === 401) {
-    clearToken();
-    throw new Error("Unauthorized");
-  }
+// small fetch helper
+async function j<T = any>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(API_BASE + path, {
+    credentials: "include",
+    ...init,
+  });
   if (!res.ok) {
-    // try to parse server {error:"..."} shape first
+    let msg = res.statusText;
     try {
-      const j = JSON.parse(text);
-      throw new Error(j?.error || `Request failed: ${res.status}`);
-    } catch {
-      throw new Error(text || `Request failed: ${res.status}`);
+      const body = await res.json();
+      msg = (body && (body.error || body.message)) || msg;
+    } catch (_) {
+      /* ignore */
     }
+    throw new Error(msg);
+  }
+  return (await res.json()) as T;
+}
+
+// ---------- Leads ----------
+export async function getLeads(): Promise<Lead[]> {
+  // demo endpoint from the server; replace with real later
+  return j<Lead[]>("/api/leads");
+}
+
+// ---------- Auth ----------
+export function logout(): void {
+  // keep it simple for now
+  localStorage.removeItem("jwt");
+}
+
+// ---------- Uploads (CSV) ----------
+/**
+ * Upload a CSV file of leads.
+ * Server route expected: POST /api/uploads/csv (multipart form-data)
+ */
+export async function uploadLeads(file: File): Promise<UploadSummary> {
+  const fd = new FormData();
+  fd.append("file", file);
+
+  const res = await fetch(API_BASE + "/api/uploads/csv", {
+    method: "POST",
+    body: fd,
+    credentials: "include",
+  });
+
+  if (!res.ok) {
+    let msg = res.statusText;
+    try {
+      const body = await res.json();
+      msg = (body && (body.error || body.message)) || msg;
+    } catch (_) {
+      /* ignore */
+    }
+    throw new Error(msg);
   }
 
-  return (text ? JSON.parse(text) : {}) as T;
+  return (await res.json()) as UploadSummary;
 }
 
-/* ---------------- AUTH ---------------- */
+/**
+ * Optional: list recent uploads (if you add this on the server)
+ */
+export type UploadRecord = {
+  id: string;
+  filename: string;
+  rows: number;
+  createdAt: string;
+};
 
-// Use the server contract { token, user } and save token
-export async function register(email: string, password: string, name?: string) {
-  const data = await request<{ token: string; user: User }>("/api/auth/register", {
-    method: "POST",
-    body: JSON.stringify({ email, password, name }),
-  });
-  setToken(data.token);
-  return data;
-}
-
-export async function login(email: string, password: string) {
-  const data = await request<{ token: string; user: User }>("/api/auth/login", {
-    method: "POST",
-    body: JSON.stringify({ email, password }),
-  });
-  setToken(data.token);
-  return data;
-}
-
-export async function getMe() {
-  return request<{ user: User }>("/api/auth/me");
-}
-
-export function logout() {
-  clearToken();
-}
-
-export function isAuthed() {
-  return Boolean(getToken());
-}
-
-/* ---------------- LEADS ---------------- */
-
-export function getLeads() {
-  return request<Lead[]>("/api/leads");
-}
-
-// For Dashboard.tsx which imports listLeads
-export const listLeads = getLeads;
-
-export function createLead(input: { name: string; email: string; phone?: string }) {
-  return request<Lead>("/api/leads", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
-}
-// ADD near your other exports in apps/web/src/lib/api.ts
-
-export async function importLeads(rows: Array<Record<string, any>>) {
-  // If you already have `request<T>()` helper with auth headers, you can use it:
-  // return request<{ok:true; created:number; updated:number; skipped:number}>("/api/uploads/import", {
-  //   method: "POST",
-  //   body: JSON.stringify({ rows }),
-  // });
-
-// apps/web/src/lib/api.ts  — add this at the bottom with your other exports
-export async function uploadLeads(payload: { csv?: string; leads?: any[] }) {
-  return request<{ ok: boolean; normalizedCount: number }>("/api/uploads", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
-
-  // Otherwise, do it raw to avoid breaking anything:
-  const token = getToken?.() || localStorage.getItem("token");
-  const res = await fetch(`${API_BASE}/api/uploads/import`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ rows }),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json() as Promise<{ ok: true; created: number; updated: number; skipped: number }>;
+export async function listUploads(): Promise<UploadRecord[]> {
+  return j<UploadRecord[]>("/api/uploads");
 }
