@@ -116,6 +116,30 @@ export async function uploadLeads(file: File): Promise<UploadSummary> {
   return res.json() as Promise<UploadSummary>;
 }
 
+// --- Uploads API ---
+export async function uploadLeads(file: File) {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch("/api/uploads/import", { method: "POST", body: fd });
+  if (!res.ok) {
+    // Try to return structured error if server replies JSON
+    try { return await res.json(); } catch {}
+    throw new Error("Upload failed");
+  }
+  return await res.json(); // { ok, inserted, skipped, invalids?, errors? }
+}
+
+export async function getUploadHistory(): Promise<{
+  id: string; filename: string; uploadedAt: string;
+  leads: number; duplicates: number; invalids: number;
+  status: "success"|"partial"|"failed"; downloadUrl?: string|null;
+}[]> {
+  const res = await fetch("/api/uploads/history");
+  if (!res.ok) return []; // graceful fallback
+  return await res.json();
+}
+
+
 // (Optional helpers you may call later; safe no-ops until endpoints exist)
 export async function deleteAllLeads(): Promise<{ ok: boolean; removed?: number }> {
   const url = `${BASE}/api/uploads/all`;
