@@ -1,8 +1,9 @@
-// apps/server/src/index.ts
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
-import authRoute from "./routes/auth.js";          // 👈 mount auth routes
-// import { requireAuth } from "./middleware/requireAuth.js"; // use later to protect routes
+
+// Import routes (no file extensions in TS)
+import authRoute from "./routes/auth";
+import uploadsRouter from "./routes/uploads";
 
 // ----- env -----
 const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
@@ -13,17 +14,12 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
 
 // ----- app -----
 const app = express();
+
+// Body parsing & CORS first
 app.use(express.json());
-
-// ✅ Add this line to register your uploads route
-import uploadsRouter from "./routes/uploads.js";
-app.use("/api/uploads", uploadsRouter);
-
-// ----- CORS -----
 app.use(
   cors({
     origin(origin, cb) {
-      // allow same-origin / curl / server-to-server
       if (!origin) return cb(null, true);
       if (allowedOrigins.includes(origin)) return cb(null, true);
       if (/\.vercel\.app$/.test(origin)) return cb(null, true); // preview URLs
@@ -34,7 +30,6 @@ app.use(
     credentials: true,
   })
 );
-// handle preflight quickly
 app.options("*", cors());
 
 // ---------- Public health check ----------
@@ -43,9 +38,10 @@ app.get("/health", (_req: Request, res: Response) => {
 });
 
 // ---------- Mount API routes ----------
-app.use("/api/auth", authRoute);                    // 👈 now /api/auth/register & /login work
+app.use("/api/uploads", uploadsRouter); // CSV/JSON import endpoints
+app.use("/api/auth", authRoute);        // /api/auth/register & /login
 
-// ---------- Demo leads (public for now) ----------
+// ---------- Demo leads ----------
 app.get("/api/leads", (_req: Request, res: Response) => {
   res.json([
     { id: 1, name: "Test Lead", email: "lead@example.com" },
