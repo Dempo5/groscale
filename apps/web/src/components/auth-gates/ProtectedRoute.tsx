@@ -1,9 +1,10 @@
-import { Navigate } from "react-router-dom";
-import type { ReactNode } from "react";
+import { Navigate, useLocation } from "react-router-dom";
 import { isAuthed } from "../../lib/api";
 
-export default function ProtectedRoute({ children }: { children: ReactNode }) {
-  // redirect unauthenticated users to login
-  if (!isAuthed()) return <Navigate to="/login" replace />;
-  return <>{children}</>;
+type Props = { children: JSX.Element };
+
+export default function ProtectedRoute({ children }: Props) {
+  const authed = isAuthed();
+  const loc = useLocation();
+  return authed ? children : <Navigate to="/login" state={{ from: loc }} replace />;
 }
