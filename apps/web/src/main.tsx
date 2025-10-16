@@ -2,18 +2,18 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import "./pages/dashboard-ios.css";
 
-import AppShell from "./pages/AppShell";
+import AppShell from "./pages/AppShell";          // keep your shell & header
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import ProtectedRoute from "./components/auth-gates/ProtectedRoute";
-import { isAuthed } from "./lib/api";
+
+import "./pages/dashboard-ios.css";
 
 function RootRedirect() {
-  // if logged in -> dashboard, else -> login
-  return <Navigate to={isAuthed() ? "/dashboard" : "/login"} replace />;
+  // if authed -> dashboard, else -> login
+  return <Navigate to="/dashboard" replace />;
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -32,8 +32,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
               </ProtectedRoute>
             }
           />
-          {/* any unknown routes bounce to root redirect */}
-          <Route path="*" element={<RootRedirect />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppShell>
     </BrowserRouter>
