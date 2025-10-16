@@ -180,10 +180,14 @@ export default function Dashboard() {
               <OutlineIcon d="M4 6h16M4 12h10M4 18h7" />
               {railOpen && <span>Workflows</span>}
             </a>
-            <a className="rail-item" title="Phone numbers">
-              <OutlineIcon d="M6 2h12v20H6zM9 18h6" />
-              {railOpen && <span>Phone numbers</span>}
-            </a>
+            <NavLink
+  to="/phone-numbers"
+  className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`}
+  title="Phone numbers"
+>
+  <OutlineIcon d="M6 2h12v20H6zM9 18h6" />
+  {railOpen && <span>Phone numbers</span>}
+</NavLink>
             <a className="rail-item" title="Tags">
               <OutlineIcon d="M20 12l-8 8-8-8 8-8 8 8z" />
               {railOpen && <span>Tags</span>}
