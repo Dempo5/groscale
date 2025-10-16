@@ -24,9 +24,15 @@ type AuthResponse =
   | { accessToken: string; user?: any };
 
 const TOKEN_KEY = "jwt";
-const BASE = ""; // same-origin; if you later set VITE_API_URL, change to import.meta.env.VITE_API_URL ?? ""
 
-// ---------- token helpers ----------
+// keep same-origin by default; if you add an external API later,
+// set VITE_API_URL in the web app's env and uncomment below.
+// const BASE = import.meta.env.VITE_API_URL ?? "";
+const BASE = "";
+
+/* --------------------------------------------------------------- */
+/* Token helpers                                                   */
+/* --------------------------------------------------------------- */
 export function getToken(): string | null {
   try {
     return localStorage.getItem(TOKEN_KEY);
@@ -47,76 +53,90 @@ export function clearToken() {
   } catch {}
 }
 
+/** Tiny auth check used by ProtectedRoute */
 export function isAuthed(): boolean {
-  return !!getToken();
-}
-
-// ---------- fetch helpers ----------
-async function asJson<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    let msg = res.statusText;
-    try {
-      const j: any = await res.json();
-      msg = (j?.error || j?.message || msg) as string;
-    } catch {}
-    throw new Error(msg);
-  }
-  return (await res.json()) as T;
-}
-
-function authHeaders(): HeadersInit {
   const t = getToken();
-  return t ? { Authorization: `Bearer ${t}` } : {};
+  return !!t && t.length > 0;
 }
 
-async function apiGet<T>(url: string): Promise<T> {
-  const res = await fetch(url, {
-    credentials: "include",
-    headers: { ...authHeaders() },
-  });
-  return asJson<T>(res);
-}
-
-async function apiPost<T>(url: string, body: any, isFormData = false): Promise<T> {
-  const headers: HeadersInit = { ...authHeaders() };
-  const init: RequestInit = {
+/* --------------------------------------------------------------- */
+/* Auth API                                                        */
+/* --------------------------------------------------------------- */
+export async function register(payload: AuthPayload) {
+  const r = await fetch(`${BASE}/api/auth/register`, {
     method: "POST",
-    credentials: "include",
-    headers,
-    body: isFormData ? body : JSON.stringify(body),
-  };
-  if (!isFormData) (init.headers as Record<string, string>)["Content-Type"] = "application/json";
-  const res = await fetch(url, init);
-  return asJson<T>(res);
-}
-
-// ---------- auth ----------
-export async function login(email: string, password: string) {
-  const data = await apiPost<AuthResponse>(`${BASE}/api/auth/login`, { email, password } satisfies AuthPayload);
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) throw new Error(`Register failed (${r.status})`);
+  const data: AuthResponse = await r.json();
   const token = (data as any).token || (data as any).jwt || (data as any).accessToken;
-  if (typeof token === "string" && token.length > 0) setToken(token);
+  if (token) setToken(token);
   return data;
 }
 
-export async function register(name: string, email: string, password: string) {
-  const data = await apiPost<AuthResponse>(`${BASE}/api/auth/register`, { name, email, password } satisfies AuthPayload);
+export async function login(payload: { email: string; password: string }) {
+  const r = await fetch(`${BASE}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) throw new Error(`Login failed (${r.status})`);
+  const data: AuthResponse = await r.json();
   const token = (data as any).token || (data as any).jwt || (data as any).accessToken;
-  if (typeof token === "string" && token.length > 0) setToken(token);
+  if (token) setToken(token);
   return data;
 }
 
-export function logout(): void {
+export function logout() {
   clearToken();
 }
 
-// ---------- leads ----------
+/* --------------------------------------------------------------- */
+/* Leads (demo list for now; replace with your real API soon)      */
+/* --------------------------------------------------------------- */
 export async function getLeads(): Promise<Lead[]> {
-  return apiGet<Lead[]>(`${BASE}/api/leads`);
+  const r = await fetch(`${BASE}/api/leads`, {
+    headers: authHeaders(),
+  });
+  if (!r.ok) throw new Error(`getLeads failed (${r.status})`);
+  return r.json();
 }
 
-// ---------- uploads ----------
+/* --------------------------------------------------------------- */
+/* Uploads (CSV)                                                   */
+/* --------------------------------------------------------------- */
 export async function uploadLeads(file: File): Promise<UploadSummary> {
   const fd = new FormData();
   fd.append("file", file);
-  return apiPost<UploadSummary>(`${BASE}/api/uploads/csv`, fd, true);
+
+  const r = await fetch(`${BASE}/api/uploads/csv`, {
+    method: "POST",
+    headers: authHeaders(/* no content-type for FormData */),
+    body: fd,
+  });
+
+  if (!r.ok) {
+    const msg = await safeText(r);
+    throw new Error(`Upload failed (${r.status}) ${msg ? "- " + msg : ""}`);
+  }
+  return r.json();
+}
+
+/* --------------------------------------------------------------- */
+/* Utils                                                           */
+/* --------------------------------------------------------------- */
+function authHeaders(init?: Record<string, string>) {
+  const h: Record<string, string> = { ...(init || {}) };
+  const t = getToken();
+  if (t) h.Authorization = `Bearer ${t}`;
+  return h;
+}
+
+async function safeText(r: Response) {
+  try {
+    return await r.text();
+  } catch {
+    return "";
+  }
 }
