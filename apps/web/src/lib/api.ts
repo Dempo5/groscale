@@ -157,3 +157,43 @@ export async function purchaseNumber(input: {
     }
   );
 }
+
+// ---- phone numbers ----
+export type SearchNumbersParams = {
+  country?: string; areaCode?: string; contains?: string;
+  sms?: boolean; mms?: boolean; voice?: boolean; limit?: number;
+};
+
+export async function searchNumbers(params: SearchNumbersParams = {}) {
+  const q = new URLSearchParams();
+  if (params.country) q.set("country", params.country);
+  if (params.areaCode) q.set("areaCode", params.areaCode);
+  if (params.contains) q.set("contains", params.contains);
+  if (params.sms !== undefined) q.set("sms", String(params.sms));
+  if (params.mms !== undefined) q.set("mms", String(params.mms));
+  if (params.voice !== undefined) q.set("voice", String(params.voice));
+  if (params.limit) q.set("limit", String(params.limit));
+  return http<{ ok: boolean; data?: any[]; error?: string }>(
+    `/api/numbers/available?${q.toString()}`
+  );
+}
+
+export async function purchaseNumber(input: {
+  country: string; phoneNumber: string; makeDefault?: boolean; messagingServiceSid?: string;
+}) {
+  return http<{ ok: boolean; number?: any; error?: string }>(`/api/numbers/purchase`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function listMyNumbers() {
+  return http<{ ok: boolean; data: any[] }>(`/api/numbers/mine`);
+}
+
+export async function setDefaultNumber(sid: string) {
+  return http<{ ok: boolean }>(`/api/numbers/default`, {
+    method: "POST",
+    body: JSON.stringify({ sid }),
+  });
+}
