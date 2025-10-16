@@ -138,3 +138,46 @@ export async function uploadLeads(
     // do not set Content-Type manually
   });
 }
+
+// ---- phone numbers ----
+
+export type SearchNumbersParams = {
+  country?: string;      // default US
+  areaCode?: string;     // e.g. "949"
+  contains?: string;     // e.g. "555"
+  sms?: boolean;         // default true
+  mms?: boolean;         // default false
+  voice?: boolean;       // default false
+  limit?: number;        // default 20
+};
+
+export async function searchNumbers(params: SearchNumbersParams = {}) {
+  const q = new URLSearchParams();
+  if (params.country) q.set("country", params.country);
+  if (params.areaCode) q.set("areaCode", params.areaCode);
+  if (params.contains) q.set("contains", params.contains);
+  if (params.sms !== undefined) q.set("sms", String(params.sms));
+  if (params.mms !== undefined) q.set("mms", String(params.mms));
+  if (params.voice !== undefined) q.set("voice", String(params.voice));
+  if (params.limit) q.set("limit", String(params.limit));
+  const res = await fetch(`/api/numbers/available?${q.toString()}`, { credentials: "include" });
+  if (!res.ok) throw new Error(`Search failed (${res.status})`);
+  return res.json() as Promise<{ ok: true; data: any[] } | { ok: false; error: string }>;
+}
+
+export async function purchaseNumber(input: {
+  country: string;
+  phoneNumber: string;
+  makeDefault?: boolean;
+  messagingServiceSid?: string;
+}) {
+  const res = await fetch(`/api/numbers/purchase`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`Purchase failed (${res.status})`);
+  return res.json() as Promise<{ ok: boolean; error?: string; number?: any }>;
+}
+
