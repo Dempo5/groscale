@@ -1,78 +1,72 @@
-import { FormEvent, useState } from "react";
-import { login } from "../lib/api";
-import "./auth.css";
+import { useState, FormEvent } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import { login, setToken } from "../lib/api";
 
 export default function Login() {
+  const nav = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   async function onSubmit(e: FormEvent) {
-  e.preventDefault();
-  setErr(null); setBusy(true);
-  try {
-    await login(email.trim(), password);
-    // ✅ force hard navigation so the app loads /dashboard fresh
-    window.location.href = "/dashboard";
-  } catch (e: any) {
-    setErr(e?.message || "Could not sign you in");
-  } finally {
-    setBusy(false);
+    e.preventDefault();
+    if (!email || !password) return setErr("Enter email & password");
+    setErr(null);
+    setLoading(true);
+    try {
+      const res = await login({ email, password });
+      // res may contain { token } | { jwt } | { accessToken } — api.ts normalizes this
+      const token =
+        (res as any).token || (res as any).jwt || (res as any).accessToken;
+
+      if (!token) throw new Error("No token returned from server");
+
+      // ✅ only one argument
+      setToken(token);
+      nav("/dashboard", { replace: true });
+    } catch (e: any) {
+      setErr(e?.message || "Login failed");
+    } finally {
+      setLoading(false);
+    }
   }
-}
 
   return (
-    <div className="auth-page minimal">
-      <header className="auth-topbar">
-        <div className="brand">
-          <span className="logo-dot" />
-          <span>GroScales</span>
-          <span className="pill">Beta</span>
+    <div className="auth-wrap">
+      <form className="auth-card" onSubmit={onSubmit}>
+        <h1 className="auth-title">Sign in</h1>
+
+        {err && <div className="auth-error">{err}</div>}
+
+        <label className="auth-label">Email</label>
+        <input
+          className="auth-input"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          autoComplete="username"
+          placeholder="you@example.com"
+        />
+
+        <label className="auth-label">Password</label>
+        <input
+          className="auth-input"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="current-password"
+          placeholder="••••••••"
+        />
+
+        <button className="btn-primary" disabled={loading}>
+          {loading ? "Signing in…" : "Sign in"}
+        </button>
+
+        <div className="auth-foot">
+          No account? <Link to="/register">Create one</Link>
         </div>
-      </header>
-
-      <main className="auth-center">
-        <div className="auth-card">
-          <h1 className="auth-title">Welcome back</h1>
-          <p className="auth-sub">Sign in to continue.</p>
-
-          {err && <p className="auth-error">{err}</p>}
-
-          <form onSubmit={onSubmit} className="auth-form">
-            <label className="field">
-              <span>Email</span>
-              <input
-                type="email"
-                placeholder="you@company.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </label>
-
-            <label className="field">
-              <span>Password</span>
-              <input
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </label>
-
-            <div className="actions">
-              <button type="submit" disabled={busy}>
-                {busy ? "Signing in…" : "Sign in"}
-              </button>
-              <a className="ghost" href="/register">Create account</a>
-            </div>
-
-            <a className="back" href="/">Back to home</a>
-          </form>
-        </div>
-      </main>
+      </form>
     </div>
   );
 }
