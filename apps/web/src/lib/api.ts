@@ -91,3 +91,25 @@ export function createLead(input: { name: string; email: string; phone?: string 
     body: JSON.stringify(input),
   });
 }
+// ADD near your other exports in apps/web/src/lib/api.ts
+
+export async function importLeads(rows: Array<Record<string, any>>) {
+  // If you already have `request<T>()` helper with auth headers, you can use it:
+  // return request<{ok:true; created:number; updated:number; skipped:number}>("/api/uploads/import", {
+  //   method: "POST",
+  //   body: JSON.stringify({ rows }),
+  // });
+
+  // Otherwise, do it raw to avoid breaking anything:
+  const token = getToken?.() || localStorage.getItem("token");
+  const res = await fetch(`${API_BASE}/api/uploads/import`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ rows }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json() as Promise<{ ok: true; created: number; updated: number; skipped: number }>;
+}
