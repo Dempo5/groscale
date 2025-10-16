@@ -1,6 +1,6 @@
 // apps/web/src/lib/api.ts
 // Flat, safe helpers used across the web app.
-// Works same-origin by default; add VITE_API_URL later if you need cross-origin.
+// Uses VITE_API_URL to hit the Render API. Falls back to same-origin for local dev.
 
 export type Lead = {
   id: string | number;
@@ -17,22 +17,39 @@ export type UploadSummary = {
   errors?: string[];
 };
 
+// ---------- auth types ----------
 type AuthPayload = { email: string; password: string; name?: string };
 type AuthResponse =
   | { token: string; user?: any }
   | { jwt: string; user?: any }
-  | { accessToken: string; user?: any };
+  | { accessToken: string; user?: any }
+  | { error?: string };
 
+// ---------- config ----------
 const TOKEN_KEY = "jwt";
 
-// keep same-origin by default; if you add an external API later,
-// set VITE_API_URL in the web app's env and uncomment below.
-// const BASE = import.meta.env.VITE_API_URL ?? "";
-const BASE = "";
+// If you set VITE_API_URL in Vercel, we’ll use it. Otherwise same-origin (local dev).
+const BASE = import.meta.env.VITE_API_URL?.replace(/\/+$/, "") || "";
 
-/* --------------------------------------------------------------- */
-/* Token helpers                                                   */
-/* --------------------------------------------------------------- */
+// Small fetch helper that always JSONs and throws on !ok
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const url = `${BASE}${path.startsWith("/") ? path : `/${path}`}`;
+  const res = await fetch(url, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers || {}),
+    },
+    credentials: "include", // not harmful; CORS allows this in your server
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `Request failed: ${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+// ---------- token helpers ----------
 export function getToken(): string | null {
   try {
     return localStorage.getItem(TOKEN_KEY);
@@ -53,90 +70,50 @@ export function clearToken() {
   } catch {}
 }
 
-/** Tiny auth check used by ProtectedRoute */
-export function isAuthed(): boolean {
-  const t = getToken();
-  return !!t && t.length > 0;
+export function isAuthed() {
+  return !!getToken();
 }
 
-/* --------------------------------------------------------------- */
-/* Auth API                                                        */
-/* --------------------------------------------------------------- */
+// Extract a token from any of the common fields we might get back
+function normalizeToken(r: AuthResponse): string | undefined {
+  return (
+    (r as any).token ||
+    (r as any).jwt ||
+    (r as any).accessToken ||
+    undefined
+  );
+}
+
+// ---------- auth APIs ----------
 export async function register(payload: AuthPayload) {
-  const r = await fetch(`${BASE}/api/auth/register`, {
+  const r = await api<AuthResponse>("/api/auth/register", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!r.ok) throw new Error(`Register failed (${r.status})`);
-  const data: AuthResponse = await r.json();
-  const token = (data as any).token || (data as any).jwt || (data as any).accessToken;
-  if (token) setToken(token);
-  return data;
+  const token = normalizeToken(r);
+  if (!token) throw new Error("No token returned from /register");
+  setToken(token);
+  return r;
 }
 
-export async function login(payload: { email: string; password: string }) {
-  const r = await fetch(`${BASE}/api/auth/login`, {
+export async function login(payload: AuthPayload) {
+  const r = await api<AuthResponse>("/api/auth/login", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!r.ok) throw new Error(`Login failed (${r.status})`);
-  const data: AuthResponse = await r.json();
-  const token = (data as any).token || (data as any).jwt || (data as any).accessToken;
-  if (token) setToken(token);
-  return data;
+  const token = normalizeToken(r);
+  if (!token) throw new Error("No token returned from /login");
+  setToken(token);
+  return r;
 }
 
-export function logout() {
+export async function logout() {
   clearToken();
+  // Optional: if you add a server logout route later:
+  // await api("/api/auth/logout", { method: "POST" });
 }
 
-/* --------------------------------------------------------------- */
-/* Leads (demo list for now; replace with your real API soon)      */
-/* --------------------------------------------------------------- */
+// ---------- existing demo APIs ----------
 export async function getLeads(): Promise<Lead[]> {
-  const r = await fetch(`${BASE}/api/leads`, {
-    headers: authHeaders(),
-  });
-  if (!r.ok) throw new Error(`getLeads failed (${r.status})`);
-  return r.json();
-}
-
-/* --------------------------------------------------------------- */
-/* Uploads (CSV)                                                   */
-/* --------------------------------------------------------------- */
-export async function uploadLeads(file: File): Promise<UploadSummary> {
-  const fd = new FormData();
-  fd.append("file", file);
-
-  const r = await fetch(`${BASE}/api/uploads/csv`, {
-    method: "POST",
-    headers: authHeaders(/* no content-type for FormData */),
-    body: fd,
-  });
-
-  if (!r.ok) {
-    const msg = await safeText(r);
-    throw new Error(`Upload failed (${r.status}) ${msg ? "- " + msg : ""}`);
-  }
-  return r.json();
-}
-
-/* --------------------------------------------------------------- */
-/* Utils                                                           */
-/* --------------------------------------------------------------- */
-function authHeaders(init?: Record<string, string>) {
-  const h: Record<string, string> = { ...(init || {}) };
-  const t = getToken();
-  if (t) h.Authorization = `Bearer ${t}`;
-  return h;
-}
-
-async function safeText(r: Response) {
-  try {
-    return await r.text();
-  } catch {
-    return "";
-  }
+  return api<Lead[]>("/api/leads", { method: "GET" });
 }
