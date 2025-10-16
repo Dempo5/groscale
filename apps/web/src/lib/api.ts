@@ -1,11 +1,10 @@
-// apps/web/src/lib/api.ts
 // Flat, safe helpers used across the web app.
-// Works same-origin by default; add VITE_API_URL later if you need cross-origin.
+// Uses same-origin in dev, explicit VITE_API_URL in prod.
 
 export type Lead = {
   id: string | number;
-  name: string;            // required to satisfy Dashboard usage
-  email: string;           // required to satisfy Dashboard usage
+  name: string;
+  email: string;
   phone?: string | null;
   createdAt?: string;
 };
@@ -13,16 +12,29 @@ export type Lead = {
 export type UploadSummary = {
   ok: boolean;
   inserted: number;
-  duplicates: number;
-  invalids: number;
   skipped: number;
+  duplicates?: number;
+  invalids?: number;
   errors?: string[];
 };
 
-const TOKEN_KEY = "jwt";
-const BASE = ""; // same-origin; if you later set VITE_API_URL, switch to import.meta.env.VITE_API_URL ?? ""
+type AuthPayload = { email: string; password: string; name?: string };
+type AuthResponse =
+  | { token: string; user?: any }
+  | { jwt: string; user?: any }
+  | { accessToken: string; user?: any };
 
-/* ---------------- token helpers ---------------- */
+const TOKEN_KEY = "jwt";
+
+/**
+ * In dev (Vite) we’ll run the API on the same origin.
+ * In prod (Vercel), set VITE_API_URL to your Render domain.
+ */
+const BASE =
+  (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/+$/, "") ||
+  "";
+
+// -------- token helpers --------
 export function getToken(): string | null {
   try {
     return localStorage.getItem(TOKEN_KEY);
@@ -30,112 +42,93 @@ export function getToken(): string | null {
     return null;
   }
 }
-
 export function setToken(token: string) {
   try {
     localStorage.setItem(TOKEN_KEY, token);
   } catch {}
 }
-
 export function clearToken() {
   try {
     localStorage.removeItem(TOKEN_KEY);
   } catch {}
 }
 
-export function isAuthed(): boolean {
-  return !!getToken();
+// Small fetch wrapper that attaches auth automatically
+async function http<T = any>(
+  path: string,
+  opts: RequestInit = {}
+): Promise<T> {
+  const url = `${BASE}${path}`;
+  const headers = new Headers(opts.headers || {});
+  if (!headers.has("Content-Type") && opts.body) {
+    headers.set("Content-Type", "application/json");
+  }
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const res = await fetch(url, { ...opts, headers, credentials: "include" });
+  if (!res.ok) {
+    // bubble minimal error info for UI
+    const text = await res.text().catch(() => "");
+    throw new Error(`${res.status} ${res.statusText}${text ? ` – ${text}` : ""}`);
+  }
+  // try json, fall back to text
+  const ct = res.headers.get("content-type") || "";
+  return (ct.includes("application/json") ? res.json() : (res.text() as any)) as T;
 }
 
-/* ---------------- auth ---------------- */
-async function consumeAuth(res: Response) {
-  if (!res.ok) throw new Error(`${res.status}`);
-  // use loose typing so TS doesn’t complain about token field on a union
-  const data: any = await res.json();
-  const token = data?.token ?? data?.jwt ?? data?.accessToken ?? "";
+// -------- auth API --------
+export async function register(p: AuthPayload): Promise<AuthResponse> {
+  const data = await http<AuthResponse>("/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify(p),
+  });
+  // normalize token field
+  const token =
+    (data as any).token ||
+    (data as any).jwt ||
+    (data as any).accessToken ||
+    "";
   if (token) setToken(token);
   return data;
 }
 
-export async function register(payload: { email: string; password: string; name?: string }) {
-  const res = await fetch(`${BASE}/api/auth/register`, {
+export async function login(p: AuthPayload): Promise<AuthResponse> {
+  const data = await http<AuthResponse>("/api/auth/login", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(p),
   });
-  return consumeAuth(res);
+  const token =
+    (data as any).token ||
+    (data as any).jwt ||
+    (data as any).accessToken ||
+    "";
+  if (token) setToken(token);
+  return data;
 }
 
-export async function login(payload: { email: string; password: string }) {
-  const res = await fetch(`${BASE}/api/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  return consumeAuth(res);
+export async function logout(): Promise<void> {
+  try {
+    await http("/api/auth/logout", { method: "POST" });
+  } finally {
+    clearToken();
+  }
 }
 
-export function logout() {
-  clearToken();
-}
-
-/* ---------------- leads (demo) ---------------- */
+// -------- leads (demo) --------
 export async function getLeads(): Promise<Lead[]> {
-  const res = await fetch(`${BASE}/api/leads`);
-  if (!res.ok) {
-    // fallback demo data so UI still renders
-    return [
-      { id: 1, name: "Test Lead", email: "lead@example.com" },
-      { id: 2, name: "Demo Lead", email: "demo@example.com" },
-    ];
-  }
-  const data = await res.json();
-  // coerce to required fields so Dashboard never sees undefined
-  return (Array.isArray(data) ? data : []).map((l: any) => ({
-    id: l?.id ?? crypto.randomUUID?.() ?? String(Math.random()),
-    name: (l?.name ?? "—") as string,
-    email: (l?.email ?? "") as string,
-    phone: l?.phone ?? null,
-    createdAt: l?.createdAt,
-  }));
+  return http<Lead[]>("/api/leads");
 }
 
-/* ---------------- uploads ---------------- */
-export async function uploadLeads(file: File): Promise<UploadSummary> {
-  const fd = new FormData();
-  fd.append("file", file);
-
-  const token = getToken();
-  const res = await fetch(`${BASE}/api/uploads`, {
+// -------- uploads (page you added) --------
+export async function uploadLeads(
+  file: File
+): Promise<UploadSummary> {
+  const form = new FormData();
+  form.append("file", file);
+  return http<UploadSummary>("/api/uploads/import", {
     method: "POST",
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    body: fd,
+    body: form, // leave browser to set multipart boundary
+    // do not set Content-Type manually
   });
-
-  if (!res.ok) {
-    let msg = `HTTP ${res.status}`;
-    try {
-      const err = await res.json();
-      if (err?.error) msg = String(err.error);
-    } catch {}
-    return {
-      ok: false,
-      inserted: 0,
-      duplicates: 0,
-      invalids: 0,
-      skipped: 0,
-      errors: [msg],
-    };
-  }
-
-  const data: any = await res.json();
-
-  return {
-    ok: !!data?.ok,
-    inserted: Number(data?.inserted ?? 0),
-    duplicates: Number(data?.duplicates ?? 0),
-    invalids: Number(data?.invalids ?? 0),
-    skipped: Number(data?.skipped ?? 0),
-    errors: Array.isArray(data?.errors) ? data.errors : undefined,
-  };
 }
