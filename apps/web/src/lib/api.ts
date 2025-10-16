@@ -181,3 +181,75 @@ export async function purchaseNumber(input: {
   return res.json() as Promise<{ ok: boolean; error?: string; number?: any }>;
 }
 
+// ---------- Phone numbers API ----------
+
+export type SearchNumbersParams = {
+  country: string;
+  areaCode?: string;
+  contains?: string;
+  sms?: boolean;
+  mms?: boolean;
+  voice?: boolean;
+  limit?: number;
+};
+
+export async function searchNumbers(params: SearchNumbersParams) {
+  const p = new URLSearchParams();
+  p.set("country", params.country);
+  if (params.areaCode) p.set("areaCode", params.areaCode);
+  if (params.contains) p.set("contains", params.contains);
+  if (params.sms) p.set("sms", "true");
+  if (params.mms) p.set("mms", "true");
+  if (params.voice) p.set("voice", "true");
+  if (params.limit != null) p.set("limit", String(params.limit));
+
+  // GET /api/numbers/available
+  const r = await fetch(`/api/numbers/available?${p.toString()}`, {
+    credentials: "include",
+  });
+  if (!r.ok) {
+    throw new Error(await r.text());
+  }
+  return (await r.json()) as {
+    ok: boolean;
+    data?: Array<{
+      friendlyName?: string | null;
+      phoneNumber: string;
+      locality?: string | null;
+      region?: string | null;
+      isoCountry?: string;
+      postalCode?: string | null;
+      capabilities?: { sms?: boolean; mms?: boolean; voice?: boolean };
+    }>;
+    error?: string;
+  };
+}
+
+export async function purchaseNumber(input: {
+  country: string;
+  phoneNumber: string;
+  makeDefault?: boolean;
+  messagingServiceSid?: string;
+}) {
+  // POST /api/numbers/purchase
+  const r = await fetch(`/api/numbers/purchase`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(input),
+  });
+  if (!r.ok) {
+    throw new Error(await r.text());
+  }
+  return (await r.json()) as {
+    ok: boolean;
+    number?: {
+      sid: string;
+      number: string;
+      friendlyName?: string | null;
+      capabilities?: { sms?: boolean; mms?: boolean; voice?: boolean };
+      isDefault?: boolean;
+    };
+    error?: string;
+  };
+}
