@@ -1,11 +1,11 @@
 // apps/web/src/lib/api.ts
-// Web helpers. Auth hits the Render API via VITE_API_URL.
-// Falls back to same-origin for local dev.
+// Flat, safe helpers used across the web app.
+// Works same-origin by default; add VITE_API_URL later if you need cross-origin.
 
 export type Lead = {
   id: string | number;
-  name: string;
-  email: string;
+  name?: string;
+  email?: string;
   phone?: string | null;
   createdAt?: string;
 };
@@ -13,139 +13,132 @@ export type Lead = {
 export type UploadSummary = {
   ok: boolean;
   inserted: number;
+  duplicates: number;
+  invalids: number;   // <-- keep this name; UI expects it
   skipped: number;
   errors?: string[];
 };
 
-// -------- auth types --------
 type AuthPayload = { email: string; password: string; name?: string };
 type AuthResponse =
   | { token: string; user?: any }
   | { jwt: string; user?: any }
-  | { accessToken: string; user?: any }
-  | { error?: string };
+  | { accessToken: string; user?: any };
 
-// -------- config --------
 const TOKEN_KEY = "jwt";
-const BASE = import.meta.env.VITE_API_URL?.replace(/\/+$/, "") || "";
+const BASE = ""; // same-origin; if you later set VITE_API_URL, switch to import.meta.env.VITE_API_URL ?? ""
 
-// small fetch helper (JSON)
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const url = `${BASE}${path.startsWith("/") ? path : `/${path}`}`;
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
-    credentials: "include",
-  });
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(txt || `Request failed: ${res.status}`);
-  }
-  return res.json() as Promise<T>;
-}
-
-// -------- token helpers --------
+/* ---------------- token helpers ---------------- */
 export function getToken(): string | null {
-  try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
 }
+
 export function setToken(token: string) {
-  try { localStorage.setItem(TOKEN_KEY, token); } catch {}
+  try {
+    localStorage.setItem(TOKEN_KEY, token);
+  } catch {}
 }
+
 export function clearToken() {
-  try { localStorage.removeItem(TOKEN_KEY); } catch {}
-}
-export function isAuthed() { return !!getToken(); }
-
-function normalizeToken(r: AuthResponse) {
-  return (r as any).token || (r as any).jwt || (r as any).accessToken;
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {}
 }
 
-// -------- auth API --------
+export function isAuthed(): boolean {
+  return !!getToken();
+}
+
+/* ---------------- auth ---------------- */
+async function consumeAuth(res: Response) {
+  if (!res.ok) throw new Error(`${res.status}`);
+  const data: any = await res.json();
+  const token =
+    (data as AuthResponse).token ??
+    (data as any).jwt ??
+    (data as any).accessToken ??
+    "";
+  if (token) setToken(token);
+  return data;
+}
+
 export async function register(payload: AuthPayload) {
-  const r = await api<AuthResponse>("/api/auth/register", {
+  const res = await fetch(`${BASE}/api/auth/register`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  const t = normalizeToken(r);
-  if (!t) throw new Error("No token returned from /register");
-  setToken(t);
-  return r;
+  return consumeAuth(res);
 }
 
 export async function login(payload: AuthPayload) {
-  const r = await api<AuthResponse>("/api/auth/login", {
+  const res = await fetch(`${BASE}/api/auth/login`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  const t = normalizeToken(r);
-  if (!t) throw new Error("No token returned from /login");
-  setToken(t);
-  return r;
+  return consumeAuth(res);
 }
 
-export async function logout() {
+export function logout() {
   clearToken();
-  // Optional: await api("/api/auth/logout", { method: "POST" }).catch(()=>{});
 }
 
-// -------- leads (demo) --------
+/* ---------------- leads (demo) ---------------- */
 export async function getLeads(): Promise<Lead[]> {
-  return api<Lead[]>("/api/leads", { method: "GET" });
+  // backed by server /api/leads (public demo route)
+  const res = await fetch(`${BASE}/api/leads`);
+  if (!res.ok) {
+    // fallback demo data so UI still renders
+    return [
+      { id: 1, name: "Test Lead", email: "lead@example.com" },
+      { id: 2, name: "Demo Lead", email: "demo@example.com" },
+    ];
+  }
+  return res.json();
 }
 
-// -------- uploads (CSV) --------
-// Server route expected: POST /api/uploads  (field name: "file")
+/* ---------------- uploads ---------------- */
 export async function uploadLeads(file: File): Promise<UploadSummary> {
-  const url = `${BASE}/api/uploads`;
   const fd = new FormData();
   fd.append("file", file);
 
-  const res = await fetch(url, {
+  const token = getToken();
+  const res = await fetch(`${BASE}/api/uploads`, {
     method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     body: fd,
-    credentials: "include", // carry cookies if you add server auth later
   });
 
   if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(txt || `Upload failed: ${res.status}`);
+    let msg = `HTTP ${res.status}`;
+    try {
+      const err = await res.json();
+      if (err?.error) msg = String(err.error);
+    } catch {}
+    return {
+      ok: false,
+      inserted: 0,
+      duplicates: 0,
+      invalids: 0,
+      skipped: 0,
+      errors: [msg],
+    };
   }
-  return res.json() as Promise<UploadSummary>;
-}
 
-// --- Uploads API ---
-export async function uploadLeads(file: File) {
-  const fd = new FormData();
-  fd.append("file", file);
-  const res = await fetch("/api/uploads/import", { method: "POST", body: fd });
-  if (!res.ok) {
-    // Try to return structured error if server replies JSON
-    try { return await res.json(); } catch {}
-    throw new Error("Upload failed");
-  }
-  return await res.json(); // { ok, inserted, skipped, invalids?, errors? }
-}
+  const data: any = await res.json();
 
-export async function getUploadHistory(): Promise<{
-  id: string; filename: string; uploadedAt: string;
-  leads: number; duplicates: number; invalids: number;
-  status: "success"|"partial"|"failed"; downloadUrl?: string|null;
-}[]> {
-  const res = await fetch("/api/uploads/history");
-  if (!res.ok) return []; // graceful fallback
-  return await res.json();
+  // Normalize/guard fields
+  return {
+    ok: !!data.ok,
+    inserted: Number(data.inserted ?? 0),
+    duplicates: Number(data.duplicates ?? 0),
+    invalids: Number(data.invalids ?? 0),
+    skipped: Number(data.skipped ?? 0),
+    errors: Array.isArray(data.errors) ? data.errors : undefined,
+  };
 }
-
-
-// (Optional helpers you may call later; safe no-ops until endpoints exist)
-export async function deleteAllLeads(): Promise<{ ok: boolean; removed?: number }> {
-  const url = `${BASE}/api/uploads/all`;
-  const res = await fetch(url, { method: "DELETE", credentials: "include" });
-  if (!res.ok) throw new Error(await res.text().catch(() => "Delete failed"));
-  return res.json();
-}
-// alias if your page used a different name previously
-export const uploadLeadsCsv = uploadLeads;
