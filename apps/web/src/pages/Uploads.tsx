@@ -1,283 +1,249 @@
 // apps/web/src/pages/Uploads.tsx
-import { useMemo, useState } from "react";
-import "../pages/dashboard-ios.css"; // keep the same global tokens
-import { uploadLeads, type UploadSummary } from "../lib/api";
+import { useMemo, useRef, useState } from "react";
+import { uploadLeads } from "../lib/api"; // path matches apps/web/src/lib/api.ts
 
-type Row = string[];
-type Parsed = { headers: string[]; rows: Row[] };
-
-const REQUIRED_FIELDS = ["name", "email", "phone"] as const;
-type FieldKey = (typeof REQUIRED_FIELDS)[number] | "city" | "state" | "zip" | "tags";
-
-const FRIENDLY: Record<FieldKey, string> = {
-  name: "Full name",
-  email: "Email",
-  phone: "Phone",
-  city: "City",
-  state: "State",
-  zip: "ZIP",
-  tags: "Tags (comma-separated)",
+type PreviewRow = {
+  name?: string;
+  email?: string;
+  phone?: string;
 };
 
-function parseCsv(text: string): Parsed {
-  // Super-light CSV: handles commas inside quotes and newlines
-  // (good enough for basic lead sheets; no external deps)
-  const rows: Row[] = [];
-  let cur = "", inQ = false, row: string[] = [];
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i], n = text[i + 1];
-    if (c === '"' && n === '"') { cur += '"'; i++; continue; }
-    if (c === '"') { inQ = !inQ; continue; }
-    if (!inQ && (c === "," || c === "\n" || c === "\r")) {
-      row.push(cur.trim()); cur = "";
-      if (c === "\n" || (c === "\r" && n !== "\n")) { rows.push(row); row = []; }
-      continue;
-    }
-    cur += c;
-  }
-  if (cur.length || row.length) { row.push(cur.trim()); rows.push(row); }
-  const headers = (rows.shift() || []).map(h => h.trim());
-  return { headers, rows };
-}
+type Summary = {
+  ok: boolean;
+  inserted: number;
+  skipped: number;
+  errors?: string[];
+};
 
 export default function Uploads() {
   const [file, setFile] = useState<File | null>(null);
-  const [parsed, setParsed] = useState<Parsed | null>(null);
-  const [map, setMap] = useState<Record<FieldKey, string>>({
-    name: "", email: "", phone: "", city: "", state: "", zip: "", tags: "",
-  });
-  const [busy, setBusy] = useState(false);
-  const [summary, setSummary] = useState<UploadSummary | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [rows, setRows] = useState<PreviewRow[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  function onPick(f: File | null) {
-    setFile(f);
-    setParsed(null);
-    setSummary(null);
-    setError(null);
+  function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0] || null;
     if (!f) return;
+    setFile(f);
+    setSummary(null);
+    readFilePreview(f);
+  }
+
+  function readFilePreview(f: File) {
     const reader = new FileReader();
     reader.onload = () => {
       try {
+        // Accept CSV or JSON. Minimal CSV support: name,email,phone
         const text = String(reader.result || "");
-        const p = parseCsv(text);
-        setParsed(p);
-        // Auto-guess mappings by header names
-        const guess = (needle: RegExp) =>
-          p.headers.find(h => needle.test(h.toLowerCase())) || "";
-        setMap({
-          name: guess(/name|full.?name|contact/i),
-          email: guess(/email/i),
-          phone: guess(/phone|mobile|cell/i),
-          city: guess(/city/i) || "",
-          state: guess(/state|st/i) || "",
-          zip: guess(/zip|postal/i) || "",
-          tags: guess(/tag|label/i) || "",
-        });
-      } catch (e: any) {
-        setError("Couldn’t parse CSV. Check the file and try again.");
+        if (/^\s*[\{\[]/.test(text)) {
+          const arr = JSON.parse(text) as any[];
+          const out = arr
+            .map((r) => ({
+              name: r.name ?? r.fullName ?? "",
+              email: r.email ?? "",
+              phone: r.phone ?? r.phoneNumber ?? "",
+            }))
+            .filter((r) => r.name || r.email || r.phone);
+          setRows(out.slice(0, 50)); // preview first 50
+        } else {
+          const lines = text.split(/\r?\n/).filter(Boolean);
+          const header = (lines[0] || "").split(",").map((s) => s.trim().toLowerCase());
+          const idxName = header.findIndex((h) => /name|full ?name/.test(h));
+          const idxEmail = header.findIndex((h) => /email/.test(h));
+          const idxPhone = header.findIndex((h) => /phone/.test(h));
+          const out: PreviewRow[] = [];
+          for (let i = 1; i < lines.length; i++) {
+            const cols = lines[i].split(",").map((s) => s.trim());
+            out.push({
+              name: idxName >= 0 ? cols[idxName] : "",
+              email: idxEmail >= 0 ? cols[idxEmail] : "",
+              phone: idxPhone >= 0 ? cols[idxPhone] : "",
+            });
+            if (out.length >= 50) break;
+          }
+          setRows(out);
+        }
+      } catch {
+        setRows([]);
       }
     };
     reader.readAsText(f);
   }
 
-  const preview = useMemo(() => {
-    if (!parsed) return [];
-    return parsed.rows.slice(0, 6);
-  }, [parsed]);
-
-  const canImport = useMemo(() => {
-    if (!parsed) return false;
-    // Require at least one of email/phone + name
-    const has = (k: FieldKey) => !!map[k] && parsed.headers.includes(map[k]);
-    return has("name") && (has("phone") || has("email"));
-  }, [parsed, map]);
-
-  async function startImport() {
-    if (!parsed) return;
-    setBusy(true);
+  async function onUpload() {
+    if (!file || uploading) return;
+    setUploading(true);
     setSummary(null);
-    setError(null);
     try {
-      const colIndex = (header: string) => parsed.headers.indexOf(header);
-
-      const leads = parsed.rows.map(r => {
-        const v = (k: FieldKey) => {
-          const h = map[k];
-          if (!h) return "";
-          const idx = colIndex(h);
-          return idx >= 0 ? r[idx] || "" : "";
-        };
-        const rawTags = v("tags");
-        const tags = rawTags
-          ? rawTags.split(",").map(t => t.trim()).filter(Boolean)
-          : [];
-        return {
-          name: v("name"),
-          email: v("email") || null,
-          phone: v("phone") || null,
-          city: v("city") || null,
-          state: v("state") || null,
-          zip: v("zip") || null,
-          tags,
-        };
-      });
-
-      const s = await uploadLeads({ leads });
-      setSummary(s);
-    } catch (e: any) {
-      setError(e?.message || "Import failed");
+      const res = await uploadLeads(file); // returns { ok, inserted, skipped, errors? }
+      setSummary(res as Summary);
+    } catch (e) {
+      setSummary({ ok: false, inserted: 0, skipped: 0, errors: ["Upload failed"] });
     } finally {
-      setBusy(false);
+      setUploading(false);
     }
   }
 
+  const hasPreview = rows.length > 0;
+
+  const previewCols = useMemo(() => {
+    // build column widths in a minimal way (no new CSS needed)
+    return { name: "40%", email: "35%", phone: "25%" };
+  }, []);
+
   return (
-    <div className="p-shell matte">
-      <header className="p-topbar matte">
-        <div className="brand-center">GroScales</div>
-      </header>
-
-      <main className="p-work grid rail-open">
-        {/* left rail is your existing nav from AppShell/Dashboard; keep page minimal here */}
-        <section className="panel list matte" style={{ gridColumn: "1 / span 2" }}>
-          <div className="list-head">
+    <div className="p-shell" style={{ minHeight: "100vh" }}>
+      <main className="p-work grid rail-open" style={{ gridTemplateColumns: "1fr" }}>
+        <section className="panel matte" style={{ padding: 16 }}>
+          <div
+            className="list-head"
+            style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
+          >
             <div className="h">Uploads</div>
+            <div className="list-head-actions" style={{ display: "flex", gap: 8 }}>
+              <button
+                className="btn-outline sm"
+                onClick={() => inputRef.current?.click()}
+                aria-label="Choose file"
+              >
+                Choose file
+              </button>
+              <button
+                className="btn-primary"
+                onClick={onUpload}
+                disabled={!file || uploading}
+                aria-disabled={!file || uploading}
+              >
+                {uploading ? "Uploading…" : "Upload"}
+              </button>
+            </div>
           </div>
 
-          {/* Dropzone */}
-          <div className="u-drop">
-            <label className="u-dropzone">
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                onChange={(e) => onPick(e.target.files?.[0] ?? null)}
-                hidden
-              />
-              <div className="u-drop-icon">⭳</div>
-              <div className="u-drop-text">
-                {file ? <b>{file.name}</b> : "Drag & drop a CSV here, or click to choose"}
-              </div>
-            </label>
-          </div>
+          <input
+            ref={inputRef}
+            type="file"
+            accept=".csv,application/json,text/csv,application/vnd.ms-excel"
+            onChange={onPickFile}
+            style={{ display: "none" }}
+          />
 
-          {/* Field mapping */}
-          {!!parsed && (
-            <div className="u-map matte">
-              <div className="u-map-title">Map columns</div>
-              <div className="u-grid">
-                {(Object.keys(FRIENDLY) as FieldKey[]).map((k) => (
-                  <div key={k} className="u-map-row">
-                    <label className="u-map-label">{FRIENDLY[k]}</label>
-                    <select
-                      className="u-map-select"
-                      value={map[k] || ""}
-                      onChange={(e) => setMap({ ...map, [k]: e.target.value })}
-                    >
-                      <option value="">—</option>
-                      {parsed.headers.map((h) => (
-                        <option key={h} value={h}>
-                          {h}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ))}
+          {/* Drop zone area */}
+          <div
+            onClick={() => inputRef.current?.click()}
+            style={{
+              marginTop: 12,
+              padding: 20,
+              border: "1px dashed var(--line)",
+              borderRadius: 10,
+              background: "var(--panel)",
+              cursor: "pointer",
+            }}
+            aria-label="Click to select a CSV or JSON file"
+          >
+            {file ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontWeight: 600 }}>{file.name}</span>
+                <span style={{ color: "var(--muted)" }}>
+                  {Math.ceil(file.size / 1024)} KB selected
+                </span>
               </div>
-            </div>
-          )}
-
-          {/* Preview */}
-          {!!parsed && (
-            <div className="u-preview">
-              <div className="u-preview-title">Preview (first 6 rows)</div>
-              <div className="u-table">
-                <div className="u-tr u-tr-h">
-                  {parsed.headers.map((h) => (
-                    <div key={h} className="u-td">{h}</div>
-                  ))}
-                </div>
-                {preview.map((r, i) => (
-                  <div key={i} className="u-tr">
-                    {parsed.headers.map((_, j) => (
-                      <div key={j} className="u-td">
-                        {r[j] || "—"}
-                      </div>
-                    ))}
-                  </div>
-                ))}
-                {!preview.length && <div className="u-empty">No data rows found.</div>}
-              </div>
-            </div>
-          )}
-
-          {/* Actions */}
-          <div className="u-actions">
-            <button
-              className="btn-primary"
-              onClick={startImport}
-              disabled={!canImport || busy}
-              title={canImport ? "Import leads" : "Select and map at least Name + (Email or Phone)"}
-            >
-              {busy ? "Importing…" : "Start import"}
-            </button>
-            {!canImport && (
-              <div className="u-hint">
-                Select a CSV, then map at least <b>Name</b> and either <b>Email</b> or <b>Phone</b>.
+            ) : (
+              <div style={{ color: "var(--muted)" }}>
+                Drag a <strong>CSV</strong> or <strong>JSON</strong> file here, or click to browse.
               </div>
             )}
           </div>
 
-          {/* Result */}
-          {summary && (
-            <div className="u-result">
-              <div className="u-result-title">Import summary</div>
-              <div className="u-statgrid">
-                <div className="u-stat">
-                  <div className="u-stat-k">Inserted</div>
-                  <div className="u-stat-v">{summary.inserted}</div>
+          {/* Preview */}
+          {hasPreview && (
+            <div style={{ marginTop: 14, borderTop: "1px solid var(--line)", paddingTop: 14 }}>
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>Preview (first 50 rows)</div>
+              <div
+                style={{
+                  border: "1px solid var(--line)",
+                  borderRadius: 10,
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: `${previewCols.name} ${previewCols.email} ${previewCols.phone}`,
+                    padding: "8px 10px",
+                    borderBottom: "1px solid var(--line)",
+                    color: "var(--text-secondary)",
+                    fontSize: 12,
+                  }}
+                >
+                  <div>Name</div>
+                  <div>Email</div>
+                  <div>Phone</div>
                 </div>
-                <div className="u-stat">
-                  <div className="u-stat-k">Skipped</div>
-                  <div className="u-stat-v">{summary.skipped}</div>
-                </div>
-              </div>
-              {!!summary.errors?.length && (
-                <div className="u-errors">
-                  {summary.errors.slice(0, 6).map((e, i) => (
-                    <div key={i} className="u-error">
-                      • {e}
+                <div>
+                  {rows.map((r, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: `${previewCols.name} ${previewCols.email} ${previewCols.phone}`,
+                        padding: "8px 10px",
+                        borderTop: i ? "1px solid var(--line)" : "none",
+                      }}
+                    >
+                      <div>{r.name || <span style={{ color: "var(--muted)" }}>—</span>}</div>
+                      <div>{r.email || <span style={{ color: "var(--muted)" }}>—</span>}</div>
+                      <div>{r.phone || <span style={{ color: "var(--muted)" }}>—</span>}</div>
                     </div>
                   ))}
-                  {summary.errors.length > 6 && (
-                    <div className="u-error more">+{summary.errors.length - 6} more…</div>
-                  )}
                 </div>
-              )}
+              </div>
             </div>
           )}
 
-          {error && <div className="u-error-banner">{error}</div>}
+          {/* Summary */}
+          {summary && (
+            <div
+              style={{
+                marginTop: 14,
+                borderTop: "1px solid var(--line)",
+                paddingTop: 14,
+                display: "grid",
+                gap: 8,
+              }}
+            >
+              <div style={{ fontWeight: 700 }}>Import summary</div>
+              <div style={{ display: "flex", gap: 16, color: "var(--text-secondary)" }}>
+                <div>
+                  Inserted: <strong style={{ color: "var(--text-primary)" }}>{summary.inserted}</strong>
+                </div>
+                <div>
+                  Skipped: <strong style={{ color: "var(--text-primary)" }}>{summary.skipped}</strong>
+                </div>
+                {!summary.ok && <div style={{ color: "#e46a6a" }}>Failed</div>}
+              </div>
+              {summary.errors?.length ? (
+                <div
+                  style={{
+                    border: "1px solid var(--line)",
+                    borderRadius: 10,
+                    padding: 10,
+                    background: "color-mix(in srgb, var(--panel) 92%, var(--line))",
+                  }}
+                >
+                  <div style={{ fontWeight: 600, marginBottom: 6 }}>Errors</div>
+                  <ul style={{ margin: 0, paddingLeft: 16 }}>
+                    {summary.errors.map((e, i) => (
+                      <li key={i} style={{ color: "var(--muted)" }}>
+                        {e}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          )}
         </section>
-
-        {/* right spacer to keep 3-panel balance on large screens */}
-        <aside className="panel details matte" style={{ gridColumn: "3 / span 2" }}>
-          <div className="section">
-            <div className="section-title">Tips</div>
-            <div className="kv">
-              <label>File format</label>
-              <span>.csv with a header row (Name, Email, Phone…)</span>
-            </div>
-            <div className="kv">
-              <label>Duplicates</label>
-              <span>Skipped by email/phone.</span>
-            </div>
-            <div className="kv">
-              <label>Tags</label>
-              <span>Optional, comma-separated.</span>
-            </div>
-          </div>
-        </aside>
       </main>
     </div>
   );
