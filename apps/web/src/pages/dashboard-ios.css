@@ -1,29 +1,22 @@
-/* Final GroScales refined CSS – flat, premium, minimal motion */
+/* GroScales – flat, premium, micro-contrast */
 
 :root{
-  /* Surfaces */
   --surface-0:#f6f7f8;
   --surface-1:#ffffff;
   --surface-2:#f3f4f6;
   --surface-rail:#f1f3f5;
 
-  /* Text */
   --text-primary:#0e1115;
   --text-secondary:#6b7280;
   --text-muted:#8a93a3;
 
-  /* Lines & shadows */
   --line:#e6e8ec;
   --line-strong:#dadde3;
+
   --shadow-soft:0 1px 3px rgba(0,0,0,.05);
   --shadow-subtle:0 1px 2px rgba(0,0,0,.04);
 
-  /* Accent */
   --accent:#2a74ff;
-
-  /* Radius & spacing */
-  --r:12px;
-  --r-sm:10px;
 }
 
 body[data-theme="dark"]{
@@ -54,10 +47,10 @@ body{
   font:500 14px/1.45 ui-sans-serif, system-ui, -apple-system,"Segoe UI", Inter, Roboto, Arial;
 }
 
-/* ---------- Top bar ---------- */
 .p-shell{min-height:100vh;display:flex;flex-direction:column}
 .matte{backdrop-filter:blur(6px) saturate(110%)}
 
+/* Topbar */
 .p-topbar{
   position:sticky;top:0;z-index:20;height:54px;
   display:flex;align-items:center;justify-content:center;
@@ -65,41 +58,59 @@ body{
   background:color-mix(in srgb, var(--surface-1) 88%, transparent);
 }
 .brand-center{font-weight:750;letter-spacing:.2px}
-
 .left-toggle{position:absolute;left:10px;top:50%;transform:translateY(-50%)}
 .top-actions{position:absolute;right:10px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:10px}
 
-/* Buttons */
+/* Buttons / chips */
 .icon-btn{
   height:32px;width:32px;display:grid;place-items:center;
   border:1px solid var(--line);border-radius:8px;background:var(--surface-1);
-  transition:background .15s cubic-bezier(.2,.6,.2,1), border-color .15s cubic-bezier(.2,.6,.2,1);
+  transition:background .15s cubic-bezier(.2,.6,.2,1), border-color .15s cubic-bezier(.2,.6,.2,1), box-shadow .15s cubic-bezier(.2,.6,.2,1);
 }
-.icon-btn:hover{background:color-mix(in srgb, var(--surface-1) 92%, var(--line))}
+.icon-btn:hover{background:color-mix(in srgb, var(--surface-1) 92%, var(--line)); box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent)}
 
 .btn-outline{
   height:32px;padding:0 12px;border:1px solid var(--line);border-radius:8px;
   background:var(--surface-1);color:var(--text-primary);
-  transition:background .15s cubic-bezier(.2,.6,.2,1), border-color .15s cubic-bezier(.2,.6,.2,1);
+  transition:background .15s cubic-bezier(.2,.6,.2,1), border-color .15s cubic-bezier(.2,.6,.2,1), box-shadow .15s cubic-bezier(.2,.6,.2,1);
 }
 .btn-outline.sm{height:28px;font-size:12px}
+.btn-outline:hover{background:color-mix(in srgb, var(--surface-1) 94%, var(--line)); box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 14%, transparent)}
 
 .btn-primary{
   height:32px;padding:0 12px;border:0;border-radius:8px;color:#fff;background:var(--accent);
+  transition:filter .15s cubic-bezier(.2,.6,.2,1);
 }
+.btn-primary:hover{filter:brightness(0.96)}
 
-/* Copilot – static accent (no animation) */
+/* Copilot – static accent with subtle hover edge */
 .btn-copilot{
   position:relative;height:32px;padding:0 12px;border:1px solid var(--line);border-radius:8px;
   background:var(--surface-1);display:inline-flex;align-items:center;gap:8px;color:var(--text-primary);
-  box-shadow:0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent) inset,
-             0 2px 8px rgba(70,120,255,.12);
+  box-shadow:0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent) inset,
+             0 2px 8px rgba(70,120,255,.10);
+  transition:box-shadow .15s cubic-bezier(.2,.6,.2,1), border-color .15s cubic-bezier(.2,.6,.2,1);
 }
 .btn-copilot .copilot-static{
-  position:absolute;inset:0;border-radius:8px;pointer-events:none;opacity:.25;
+  position:absolute;inset:0;border-radius:8px;pointer-events:none;opacity:.22;
   background:linear-gradient(90deg,#7c9eff 0%,#ff77b7 50%,#5be4ff 100%);
   mix-blend:soft-light;
 }
+.btn-copilot:hover{
+  box-shadow:0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent) inset,
+             0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent),
+             0 4px 12px rgba(70,120,255,.12);
+}
+
+/* Small icon chip used for copy action */
+.icon-chip{
+  height:22px;min-width:22px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center;
+  border:1px solid var(--line);border-radius:7px;background:var(--surface-1);cursor:pointer;
+  transition:background .15s cubic-bezier(.2,.6,.2,1), box-shadow .15s cubic-bezier(.2,.6,.2,1), border-color .15s cubic-bezier(.2,.6,.2,1);
+}
+.icon-chip:hover{background:color-mix(in srgb, var(--surface-1) 93%, var(--line)); box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 14%, transparent)}
+.icon-chip.is-disabled{opacity:.45;cursor:default}
+.icon-chip.is-disabled:hover{box-shadow:none;background:var(--surface-1)}
 
 /* Profile menu */
 .profile-btn{all:unset;cursor:pointer}
@@ -114,16 +125,16 @@ body{
 .menu-sep{height:1px;background:var(--line);margin:4px 6px}
 .menu-item.danger{color:#e46a6a}
 
-/* ---------- Grid / layout ---------- */
+/* Grid */
 .p-work.grid{
   display:grid;gap:0;padding:14px;
-  grid-template-columns: 220px 360px 1fr 300px; /* narrower right panel */
+  grid-template-columns: 220px 360px 1fr 300px;
   transition:grid-template-columns .2s cubic-bezier(.2,.6,.2,1);
   height: calc(100vh - 54px);
 }
 .p-work.grid.rail-closed{grid-template-columns: 60px 360px 1fr 300px}
 
-/* Sidebar (flush left) */
+/* Sidebar */
 .rail{
   border-right:1px solid var(--line);
   background:var(--surface-rail);
@@ -133,7 +144,7 @@ body{
 .rail nav{display:flex;flex-direction:column;gap:4px}
 .rail-item{
   display:flex;align-items:center;gap:10px;height:34px;padding:0 8px;color:inherit;text-decoration:none;border-radius:8px;border:1px solid transparent;
-  transition:background .18s cubic-bezier(.2,.6,.2,1), border-color .18s cubic-bezier(.2,.6,.2,1);
+  transition:background .18s cubic-bezier(.2,.6,.2,1), border-color .18s cubic-bezier(.2,.6,.2,1), transform .18s cubic-bezier(.2,.6,.2,1);
 }
 .rail-item:hover{background:color-mix(in srgb, var(--surface-1) 92%, var(--line))}
 .rail-item.active{border-color:var(--accent)}
@@ -148,7 +159,7 @@ body{
 .list{border-left:1px solid var(--line)}
 .details{border-right:1px solid var(--line);overflow:auto;min-height:0}
 
-/* ---------- List column ---------- */
+/* List column */
 .list{display:flex;flex-direction:column}
 .list-head{display:flex;align-items:center;justify-content:space-between;padding:10px;border-bottom:1px solid var(--line)}
 .list-head .h{font-weight:750}
@@ -163,27 +174,21 @@ body{
 .rows{list-style:none;margin:0;padding:6px}
 .row{
   display:flex;align-items:center;gap:10px;padding:10px 8px;border-radius:8px;cursor:pointer;border:1px solid transparent;
-  transition:background .15s cubic-bezier(.2,.6,.2,1), border-color .15s cubic-bezier(.2,.6,.2,1);
+  transition:background .15s cubic-bezier(.2,.6,.2,1), border-color .15s cubic-bezier(.2,.6,.2,1), box-shadow .15s cubic-bezier(.2,.6,.2,1);
 }
-.row:hover{background:color-mix(in srgb, var(--surface-1) 93%, var(--line))}
-.row.selected{
-  border-color:var(--accent);
-  background:color-mix(in srgb, var(--surface-1) 96%, var(--line));
-}
+.row:hover{background:color-mix(in srgb, var(--surface-1) 93%, var(--line)); box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.row.selected{border-color:var(--accent);background:color-mix(in srgb, var(--surface-1) 96%, var(--line))}
 .meta .name{font-weight:600}
 .meta .sub{color:var(--text-secondary);font-size:12px}
 
-/* ---------- Thread ---------- */
+/* Thread */
 .thread{display:flex;flex-direction:column;min-height:0}
-.thread-title{
-  padding:10px;border-bottom:1px solid var(--line);
-  font-weight:750;
-}
+.thread-title{padding:10px;border-bottom:1px solid var(--line);font-weight:750}
 .who{display:flex;align-items:center;gap:10px}
 .who-name{font-weight:700}
 .who-sub{color:var(--text-secondary);font-size:12px}
 
-/* Soft separation around messages */
+/* Messages */
 .messages{
   flex:1 1 auto;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10px;min-height:0;
   background:var(--surface-1);
@@ -191,12 +196,14 @@ body{
 .bubble{
   max-width:min(70ch, 64%);
   display:inline-block;
-  padding:10px 12px; /* comfy vertical rhythm */
+  padding:10px 12px;
   border-radius:10px;
   border:1px solid var(--line);
   background:color-mix(in srgb, var(--surface-1) 94%, var(--line));
   box-shadow:var(--shadow-subtle);
+  transition:box-shadow .15s cubic-bezier(.2,.6,.2,1);
 }
+.bubble:hover{box-shadow:0 1px 3px rgba(0,0,0,.06)}
 .bubble.mine{
   align-self:flex-end;
   background:color-mix(in srgb, var(--surface-2) 92%, var(--line));
@@ -204,7 +211,7 @@ body{
 }
 .bubble .stamp{font-size:11px;color:var(--text-secondary);margin-top:4px}
 
-/* ---------- Composer pinned bottom with faint shadow ---------- */
+/* Composer pinned bottom */
 .composer{
   flex-shrink:0;padding:8px 10px 10px;border-top:1px solid var(--line);background:var(--surface-1);
   display:grid;grid-template-columns: 1fr auto auto auto;gap:8px;position:sticky;bottom:0;
@@ -212,9 +219,11 @@ body{
 }
 .composer input{
   height:36px;border:1px solid var(--line);border-radius:8px;padding:0 10px;background:var(--surface-1);outline:none;
+  transition:border-color .15s cubic-bezier(.2,.6,.2,1), box-shadow .15s cubic-bezier(.2,.6,.2,1);
 }
+.composer input:focus{border-color:color-mix(in srgb, var(--accent) 35%, var(--line)); box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent)}
 
-/* ---------- Details ---------- */
+/* Details */
 .section{border-bottom:1px solid var(--line)}
 .section:last-child{border-bottom:0}
 .section-title{padding:10px;font-weight:750;color:var(--text-primary)}
@@ -223,7 +232,7 @@ body{
 .copy-row{display:flex;align-items:center;gap:8px}
 .placeholder{color:var(--text-muted);font-style:normal}
 
-/* Tags (visible in light mode too) */
+/* Tags (visible in both themes) */
 .tag-row{display:flex;gap:8px;padding:8px 10px}
 .tag{
   --t-bg:rgba(0,0,0,.06);--t-fg:#111;
