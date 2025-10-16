@@ -29,7 +29,7 @@ type AuthResponse =
 const TOKEN_KEY = "jwt";
 const BASE = import.meta.env.VITE_API_URL?.replace(/\/+$/, "") || "";
 
-// small fetch helper
+// small fetch helper (JSON)
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const url = `${BASE}${path.startsWith("/") ? path : `/${path}`}`;
   const res = await fetch(url, {
@@ -88,10 +88,40 @@ export async function login(payload: AuthPayload) {
 
 export async function logout() {
   clearToken();
-  // optional server logout could be added here later
+  // Optional: await api("/api/auth/logout", { method: "POST" }).catch(()=>{});
 }
 
-// -------- demo leads (unchanged) --------
+// -------- leads (demo) --------
 export async function getLeads(): Promise<Lead[]> {
   return api<Lead[]>("/api/leads", { method: "GET" });
 }
+
+// -------- uploads (CSV) --------
+// Server route expected: POST /api/uploads  (field name: "file")
+export async function uploadLeads(file: File): Promise<UploadSummary> {
+  const url = `${BASE}/api/uploads`;
+  const fd = new FormData();
+  fd.append("file", file);
+
+  const res = await fetch(url, {
+    method: "POST",
+    body: fd,
+    credentials: "include", // carry cookies if you add server auth later
+  });
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(txt || `Upload failed: ${res.status}`);
+  }
+  return res.json() as Promise<UploadSummary>;
+}
+
+// (Optional helpers you may call later; safe no-ops until endpoints exist)
+export async function deleteAllLeads(): Promise<{ ok: boolean; removed?: number }> {
+  const url = `${BASE}/api/uploads/all`;
+  const res = await fetch(url, { method: "DELETE", credentials: "include" });
+  if (!res.ok) throw new Error(await res.text().catch(() => "Delete failed"));
+  return res.json();
+}
+// alias if your page used a different name previously
+export const uploadLeadsCsv = uploadLeads;
