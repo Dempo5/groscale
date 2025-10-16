@@ -363,3 +363,19 @@ body[data-theme="dark"] .tag-green{--t-bg:rgba(56,214,124,.20);--t-fg:#9df3c0}
 }
 .icon-btn.ghost:hover{ background: color-mix(in srgb, var(--panel) 92%, var(--line)) }
 .icon-btn.ghost:disabled{ opacity:.35; cursor:not-allowed }
+
+/* ---- Uploads fixes & polish (scoped) ---- */
+.p-uploads { --ease: cubic-bezier(.2,.6,.2,1); }
+.p-uploads .upload-svg { width: 28px; height: 28px; }
+.p-uploads .drop-icon { width: 40px; height: 40px; display:grid; place-items:center; }
+.p-uploads [role="button"] { cursor: pointer; }
+
+/* Prevent any global svg rules from blowing up the icon */
+.p-uploads svg { max-width: none; height: auto; }
+
+/* Table rhythm */
+.p-uploads table th,
+.p-uploads table td { line-height: 1.35; }
+
+/* Keep cards aligned with your panel tones */
+.p-uploads .chip { white-space: nowrap; }
