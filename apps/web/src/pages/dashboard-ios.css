@@ -248,3 +248,24 @@ body[data-theme="dark"] .tag-green{--t-bg:rgba(56,214,124,.20);--t-fg:#9df3c0}
 
 /* De-boxify */
 .panel,.rail,.p-topbar{box-shadow:none}
+
+/* ---- uploads page ---- */
+.p-uploads{padding:16px; display:flex; flex-direction:column; gap:16px}
+.uploads-head{display:flex; align-items:center; justify-content:space-between}
+.uploads-head .title{font-weight:700}
+.tabs{display:flex; gap:6px}
+.tab{height:30px;padding:0 10px;border:1px solid var(--line);background:var(--panel);border-radius:8px}
+.tab.active{border-color:var(--line-strong); background:color-mix(in srgb, var(--panel) 90%, var(--line))}
+.uploads-input textarea{width:100%; height:160px; border:1px solid var(--line); border-radius:8px; padding:10px; background:var(--panel); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace}
+.filepick{display:inline-flex; align-items:center; gap:8px; border:1px dashed var(--line); padding:10px 12px; border-radius:8px; cursor:pointer}
+.filepick input{display:none}
+.hint{color:var(--muted); font-size:12px}
+.uploads-actions{display:flex; align-items:center; gap:12px}
+.uploads-actions .ok{color:#2e7d32; font-weight:600}
+.uploads-actions .err{color:#c62828; font-weight:600}
+.uploads-preview .label{font-weight:700; margin:2px 0 8px}
+.table{border:1px solid var(--line); border-radius:8px; overflow:hidden}
+.thead,.tr{display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr))}
+.thead{background:color-mix(in srgb, var(--panel) 92%, var(--line)); border-bottom:1px solid var(--line)}
+.th,.td{padding:8px 10px; border-right:1px solid var(--line)}
+.tr:not(:last-child){border-bottom:1px solid var(--line)}
