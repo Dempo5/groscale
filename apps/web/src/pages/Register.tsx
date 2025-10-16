@@ -1,87 +1,81 @@
-import { FormEvent, useState } from "react";
-import { register as apiRegister, login } from "../lib/api";
-import "./auth.css";
+import { useState, FormEvent } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import { register, setToken } from "../lib/api";
 
 export default function Register() {
+  const nav = useNavigate();
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [ok, setOk] = useState(false);
 
- async function onSubmit(e: FormEvent) {
-  e.preventDefault();
-  setErr(null);
-  setOk(false);
-  setBusy(true);
-  try {
-    // register already sets the token; no need to login again
-    await apiRegister(email.trim(), password, (name ?? "").trim());
-    setOk(true);
-    window.location.href = "/dashboard";
-  } catch (err: any) {
-    setErr(err?.message ?? "Could not create your account");
-  } finally {
-    setBusy(false);
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!name || !email || !password) return setErr("Fill all fields");
+    setErr(null);
+    setLoading(true);
+    try {
+      const res = await register({ name, email, password });
+
+      const token =
+        (res as any).token || (res as any).jwt || (res as any).accessToken;
+
+      if (!token) throw new Error("No token returned from server");
+
+      // ✅ only one argument
+      setToken(token);
+      nav("/dashboard", { replace: true });
+    } catch (e: any) {
+      setErr(e?.message || "Registration failed");
+    } finally {
+      setLoading(false);
+    }
   }
-}
+
   return (
-    <div className="auth-shell">
-      <main className="auth-wrapper">
-        <div className="auth-card">
-          <h1>Create your account</h1>
-          <p className="sub">Sign up to start using GroScales.</p>
+    <div className="auth-wrap">
+      <form className="auth-card" onSubmit={onSubmit}>
+        <h1 className="auth-title">Create account</h1>
 
-          <form onSubmit={onSubmit} className="auth-form">
-            <label>
-              <span>Name</span>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Optional"
-                autoComplete="name"
-              />
-            </label>
+        {err && <div className="auth-error">{err}</div>}
 
-            <label>
-              <span>Email</span>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@company.com"
-                autoComplete="email"
-                required
-              />
-            </label>
+        <label className="auth-label">Name</label>
+        <input
+          className="auth-input"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Full name"
+        />
 
-            <label>
-              <span>Password</span>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="new-password"
-                required
-              />
-            </label>
+        <label className="auth-label">Email</label>
+        <input
+          className="auth-input"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          autoComplete="username"
+          placeholder="you@example.com"
+        />
 
-            {err && <div className="error">{err}</div>}
-            {ok && <div className="ok">Account created! Redirecting…</div>}
+        <label className="auth-label">Password</label>
+        <input
+          className="auth-input"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="new-password"
+          placeholder="Create a password"
+        />
 
-            <div className="actions">
-              <button type="submit" disabled={busy}>
-                {busy ? "Creating…" : "Create account"}
-              </button>
-              <a className="ghost" href="/login">Back to sign in</a>
-            </div>
+        <button className="btn-primary" disabled={loading}>
+          {loading ? "Creating…" : "Create account"}
+        </button>
 
-            <a className="back" href="/">Back to home</a>
-          </form>
+        <div className="auth-foot">
+          Have an account? <Link to="/login">Sign in</Link>
         </div>
-      </main>
+      </form>
     </div>
   );
 }
