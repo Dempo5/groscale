@@ -1,302 +1,199 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useRef, useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 
-type UploadRow = {
+type Status = "success" | "partial" | "failed";
+type Row = {
   id: string;
   name: string;
-  createdAt: string; // ISO
+  size: number;
+  at: string;           // ISO string
   leads: number;
   duplicates: number;
   invalids: number;
-  status: "success" | "partial" | "failed" | "processing";
-  note?: string; // short error / tooltip
-  reportUrl?: string | null;
+  status: Status;
+  note?: string;        // short tooltip text for status
 };
-
-function chip(status: UploadRow["status"]) {
-  const map = {
-    success:
-      "chip inline-flex items-center gap-1 px-2 py-[2px] rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 dark:bg-[rgba(16,185,129,0.15)] dark:text-emerald-300",
-    partial:
-      "chip inline-flex items-center gap-1 px-2 py-[2px] rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-[rgba(245,158,11,0.15)] dark:text-amber-300",
-    failed:
-      "chip inline-flex items-center gap-1 px-2 py-[2px] rounded-full text-xs font-medium bg-rose-100 text-rose-700 dark:bg-[rgba(244,63,94,0.15)] dark:text-rose-300",
-    processing:
-      "chip inline-flex items-center gap-1 px-2 py-[2px] rounded-full text-xs font-medium bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300",
-  } as const;
-  return map[status];
-}
 
 export default function Uploads() {
   const nav = useNavigate();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [selected, setSelected] = useState<File | null>(null);
-  const [rows, setRows] = useState<UploadRow[]>([]);
+  const [rows, setRows] = useState<Row[]>([]);
 
-  const onBrowse = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
+  // --- utils ---
+  const fmtBytes = (n: number) => {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / 1024 ** 2).toFixed(1)} MB`;
+  };
 
-  const handleFiles = useCallback((files: FileList | null) => {
-    if (!files || !files[0]) return;
-    const f = files[0];
-    setSelected(f);
+  // Fake parser to keep the UI functional without a backend yet
+  const fakeSummarize = async (file: File): Promise<Omit<Row, "id" | "name" | "size" | "at">> => {
+    // Very light “deterministic” numbers so repeated uploads look consistent
+    const seed = file.size % 97;
+    const leads = 50 + (seed % 450);
+    const duplicates = seed % 7;
+    const invalids = seed % 5;
+    const status: Status =
+      invalids > 0 || duplicates > 0 ? (invalids > 2 ? "partial" : "success") : "success";
+    const note =
+      status === "success"
+        ? "Imported successfully."
+        : status === "partial"
+        ? "Some rows were invalid or duplicated."
+        : "Failed to import.";
+    return { leads, duplicates, invalids, status, note };
+  };
 
-    // Optimistic “processing row”
-    const id = crypto.randomUUID();
-    const optimistic: UploadRow = {
-      id,
-      name: f.name,
-      createdAt: new Date().toISOString(),
-      leads: 0,
-      duplicates: 0,
-      invalids: 0,
-      status: "processing",
-      note: "Parsing…",
-    };
-    setRows((r) => [optimistic, ...r]);
+  const handleFiles = useCallback(
+    async (files: FileList | null) => {
+      if (!files || !files.length) return;
+      const file = files[0];
 
-    // TODO: send to backend
-    // const form = new FormData();
-    // form.append("file", f);
-    // await fetch("/api/uploads", { method:"POST", body: form, credentials:"include" })
+      // Add a local “processing” row instantly (so it feels responsive)
+      const temp: Row = {
+        id: crypto.randomUUID(),
+        name: file.name,
+        size: file.size,
+        at: new Date().toISOString(),
+        leads: 0,
+        duplicates: 0,
+        invalids: 0,
+        status: "partial",
+        note: "Parsing…",
+      };
+      setRows((r) => [temp, ...r]);
 
-    // Simulated finish (replace with real response)
-    setTimeout(() => {
+      // Simulate parsing -> update the row
+      const summary = await fakeSummarize(file);
       setRows((r) =>
         r.map((x) =>
-          x.id === id
-            ? {
-                ...x,
-                leads: 342,
-                duplicates: 11,
-                invalids: 6,
-                status: "partial",
-                note: "Some rows missing required columns",
-                reportUrl: "#",
-              }
+          x.id === temp.id
+            ? { ...x, ...summary }
             : x
         )
       );
-    }, 1200);
-  }, []);
-
-  const onInputChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => handleFiles(e.target.files),
-    [handleFiles]
-  );
-
-  const onDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setDragOver(false);
-      handleFiles(e.dataTransfer.files);
     },
-    [handleFiles]
+    []
   );
 
-  const onDragOver = useCallback((e: React.DragEvent) => {
+  // --- drop handlers (fully accessible) ---
+  const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    setDragOver(true);
-  }, []);
-  const onDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
+    e.stopPropagation();
     setDragOver(false);
-  }, []);
-
-  const empty = rows.length === 0;
-
-  const containerCls =
-    "p-uploads max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 text-[var(--ink)]";
-  const card =
-    "rounded-xl border border-[color-mix(in_srgb,var(--line-strong)_80%,transparent)] bg-[color-mix(in_srgb,var(--panel)_92%,transparent)] shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] transition-all";
+    handleFiles(e.dataTransfer.files);
+  };
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(true);
+  };
+  const onDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+  };
 
   return (
-    <div className={containerCls} aria-live="polite">
-      {/* Back affordance */}
-      <div className="mb-2">
-        <button
-          onClick={() => nav("/dashboard")}
-          className="text-sm cursor-pointer"
-          style={{
-            color: "var(--muted)",
-            transition: "transform .15s var(--ease), color .15s var(--ease)",
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--blue)")}
-          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--muted)")}
-          onFocus={(e) => (e.currentTarget.style.color = "var(--blue)")}
-        >
+    <div className="p-uploads">
+      {/* breadcrumb */}
+      <div className="crumbs">
+        <button className="crumb-back" onClick={() => nav("/dashboard")}>
           ← Dashboard
         </button>
+        <span className="crumb-sep">›</span>
+        <span className="crumb-here">Uploads</span>
       </div>
 
-      {/* Breadcrumb */}
-      <div className="text-xs mb-3" style={{ color: "var(--muted)" }}>
-        <Link to="/dashboard" className="hover:underline">
-          Dashboard
-        </Link>{" "}
-        › <span>Uploads</span>
+      {/* title */}
+      <div className="uploads-head">
+        <div className="title">Uploads</div>
       </div>
 
-      {/* Title */}
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-lg font-semibold">Uploads</h1>
-      </div>
-
-      {/* Drop zone card */}
-      <div
-        className={card}
+      {/* drop zone card */}
+      <label
+        className={`dropcard ${dragOver ? "drag" : ""}`}
         onDrop={onDrop}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
-        onClick={onBrowse}
+        aria-label="Upload leads CSV or JSON"
         role="button"
         tabIndex={0}
-        onKeyDown={(e) => e.key === "Enter" && onBrowse()}
-        aria-label="Upload CSV or JSON"
-        style={{
-          borderColor: dragOver ? "var(--blue)" : undefined,
-          background: dragOver
-            ? "color-mix(in srgb, var(--blue) 7%, var(--panel))"
-            : undefined,
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
         }}
       >
-        <div className="flex items-center gap-3 px-4 py-4 sm:px-5 sm:py-6">
-          {/* SVG icon (fixed size — no more giant arrow) */}
-          <div
-            className="drop-icon rounded-lg border"
-            style={{
-              borderColor: "var(--line)",
-              background: "color-mix(in srgb, var(--panel) 92%, transparent)",
-              transform: dragOver ? "scale(1.03)" : "scale(1)",
-              transition: "transform .2s var(--ease)",
-            }}
-          >
-            <svg
-              className="upload-svg"
-              width="28"
-              height="28"
-              viewBox="0 0 24 24"
-              fill="none"
-              aria-hidden="true"
-            >
-              <path
-                d="M7 15l5-5 5 5M12 10v10M20 20H4"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".csv,.json"
+          style={{ display: "none" }}
+          onChange={(e) => handleFiles(e.target.files)}
+        />
 
-          <div className="flex-1">
-            <div className="font-medium">Drag & drop your file here</div>
-            <div className="text-sm" style={{ color: "var(--muted)" }}>
-              CSV or JSON • Click to browse
-              {selected ? (
-                <span className="ml-2" style={{ color: "var(--ink)" }}>
-                  • Ready: {selected.name}{" "}
-                  {selected.size
-                    ? `(${(selected.size / 1024 / 1024).toFixed(1)} MB)`
-                    : ""}
-                </span>
-              ) : null}
-            </div>
-          </div>
+        <UploadIcon className={`upl-icon ${dragOver ? "breathe" : ""}`} />
 
-          <input
-            type="file"
-            accept=".csv,.json,text/csv,application/json"
-            ref={fileInputRef}
-            onChange={onInputChange}
-            hidden
-          />
-        </div>
-      </div>
+        <div className="drop-head">Drop CSV or JSON</div>
+        <div className="drop-sub">Click to browse • Max 50&nbsp;MB • UTF-8 • Headers required</div>
+      </label>
 
-      {/* History */}
-      <div className={`${card} mt-6`}>
-        <div className="px-4 sm:px-5 py-3 border-b" style={{ borderColor: "var(--line)" }}>
-          <div className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--muted)" }}>
-            Recent uploads
-          </div>
-        </div>
+      {/* helper under card */}
+      <div className="drop-helper">CSV or JSON • Click to browse</div>
 
-        {empty ? (
-          <div
-            className="grid place-items-center px-6 py-14 text-center"
-            style={{ color: "var(--muted)" }}
-          >
-            <div className="flex items-center gap-2 opacity-80">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path
-                  d="M12 20v-8M8 12l4-4 4 4"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              <span>No uploads yet. Drag a CSV/JSON above or click to browse.</span>
-            </div>
-            <div className="mt-2 text-xs" style={{ color: "var(--muted)" }}>
-              Max file size 50MB • UTF-8 • Headers required
-            </div>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+      {/* history table */}
+      <section className="history">
+        <div className="card">
+          <div className="card-head">Recent uploads</div>
+
+          <div className="table-wrap">
+            <table className="u-table">
               <thead>
-                <tr className="text-left text-[12px]" style={{ color: "var(--muted)" }}>
-                  <th className="px-4 sm:px-5 py-2.5">File</th>
-                  <th className="px-4 sm:px-5 py-2.5">Uploaded</th>
-                  <th className="px-4 sm:px-5 py-2.5 text-right">Leads</th>
-                  <th className="px-4 sm:px-5 py-2.5 text-right">Duplicates</th>
-                  <th className="px-4 sm:px-5 py-2.5 text-right">Invalids</th>
-                  <th className="px-4 sm:px-5 py-2.5">Status</th>
-                  <th className="px-4 sm:px-5 py-2.5 text-right">Report</th>
+                <tr>
+                  <th>File</th>
+                  <th>Date</th>
+                  <th className="num">Leads</th>
+                  <th className="num">Duplicates</th>
+                  <th className="num">Invalids</th>
+                  <th>Status</th>
+                  <th>Report</th>
                 </tr>
               </thead>
               <tbody>
+                {!rows.length && (
+                  <tr>
+                    <td colSpan={7} className="empty">
+                      <span className="empty-icon" aria-hidden>⌄</span>
+                      <span>No uploads yet. Drag a CSV/JSON above or click to browse.</span>
+                    </td>
+                  </tr>
+                )}
+
                 {rows.map((r) => (
-                  <tr
-                    key={r.id}
-                    className="border-t hover:bg-[color-mix(in_srgb,var(--panel)_96%,var(--line))]"
-                    style={{ borderColor: "var(--line)" }}
-                  >
-                    <td className="px-4 sm:px-5 py-2.5">{r.name}</td>
-                    <td className="px-4 sm:px-5 py-2.5">
-                      {new Date(r.createdAt).toLocaleString()}
+                  <tr key={r.id}>
+                    <td title={`${r.name} • ${fmtBytes(r.size)}`}>
+                      <div className="filecell">
+                        <span className="fname">{r.name}</span>
+                        <span className="fmeta">· {fmtBytes(r.size)}</span>
+                      </div>
                     </td>
-                    <td className="px-4 sm:px-5 py-2.5 text-right tabular-nums">
-                      {r.leads}
-                    </td>
-                    <td className="px-4 sm:px-5 py-2.5 text-right tabular-nums">
-                      {r.duplicates}
-                    </td>
-                    <td className="px-4 sm:px-5 py-2.5 text-right tabular-nums">
-                      {r.invalids}
-                    </td>
-                    <td className="px-4 sm:px-5 py-2.5">
-                      <span className={chip(r.status)} title={r.note || ""}>
-                        {r.status === "success"
-                          ? "Success"
+                    <td>{new Date(r.at).toLocaleString()}</td>
+                    <td className="num">{r.leads}</td>
+                    <td className="num">{r.duplicates}</td>
+                    <td className="num">{r.invalids}</td>
+                    <td>
+                      <span
+                        className={`pill ${r.status}`}
+                        title={r.note || (r.status === "success"
+                          ? "Imported successfully."
                           : r.status === "partial"
-                          ? "Partial"
-                          : r.status === "failed"
-                          ? "Failed"
-                          : "Processing…"}
+                          ? "Some rows were invalid or duplicated."
+                          : "Failed to import.")}>
+                        {r.status === "success" ? "Success" : r.status === "partial" ? "Partial" : "Failed"}
                       </span>
                     </td>
-                    <td className="px-4 sm:px-5 py-2.5 text-right">
-                      <button
-                        disabled={!r.reportUrl || r.status === "processing"}
-                        title="Download validation report (CSV)"
-                        className="btn-outline sm disabled:opacity-50"
-                        onClick={() => r.reportUrl && window.open(r.reportUrl, "_blank")}
-                      >
+                    <td>
+                      <button className="link" disabled>
                         Download
                       </button>
                     </td>
@@ -305,8 +202,28 @@ export default function Uploads() {
               </tbody>
             </table>
           </div>
-        )}
-      </div>
+        </div>
+      </section>
     </div>
+  );
+}
+
+/* simple outline upload icon (fixed size via CSS) */
+function UploadIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M12 3v14" />
+      <path d="M7 8l5-5 5 5" />
+      <path d="M5 21h14" />
+    </svg>
   );
 }
