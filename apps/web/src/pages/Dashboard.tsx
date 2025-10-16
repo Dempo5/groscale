@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import "./dashboard-ios.css";
 import { getLeads, Lead, logout } from "../lib/api";
+import { NavLink } from "react-router-dom";
+
 
 type Msg = { id: string; from: "lead" | "me"; text: string; at: string };
 
@@ -190,10 +192,17 @@ export default function Dashboard() {
               <OutlineIcon d="M4 4h16v6H4zM4 14h10" />
               {railOpen && <span>Templates</span>}
             </a>
-            <a className="rail-item" title="Uploads">
-              <OutlineIcon d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16" />
-              {railOpen && <span>Uploads</span>}
-            </a>
+            <NavLink
+  to="/uploads"
+  className={({ isActive }) =>
+    `rail-item ${isActive ? "active" : ""}`
+  }
+  title="Uploads"
+>
+  <OutlineIcon d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16" />
+  {railOpen && <span>Uploads</span>}
+</NavLink>
+
           </nav>
           <div className="rail-foot">
             <a className="rail-item" title="Settings">
