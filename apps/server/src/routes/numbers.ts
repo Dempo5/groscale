@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, Request, Response } from "express";
 import twilio from "twilio";
 
 const router = Router();
@@ -27,9 +27,9 @@ async function ensureInboundOnNumber(pnSid: string) {
 }
 
 async function attachToMessagingService(pnSid: string, msid: string) {
-  await client.messaging.v1.services(msid)
-    .phoneNumbers
-    .create({ phoneNumberSid: pnSid });
+  await client.messaging.v1.services(msid).phoneNumbers.create({
+    phoneNumberSid: pnSid,
+  });
 }
 
 function toBool(v: any) {
@@ -39,7 +39,7 @@ function toBool(v: any) {
 // --- routes --------------------------------------------------
 
 // GET /api/numbers/available?country=US&sms=true&areaCode=949&limit=20&contains=555
-router.get("/available", async (req, res) => {
+router.get("/available", async (req: Request, res: Response) => {
   try {
     const country = (req.query.country as string) || "US";
     const sms = toBool(req.query.sms);
@@ -49,6 +49,8 @@ router.get("/available", async (req, res) => {
     const contains = req.query.contains as string | undefined;
     const limit = Math.min(parseInt((req.query.limit as string) || "20", 10), 50);
 
+    // Twilio typing for this filter is loose; keep it simple
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const filter: any = {
       limit,
       contains,
@@ -58,12 +60,10 @@ router.get("/available", async (req, res) => {
       voiceEnabled: voice || undefined,
     };
 
-    const list = await client
-      .availablePhoneNumbers(country)
-      .local
-      .list(filter);
+    const list = await client.availablePhoneNumbers(country).local.list(filter);
 
-    const rows = list.map(n => ({
+    // Twilio types for list items can vary; annotate the callback param
+    const rows = list.map((n: any) => ({
       friendlyName: n.friendlyName,
       phoneNumber: n.phoneNumber,
       locality: n.locality,
@@ -72,7 +72,7 @@ router.get("/available", async (req, res) => {
       lata: n.lata,
       rateCenter: n.rateCenter,
       postalCode: n.postalCode,
-      capabilities: n.capabilities, // {sms, mms, voice}
+      capabilities: n.capabilities, // { sms, mms, voice }
     }));
 
     res.json({ ok: true, data: rows });
@@ -83,20 +83,28 @@ router.get("/available", async (req, res) => {
 });
 
 // POST /api/numbers/purchase
-// { country: "US", phoneNumber: "+19495551234", makeDefault?: true, messagingServiceSid?: "MG..." }
-router.post("/purchase", async (req, res) => {
+// body: { country: "US", phoneNumber: "+19495551234", makeDefault?: true, messagingServiceSid?: "MG..." }
+router.post("/purchase", async (req: Request, res: Response) => {
   try {
-    const { country, phoneNumber, makeDefault, messagingServiceSid } = req.body as {
+    const {
+      country,
+      phoneNumber,
+      makeDefault,
+      messagingServiceSid,
+    }: {
       country: string;
       phoneNumber: string;
       makeDefault?: boolean;
       messagingServiceSid?: string;
-    };
+    } = req.body;
+
     if (!country || !phoneNumber) {
-      return res.status(400).json({ ok: false, error: "country and phoneNumber required" });
+      return res
+        .status(400)
+        .json({ ok: false, error: "country and phoneNumber required" });
     }
 
-    // Purchase number
+    // Purchase number with inbound webhook
     const inbound = `${SERVER_BASE_URL}/api/twilio/webhook/inbound`;
     const purchased = await client.incomingPhoneNumbers.create({
       phoneNumber,
@@ -104,45 +112,15 @@ router.post("/purchase", async (req, res) => {
       smsMethod: "POST",
     });
 
-    // Attach to MS if provided (or default env)
+    // Attach to Messaging Service if provided (or default)
     const msid = messagingServiceSid || TWILIO_MESSAGING_SERVICE_SID;
     if (msid) {
       await attachToMessagingService(purchased.sid, msid);
     } else {
-      // ensure inbound otherwise
       await ensureInboundOnNumber(purchased.sid);
     }
 
-    // Upsert into DB (adjust to your ORM)
-    // Example Prisma:
-    // const saved = await prisma.phone_numbers.upsert({
-    //   where: { sid: purchased.sid },
-    //   update: {
-    //     number: purchased.phoneNumber,
-    //     friendly_name: purchased.friendlyName ?? null,
-    //     capabilities: purchased.capabilities as any,
-    //     is_default: !!makeDefault,
-    //   },
-    //   create: {
-    //     sid: purchased.sid,
-    //     number: purchased.phoneNumber,
-    //     friendly_name: purchased.friendlyName ?? null,
-    //     capabilities: purchased.capabilities as any,
-    //     is_default: !!makeDefault,
-    //   },
-    // });
-
-    // If making default, unset others (Prisma example)
-    // if (makeDefault) {
-    //   await prisma.phone_numbers.updateMany({
-    //     data: { is_default: false },
-    //     where: { sid: { not: purchased.sid } },
-    //   });
-    //   await prisma.phone_numbers.update({
-    //     where: { sid: purchased.sid },
-    //     data: { is_default: true },
-    //   });
-    // }
+    // (DB upsert example left commented – your ORM can be plugged here)
 
     res.json({
       ok: true,
