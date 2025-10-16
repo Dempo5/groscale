@@ -6,6 +6,10 @@ import cors from "cors";
 import authRoute from "./routes/auth.js";
 import uploadsRouter from "./routes/uploads.js";
 
+// apps/server/src/index.ts
+import numbersRouter from "./routes/numbers.js";
+app.use("/api/numbers", numbersRouter);
+
 // ----- env -----
 const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
