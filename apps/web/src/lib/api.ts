@@ -1,17 +1,6 @@
 // apps/web/src/lib/api.ts
 
-/**
- * Frontend API helpers — kept minimal and typed.
- * Uses relative paths so it works with a reverse proxy or same-origin dev.
- * If you need a fixed server URL, set VITE_API_URL and we’ll prefix with it.
- */
-
-const API_BASE =
-  (import.meta as any).env?.VITE_API_URL
-    ? String((import.meta as any).env.VITE_API_URL).replace(/\/$/, "")
-    : ""; // empty = same origin
-
-// ---------- Types ----------
+// ----- Types -----
 export type Lead = {
   id: string | number;
   name: string;
@@ -25,79 +14,44 @@ export type UploadSummary = {
   inserted: number;
   skipped: number;
   errors?: string[];
-  sample?: Record<string, unknown>[];
 };
 
-// small fetch helper
-async function j<T = any>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(API_BASE + path, {
-    credentials: "include",
-    ...init,
-  });
+// ----- Helpers -----
+async function asJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let msg = res.statusText;
     try {
-      const body = await res.json();
-      msg = (body && (body.error || body.message)) || msg;
-    } catch (_) {
-      /* ignore */
-    }
+      const b = await res.json();
+      msg = (b?.error || b?.message || msg) as string;
+    } catch {}
     throw new Error(msg);
   }
   return (await res.json()) as T;
 }
 
-// ---------- Leads ----------
+// If your API is same-origin, leave base as empty string.
+// If you set VITE_API_URL later, we can add it back.
+const BASE = "";
+
+// ----- Leads -----
 export async function getLeads(): Promise<Lead[]> {
-  // demo endpoint from the server; replace with real later
-  return j<Lead[]>("/api/leads");
+  const res = await fetch(`${BASE}/api/leads`, { credentials: "include" });
+  return asJson<Lead[]>(res);
 }
 
-// ---------- Auth ----------
-export function logout(): void {
-  // keep it simple for now
-  localStorage.removeItem("jwt");
-}
-
-// ---------- Uploads (CSV) ----------
-/**
- * Upload a CSV file of leads.
- * Server route expected: POST /api/uploads/csv (multipart form-data)
- */
+// ----- Uploads -----
 export async function uploadLeads(file: File): Promise<UploadSummary> {
   const fd = new FormData();
   fd.append("file", file);
-
-  const res = await fetch(API_BASE + "/api/uploads/csv", {
+  const res = await fetch(`${BASE}/api/uploads/csv`, {
     method: "POST",
     body: fd,
     credentials: "include",
   });
-
-  if (!res.ok) {
-    let msg = res.statusText;
-    try {
-      const body = await res.json();
-      msg = (body && (body.error || body.message)) || msg;
-    } catch (_) {
-      /* ignore */
-    }
-    throw new Error(msg);
-  }
-
-  return (await res.json()) as UploadSummary;
+  return asJson<UploadSummary>(res);
 }
 
-/**
- * Optional: list recent uploads (if you add this on the server)
- */
-export type UploadRecord = {
-  id: string;
-  filename: string;
-  rows: number;
-  createdAt: string;
-};
-
-export async function listUploads(): Promise<UploadRecord[]> {
-  return j<UploadRecord[]>("/api/uploads");
+// ----- Auth -----
+export function logout(): void {
+  localStorage.removeItem("jwt");
 }
