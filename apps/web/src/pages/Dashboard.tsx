@@ -28,6 +28,21 @@ const OutlineIcon = ({
   </svg>
 );
 
+// tiny helper for right-panel copy buttons
+const CopyBtn = ({ value }: { value?: string | null }) => (
+  <button
+    className={`icon-chip ${value ? "" : "is-disabled"}`}
+    title={value ? "Copy" : "Nothing to copy"}
+    aria-disabled={!value}
+    onClick={() => {
+      if (!value) return;
+      navigator.clipboard?.writeText(String(value)).catch(() => {});
+    }}
+  >
+    <OutlineIcon d="M9 9V7a2 2 0 0 1 2-2h6M7 9h6a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z" />
+  </button>
+);
+
 export default function Dashboard() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [selectedId, setSelectedId] = useState<string | number | null>(null);
@@ -90,11 +105,6 @@ export default function Dashboard() {
         (l.phone ?? "").toLowerCase().includes(q)
     );
   }, [query, leads]);
-
-  function copy(v?: string | null) {
-    if (!v) return;
-    navigator.clipboard?.writeText(v).catch(() => {});
-  }
 
   const [menuOpen, setMenuOpen] = useState(false);
   function closeMenuSoon() {
@@ -209,7 +219,6 @@ export default function Dashboard() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
-            {/* filter icon right */}
             <button className="icon-btn" aria-label="Filter" title="Filter">
               <OutlineIcon d="M3 5h18M6 12h12M10 19h4" />
             </button>
@@ -288,39 +297,55 @@ export default function Dashboard() {
             <div className="section-title">Personal Info</div>
             <div className="kv">
               <label>Full name</label>
-              <span>{selected?.name || <i className="placeholder">Not provided</i>}</span>
+              <span className="copy-row">
+                <span>{selected?.name || <i className="placeholder">Not provided</i>}</span>
+                <CopyBtn value={selected?.name || undefined} />
+              </span>
             </div>
             <div className="kv">
               <label>First name</label>
-              <span>{(selected?.name || "").split(" ")[0] || <i className="placeholder">Not provided</i>}</span>
+              <span className="copy-row">
+                <span>{(selected?.name || "").split(" ")[0] || <i className="placeholder">Not provided</i>}</span>
+                <CopyBtn value={(selected?.name || "").split(" ")[0] || undefined} />
+              </span>
             </div>
             <div className="kv">
               <label>Last name</label>
-              <span>
-                {(selected?.name || "").split(" ").slice(1).join(" ") || (
-                  <i className="placeholder">Not provided</i>
-                )}
+              <span className="copy-row">
+                <span>
+                  {(selected?.name || "").split(" ").slice(1).join(" ") || (
+                    <i className="placeholder">Not provided</i>
+                  )}
+                </span>
+                <CopyBtn value={(selected?.name || "").split(" ").slice(1).join(" ") || undefined} />
               </span>
             </div>
             <div className="kv">
               <label>Email</label>
               <span className="copy-row">
                 <span>{selected?.email || <i className="placeholder">Not provided</i>}</span>
-                {!!selected?.email && (
-                  <button className="chip" onClick={() => copy(selected.email)}>
-                    Copy
-                  </button>
-                )}
+                <CopyBtn value={selected?.email || undefined} />
               </span>
             </div>
           </div>
 
           <div className="section">
             <div className="section-title">Demographics</div>
-            {["Phone", "DOB", "Age", "City", "State", "ZIP", "Household size"].map((k) => (
+            {[
+              { k: "Phone", v: selected?.phone || "" },
+              { k: "DOB", v: "" },
+              { k: "Age", v: "" },
+              { k: "City", v: "" },
+              { k: "State", v: "" },
+              { k: "ZIP", v: "" },
+              { k: "Household size", v: "" },
+            ].map(({ k, v }) => (
               <div className="kv" key={k}>
                 <label>{k}</label>
-                <span><i className="placeholder">Not provided</i></span>
+                <span className="copy-row">
+                  <span>{v || <i className="placeholder">Not provided</i>}</span>
+                  <CopyBtn value={v || undefined} />
+                </span>
               </div>
             ))}
           </div>
@@ -336,14 +361,18 @@ export default function Dashboard() {
 
           <div className="section">
             <div className="section-title">System Info</div>
-            <div className="kv">
-              <label>Quote</label>
-              <span><i className="placeholder">Not provided</i></span>
-            </div>
-            <div className="kv">
-              <label>Created</label>
-              <span>{selected?.createdAt || <i className="placeholder">Not provided</i>}</span>
-            </div>
+            {[
+              { k: "Quote", v: "" },
+              { k: "Created", v: selected?.createdAt || "" },
+            ].map(({ k, v }) => (
+              <div className="kv" key={k}>
+                <label>{k}</label>
+                <span className="copy-row">
+                  <span>{v || <i className="placeholder">Not provided</i>}</span>
+                  <CopyBtn value={v || undefined} />
+                </span>
+              </div>
+            ))}
           </div>
         </aside>
       </main>
