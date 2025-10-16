@@ -1,81 +1,125 @@
-import { useState, FormEvent } from "react";
-import { useNavigate, Link } from "react-router-dom";
-import { register, setToken } from "../lib/api";
+// apps/web/src/pages/Register.tsx
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { register } from "../lib/api";
+import "./dashboard-ios.css";
 
-export default function Register() {
+export default function RegisterPage() {
   const nav = useNavigate();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  async function onSubmit(e: FormEvent) {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!name || !email || !password) return setErr("Fill all fields");
     setErr(null);
-    setLoading(true);
+    setBusy(true);
     try {
-      const res = await register({ name, email, password });
-
-      const token =
-        (res as any).token || (res as any).jwt || (res as any).accessToken;
-
-      if (!token) throw new Error("No token returned from server");
-
-      // ✅ only one argument
-      setToken(token);
+      await register({ name, email, password });
       nav("/dashboard", { replace: true });
     } catch (e: any) {
-      setErr(e?.message || "Registration failed");
+      setErr(e?.message || "Register failed");
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   }
 
   return (
-    <div className="auth-wrap">
-      <form className="auth-card" onSubmit={onSubmit}>
-        <h1 className="auth-title">Create account</h1>
+    <div className="p-shell" style={{ minHeight: "100vh" }}>
+      <header className="p-topbar matte" style={{ justifyContent: "center" }}>
+        <div className="brand-center">GroScales</div>
+      </header>
 
-        {err && <div className="auth-error">{err}</div>}
+      <main style={{ display:"grid", placeItems:"center", padding:"48px 16px" }}>
+        <form
+          onSubmit={onSubmit}
+          style={{
+            width: "100%",
+            maxWidth: 480,
+            border: "1px solid var(--line)",
+            background: "var(--panel)",
+            borderRadius: "12px",
+            padding: 20,
+          }}
+        >
+          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Create account</h1>
 
-        <label className="auth-label">Name</label>
-        <input
-          className="auth-input"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Full name"
-        />
+          {err && (
+            <div style={{ marginTop: 10, color: "#c24d4d", fontSize: 13 }}>
+              {err}
+            </div>
+          )}
 
-        <label className="auth-label">Email</label>
-        <input
-          className="auth-input"
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          autoComplete="username"
-          placeholder="you@example.com"
-        />
+          <div style={{ marginTop: 14 }}>
+            <label style={{ display: "block", fontSize: 12, color: "var(--text-secondary, var(--muted))" }}>
+              Name
+            </label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              style={{
+                width: "100%", height: 36, marginTop: 6,
+                border: "1px solid var(--line)", borderRadius: 8,
+                background: "var(--panel)", color: "var(--ink)",
+                padding: "0 10px", outline: "none",
+              }}
+            />
+          </div>
 
-        <label className="auth-label">Password</label>
-        <input
-          className="auth-input"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoComplete="new-password"
-          placeholder="Create a password"
-        />
+          <div style={{ marginTop: 12 }}>
+            <label style={{ display: "block", fontSize: 12, color: "var(--text-secondary, var(--muted))" }}>
+              Email
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              style={{
+                width: "100%", height: 36, marginTop: 6,
+                border: "1px solid var(--line)", borderRadius: 8,
+                background: "var(--panel)", color: "var(--ink)",
+                padding: "0 10px", outline: "none",
+              }}
+            />
+          </div>
 
-        <button className="btn-primary" disabled={loading}>
-          {loading ? "Creating…" : "Create account"}
-        </button>
+          <div style={{ marginTop: 12 }}>
+            <label style={{ display: "block", fontSize: 12, color: "var(--text-secondary, var(--muted))" }}>
+              Password
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              style={{
+                width: "100%", height: 36, marginTop: 6,
+                border: "1px solid var(--line)", borderRadius: 8,
+                background: "var(--panel)", color: "var(--ink)",
+                padding: "0 10px", outline: "none",
+              }}
+            />
+          </div>
 
-        <div className="auth-foot">
-          Have an account? <Link to="/login">Sign in</Link>
-        </div>
-      </form>
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:16 }}>
+            <button
+              type="submit"
+              disabled={busy}
+              className="btn-primary"
+              style={{ height: 36, padding: "0 14px" }}
+            >
+              {busy ? "Creating…" : "Create account"}
+            </button>
+            <span style={{ fontSize: 13, color: "var(--muted)" }}>
+              Have an account? <Link to="/login">Sign in</Link>
+            </span>
+          </div>
+        </form>
+      </main>
     </div>
   );
 }
