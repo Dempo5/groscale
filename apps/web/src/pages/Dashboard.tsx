@@ -69,6 +69,7 @@ export default function Dashboard() {
         console.error(e);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const selected = useMemo(
@@ -201,13 +202,13 @@ export default function Dashboard() {
               {railOpen && <span>Phone numbers</span>}
             </NavLink>
 
-            {/* Tags (static for now) */}
+            {/* Tags (static) */}
             <a className="rail-item" title="Tags">
               <OutlineIcon d="M20 12l-8 8-8-8 8-8 8 8z" />
               {railOpen && <span>Tags</span>}
             </a>
 
-            {/* Templates (static for now) */}
+            {/* Templates (static) */}
             <a className="rail-item" title="Templates">
               <OutlineIcon d="M4 4h16v6H4zM4 14h10" />
               {railOpen && <span>Templates</span>}
