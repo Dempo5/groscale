@@ -465,3 +465,142 @@ body[data-theme="dark"] .pill.processing{ background:rgba(59,130,246,.14); color
 }
 .wf-empty .wf-line1{ font-weight: 700; margin-top: 6px; }
 .wf-empty .wf-line2{ color: var(--text-secondary); font-size: 13px; }
+
+/* ========= GroScales UI 2.0 polish (non-breaking, styling-only) ========= */
+
+/* 1) Brand accent switch (green-cyan) */
+:root {
+  --accent: #00C49A;
+}
+
+/* 2) Subtle page background gradient (light mode only) */
+@media (prefers-color-scheme: light) {
+  body {
+    background:
+      radial-gradient(1200px 600px at -10% -10%, #eefaf6 0%, #ffffff 60%) no-repeat,
+      #ffffff;
+  }
+}
+
+/* 3) Card depth (applies to your existing .card and .u-card) */
+.card,
+.u-card {
+  background: linear-gradient(145deg, #ffffff, #f9fafb);
+  border: 1px solid rgba(17,24,39,.06);
+  border-radius: 12px;
+  box-shadow: 0 10px 35px rgba(0,0,0,.07), 0 2px 8px rgba(0,0,0,.04);
+  transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease, background .2s ease;
+}
+.card:hover,
+.u-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 34px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.06);
+}
+
+/* Keep your existing section/panel styling; this just softens surfaces slightly */
+.panel {
+  background: linear-gradient(145deg, #ffffff, #fbfcfd);
+}
+
+/* 4) Buttons: keep your classes, upgrade styles */
+.btn {
+  border-radius: 10px;
+  padding: .6rem .9rem;
+  font-weight: 600;
+  transition: all .18s ease;
+}
+
+.btn-primary {
+  color: #fff;
+  border: 0;
+  background: linear-gradient(180deg, #00C49A, #07a07f);
+  box-shadow: 0 8px 20px rgba(0,196,154,.25);
+}
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 12px 26px rgba(0,196,154,.32); filter: none; }
+.btn-primary:active { transform: translateY(0); box-shadow: 0 6px 14px rgba(0,196,154,.22); }
+
+.btn-outline {
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid rgba(17,24,39,.10);
+}
+.btn-outline:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(0,0,0,.06);
+}
+
+/* Icon button gets a softer hover */
+.icon-btn {
+  transition: background .15s ease, border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+  background: #fff;
+  border: 1px solid rgba(17,24,39,.10);
+}
+.icon-btn:hover {
+  transform: translateY(-1px);
+  background: #fafafa;
+  box-shadow: 0 10px 24px rgba(0,0,0,.06);
+}
+
+/* 5) Inputs: style your existing .input (used in Phone Numbers/Uploads) */
+.input,
+select.input,
+textarea.input {
+  background: #fff;
+  border: 1px solid rgba(17,24,39,.10);
+  border-radius: 10px;
+  padding: .6rem .75rem;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.input:focus,
+select.input:focus,
+textarea.input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  outline: none;
+}
+
+/* 6) Table polish (no layout change) */
+.u-table tbody tr:hover {
+  background: color-mix(in srgb, #ffffff 94%, var(--line));
+  transition: background .12s ease;
+}
+.u-table thead th {
+  backdrop-filter: saturate(115%) blur(3px);
+  border-bottom: 1px solid rgba(17,24,39,.08);
+}
+
+/* 7) Empty state copy readability */
+.u-table .empty {
+  font-weight: 500;
+  color: #64748b;
+}
+.u-table .empty::before {
+  content: "⚡";
+  opacity: .35;
+  margin-right: 8px;
+}
+
+/* 8) Drop zone (Uploads) – glow on drag */
+.dropcard.drag,
+.dropzone.drag {
+  box-shadow: 0 0 0 6px rgba(0,196,154,.18) !important;
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+}
+
+/* 9) “New” buttons in headers pop slightly */
+.list-head .btn-outline.sm:hover,
+.card-head .btn-outline.sm:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(0,0,0,.06);
+}
+
+/* 10) Pills already exist—just ensure the blue/processing variant matches accent */
+.pill.processing {
+  background: rgba(0,196,154,.12);
+  color: #00C49A;
+}
+
+/* 11) Small utility for any hoverable card/row you want to lift */
+.hover-raise { transition: transform .16s ease, box-shadow .16s ease; }
+.hover-raise:hover { transform: translateY(-2px); box-shadow: 0 14px 34px rgba(0,0,0,.08); }
