@@ -3,7 +3,6 @@ import "./dashboard-ios.css";
 import { getLeads, Lead, logout } from "../lib/api";
 import { NavLink } from "react-router-dom";
 
-
 type Msg = { id: string; from: "lead" | "me"; text: string; at: string };
 
 const OutlineIcon = ({
@@ -172,45 +171,62 @@ export default function Dashboard() {
         {/* LEFT RAIL */}
         <aside className={`rail ${railOpen ? "" : "collapsed"} matte`}>
           <nav>
-            <a className="rail-item active" title="Contacts">
+            {/* Contacts → /dashboard */}
+            <NavLink
+              to="/dashboard"
+              className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`}
+              title="Contacts"
+            >
               <OutlineIcon d="M16 11c1.66 0 3-1.34 3-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zM5 20c0-3.31 2.69-6 6-6h2" />
               {railOpen && <span>Contacts</span>}
-            </a>
-            <a className="rail-item" title="Workflows">
+            </NavLink>
+
+            {/* Workflows → /workflows */}
+            <NavLink
+              to="/workflows"
+              className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`}
+              title="Workflows"
+            >
               <OutlineIcon d="M4 6h16M4 12h10M4 18h7" />
               {railOpen && <span>Workflows</span>}
-            </a>
+            </NavLink>
+
+            {/* Phone numbers → /phone-numbers */}
             <NavLink
-  to="/phone-numbers"
-  className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`}
-  title="Phone numbers"
->
-  <OutlineIcon d="M6 2h12v20H6zM9 18h6" />
-  {railOpen && <span>Phone numbers</span>}
-</NavLink>
+              to="/phone-numbers"
+              className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`}
+              title="Phone numbers"
+            >
+              <OutlineIcon d="M6 2h12v20H6zM9 18h6" />
+              {railOpen && <span>Phone numbers</span>}
+            </NavLink>
+
+            {/* Tags (static for now) */}
             <a className="rail-item" title="Tags">
               <OutlineIcon d="M20 12l-8 8-8-8 8-8 8 8z" />
               {railOpen && <span>Tags</span>}
             </a>
+
+            {/* Templates (static for now) */}
             <a className="rail-item" title="Templates">
               <OutlineIcon d="M4 4h16v6H4zM4 14h10" />
               {railOpen && <span>Templates</span>}
             </a>
-            <NavLink
-  to="/uploads"
-  className={({ isActive }) =>
-    `rail-item ${isActive ? "active" : ""}`
-  }
-  title="Uploads"
->
-  <OutlineIcon d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16" />
-  {railOpen && <span>Uploads</span>}
-</NavLink>
 
+            {/* Uploads → /uploads */}
+            <NavLink
+              to="/uploads"
+              className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`}
+              title="Uploads"
+            >
+              <OutlineIcon d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16" />
+              {railOpen && <span>Uploads</span>}
+            </NavLink>
           </nav>
+
           <div className="rail-foot">
             <a className="rail-item" title="Settings">
-              <OutlineIcon d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.07a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06c.46-.46.6-1.14.33-1.73A1.65 1.65 0 0 0 3 13H3a2 2 0 1 1 0-4h.07c.67 0 1.28-.38 1.55-.97.27-.59.13-1.27-.33-1.73l-.06-.06A2 2 0 1 1 7.06 2.4l.06.06c.46.46 1.14.6 1.73.33.59-.27.97-.88.97-1.55V1a2 2 0 1 1 4 0v.07c0 .67.38 1.28.97 1.55.59.27 1.27.13 1.73-.33l.06-.06A2 2 0 1 1 20.6 4.4l-.06.06c-.46.46-.6 1.14-.33 1.73.27.59.88.97 1.55.97H22a2 2 0 1 1 0 4h-.07c-.67 0-1.28.38-1.55.97-.27.59-.13 1.27.33 1.73l.06.06z" />
+              <OutlineIcon d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.07a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06c.46-.46.6-1.14.33-1.73A1.65 1.65 0 0 0 3 13H3a2 2 0 1 1 0-4h.07c.67 0 1.28-.38 1.55-.97.27-.59.13-1.27-.33-1.73l-.06-.06z" />
               {railOpen && <span>Settings</span>}
             </a>
           </div>
@@ -241,9 +257,7 @@ export default function Dashboard() {
             {filtered.map((l) => (
               <li
                 key={String(l.id)}
-                className={`row ${
-                  String(l.id) === String(selectedId) ? "selected" : ""
-                }`}
+                className={`row ${String(l.id) === String(selectedId) ? "selected" : ""}`}
                 onClick={() => setSelectedId(l.id)}
               >
                 <div className="avatar">
@@ -275,10 +289,7 @@ export default function Dashboard() {
 
           <div className="messages" key={selected?.id ?? "none"}>
             {messages.map((m) => (
-              <div
-                key={m.id}
-                className={`bubble ${m.from === "me" ? "mine" : ""}`}
-              >
+              <div key={m.id} className={`bubble ${m.from === "me" ? "mine" : ""}`}>
                 <div className="txt">{m.text}</div>
                 <div className="stamp">{m.at}</div>
               </div>
