@@ -10,7 +10,7 @@ import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import Uploads from "./pages/Uploads";
 import PhoneNumbers from "./pages/PhoneNumbers";
-import Workflows from "./pages/Workflows"; // ✅ add this page
+import Workflows from "./pages/Workflows"; // ✅ added
 import ProtectedRoute from "./components/auth-gates/ProtectedRoute";
 import { isAuthed } from "./lib/api";
 
