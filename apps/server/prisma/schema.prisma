@@ -189,3 +189,44 @@ model Template {
 
   @@unique([ownerId, name])
 }
+
+// ---------- Workflows MVP ----------
+enum WorkflowStatus {
+  ACTIVE
+  PAUSED
+  DRAFT
+}
+
+enum StepType {
+  SEND_TEXT
+  WAIT
+}
+
+model Workflow {
+  id        String          @id @default(cuid())
+  ownerId   String?         // link to User later
+  name      String
+  status    WorkflowStatus  @default(DRAFT)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  steps     WorkflowStep[]
+}
+
+model WorkflowStep {
+  id          String     @id @default(cuid())
+  workflowId  String
+  workflow    Workflow   @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  order       Int
+
+  type        StepType
+  // SEND_TEXT
+  textBody    String?     // message content
+
+  // WAIT
+  waitMs      Int?        // milliseconds
+
+  createdAt   DateTime    @default(now())
+
+  @@index([workflowId, order])
+}
