@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import "./dashboard-ios.css";
 import { getLeads, Lead, logout } from "../lib/api";
 import { NavLink } from "react-router-dom";
+import CopilotModal from "../components/CopilotModal"; // ✅ NEW
 
 type Msg = { id: string; from: "lead" | "me"; text: string; at: string };
 
@@ -40,7 +41,7 @@ const CopyBtn = ({ value }: { value?: string | null }) => (
       navigator.clipboard?.writeText(String(value)).catch(() => {});
     }}
   >
-    <OutlineIcon d="M9 9V7a2 2 0 0 1 2-2h6M7 9h6a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z" />
+    <OutlineIcon d="M9 9V7a2 2 0 0 1 2-2h6M7 9h6a2 2 0  1 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z" />
   </button>
 );
 
@@ -50,6 +51,7 @@ export default function Dashboard() {
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [railOpen, setRailOpen] = useState(true);
+  const [copilotOpen, setCopilotOpen] = useState(false); // ✅ NEW
 
   const [theme, setTheme] = useState<"light" | "dark">(
     (localStorage.getItem("gs_theme") as "light" | "dark") || "light"
@@ -69,8 +71,7 @@ export default function Dashboard() {
         console.error(e);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selected = useMemo(
     () => leads.find((l) => String(l.id) === String(selectedId)) || null,
@@ -305,7 +306,11 @@ export default function Dashboard() {
               disabled
             />
             <button className="btn-outline">Templates</button>
-            <button className="btn-copilot" title="AI Copilot">
+            <button
+              className="btn-copilot"
+              title="AI Copilot"
+              onClick={() => setCopilotOpen(true)} // ✅ OPEN MODAL
+            >
               <span className="copilot-static" aria-hidden />
               <OutlineIcon d="M5 12l4 4L19 6" />
               Copilot
@@ -401,6 +406,9 @@ export default function Dashboard() {
           </div>
         </aside>
       </main>
+
+      {/* ✅ Copilot modal mounts once, controlled by state */}
+      <CopilotModal open={copilotOpen} onClose={() => setCopilotOpen(false)} />
     </div>
   );
 }
