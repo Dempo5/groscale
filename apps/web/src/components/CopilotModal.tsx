@@ -21,10 +21,14 @@ export default function CopilotModal({ open, onClose }: Props) {
   // Focus textarea when modal opens
   useEffect(() => {
     if (open) {
-      setTimeout(() => taRef.current?.focus(), 0);
+      // use window.setTimeout to avoid TS2554 in Vite/DOM builds
+      window.setTimeout(() => taRef.current?.focus(), 0);
     } else {
       // reset transient error state when fully closed
       setError(null);
+      setPrompt("");
+      setAnswer("");
+      setLoading(false);
     }
   }, [open]);
 
@@ -44,18 +48,23 @@ export default function CopilotModal({ open, onClose }: Props) {
   };
 
   const ask = async () => {
-    if (!prompt.trim()) return;
+    const q = prompt.trim();
+    if (!q) return;
+
     setLoading(true);
     setError(null);
     setAnswer("");
 
     try {
-      // call your server route
-      const res = await fetch("/api/copilot/ask", {
+      // ✅ match server route + payload
+      const res = await fetch("/api/copilot/draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
         credentials: "include",
+        body: JSON.stringify({
+          lastMessage: q,
+          tone: "friendly",
+        }),
       });
 
       if (!res.ok) {
@@ -63,9 +72,16 @@ export default function CopilotModal({ open, onClose }: Props) {
         throw new Error(text || `${res.status} ${res.statusText}`);
       }
 
-      const data = (await res.json()) as { ok: boolean; answer?: string; error?: string };
+      // server returns { ok: true, draft: string }
+      const data = (await res.json()) as {
+        ok: boolean;
+        draft?: string;
+        answer?: string;
+        error?: string;
+      };
+
       if (!data.ok) throw new Error(data.error || "Copilot failed");
-      setAnswer(data.answer || "");
+      setAnswer((data.draft || data.answer || "").trim());
     } catch (err: any) {
       setError(err?.message || "Request failed");
     } finally {
@@ -89,8 +105,16 @@ export default function CopilotModal({ open, onClose }: Props) {
           <div className="gs-copilot-title">AI Copilot</div>
           <button className="icon-btn" onClick={onClose} aria-label="Close">
             {/* X icon */}
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                 stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
           </button>
@@ -126,7 +150,7 @@ export default function CopilotModal({ open, onClose }: Props) {
             <div className="gs-answer-actions">
               <button
                 className="btn-outline"
-                onClick={() => navigator.clipboard.writeText(answer).catch(() => {})}
+                onClick={() => navigator.clipboard?.writeText(answer).catch(() => {})}
               >
                 Copy
               </button>
