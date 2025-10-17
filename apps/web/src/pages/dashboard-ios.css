@@ -1,6 +1,8 @@
 /* GroScales – flat, premium, micro-contrast */
 
+/* ---------- Tokens ---------- */
 :root{
+  /* new semantic tokens */
   --surface-0:#f6f7f8;
   --surface-1:#ffffff;
   --surface-2:#f3f4f6;
@@ -17,6 +19,15 @@
   --shadow-subtle:0 1px 2px rgba(0,0,0,.04);
 
   --accent:#2a74ff;
+  --danger:#e5484d;
+
+  /* legacy aliases (so existing UI keeps working) */
+  --bg: var(--surface-0);
+  --panel: var(--surface-1);
+  --ink: var(--text-primary);
+  --muted: var(--text-muted);
+  --blue: var(--accent);
+  --shadow: var(--shadow-subtle);
 }
 
 body[data-theme="dark"]{
@@ -36,8 +47,10 @@ body[data-theme="dark"]{
   --shadow-subtle:0 1px 2px rgba(0,0,0,.35);
 
   --accent:#5da0ff;
+  --danger:#ff6b6b;
 }
 
+/* ---------- Base ---------- */
 *{box-sizing:border-box}
 html,body,#root{height:100%}
 body{
@@ -50,7 +63,7 @@ body{
 .p-shell{min-height:100vh;display:flex;flex-direction:column}
 .matte{backdrop-filter:blur(6px) saturate(110%)}
 
-/* Topbar */
+/* ---------- Topbar ---------- */
 .p-topbar{
   position:sticky;top:0;z-index:20;height:54px;
   display:flex;align-items:center;justify-content:center;
@@ -61,7 +74,7 @@ body{
 .left-toggle{position:absolute;left:10px;top:50%;transform:translateY(-50%)}
 .top-actions{position:absolute;right:10px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:10px}
 
-/* Buttons / chips */
+/* ---------- Buttons / chips ---------- */
 .icon-btn{
   height:32px;width:32px;display:grid;place-items:center;
   border:1px solid var(--line);border-radius:8px;background:var(--surface-1);
@@ -69,13 +82,14 @@ body{
 }
 .icon-btn:hover{background:color-mix(in srgb, var(--surface-1) 92%, var(--line)); box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent)}
 
+.btn,
 .btn-outline{
   height:32px;padding:0 12px;border:1px solid var(--line);border-radius:8px;
   background:var(--surface-1);color:var(--text-primary);
   transition:background .15s cubic-bezier(.2,.6,.2,1), border-color .15s cubic-bezier(.2,.6,.2,1), box-shadow .15s cubic-bezier(.2,.6,.2,1);
 }
-.btn-outline.sm{height:28px;font-size:12px}
-.btn-outline:hover{background:color-mix(in srgb, var(--surface-1) 94%, var(--line)); box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 14%, transparent)}
+.btn.sm,.btn-outline.sm{height:28px;font-size:12px}
+.btn:hover,.btn-outline:hover{background:color-mix(in srgb, var(--surface-1) 94%, var(--line)); box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 14%, transparent)}
 
 .btn-primary{
   height:32px;padding:0 12px;border:0;border-radius:8px;color:#fff;background:var(--accent);
@@ -112,7 +126,17 @@ body{
 .icon-chip.is-disabled{opacity:.45;cursor:default}
 .icon-chip.is-disabled:hover{box-shadow:none;background:var(--surface-1)}
 
-/* Profile menu */
+/* ---------- Form bits used in tables/search ---------- */
+.hint{font-size:12px;color:var(--text-secondary)}
+.label{font-size:12px;color:var(--text-secondary)}
+.input{
+  height:32px;border:1px solid var(--line);border-radius:8px;
+  background:var(--surface-1);color:inherit;padding:0 10px;outline:none;
+  transition:border-color .15s cubic-bezier(.2,.6,.2,1), box-shadow .15s cubic-bezier(.2,.6,.2,1);
+}
+.input:focus{border-color:color-mix(in srgb, var(--accent) 35%, var(--line)); box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent)}
+
+/* ---------- Profile menu ---------- */
 .profile-btn{all:unset;cursor:pointer}
 .avatar{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-weight:700;border:1px solid var(--line)}
 .avatar.small{width:28px;height:28px}
@@ -125,7 +149,7 @@ body{
 .menu-sep{height:1px;background:var(--line);margin:4px 6px}
 .menu-item.danger{color:#e46a6a}
 
-/* Grid */
+/* ---------- Grid ---------- */
 .p-work.grid{
   display:grid;gap:0;padding:14px;
   grid-template-columns: 220px 360px 1fr 300px;
@@ -134,7 +158,7 @@ body{
 }
 .p-work.grid.rail-closed{grid-template-columns: 60px 360px 1fr 300px}
 
-/* Sidebar */
+/* ---------- Sidebar ---------- */
 .rail{
   border-right:1px solid var(--line);
   background:var(--surface-rail);
@@ -150,7 +174,7 @@ body{
 .rail-item.active{border-color:var(--accent)}
 .rail-foot{margin-top:auto;padding-top:6px;border-top:1px solid var(--line)}
 
-/* Panels */
+/* ---------- Panels ---------- */
 .panel{
   background:var(--surface-1);
   border-left:1px solid var(--line);
@@ -159,7 +183,7 @@ body{
 .list{border-left:1px solid var(--line)}
 .details{border-right:1px solid var(--line);overflow:auto;min-height:0}
 
-/* List column */
+/* ---------- List column ---------- */
 .list{display:flex;flex-direction:column}
 .list-head{display:flex;align-items:center;justify-content:space-between;padding:10px;border-bottom:1px solid var(--line)}
 .list-head .h{font-weight:750}
@@ -181,14 +205,14 @@ body{
 .meta .name{font-weight:600}
 .meta .sub{color:var(--text-secondary);font-size:12px}
 
-/* Thread */
+/* ---------- Thread ---------- */
 .thread{display:flex;flex-direction:column;min-height:0}
 .thread-title{padding:10px;border-bottom:1px solid var(--line);font-weight:750}
 .who{display:flex;align-items:center;gap:10px}
 .who-name{font-weight:700}
 .who-sub{color:var(--text-secondary);font-size:12px}
 
-/* Messages */
+/* ---------- Messages ---------- */
 .messages{
   flex:1 1 auto;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10px;min-height:0;
   background:var(--surface-1);
@@ -211,7 +235,7 @@ body{
 }
 .bubble .stamp{font-size:11px;color:var(--text-secondary);margin-top:4px}
 
-/* Composer pinned bottom */
+/* ---------- Composer pinned bottom ---------- */
 .composer{
   flex-shrink:0;padding:8px 10px 10px;border-top:1px solid var(--line);background:var(--surface-1);
   display:grid;grid-template-columns: 1fr auto auto auto;gap:8px;position:sticky;bottom:0;
@@ -223,7 +247,7 @@ body{
 }
 .composer input:focus{border-color:color-mix(in srgb, var(--accent) 35%, var(--line)); box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent)}
 
-/* Details */
+/* ---------- Details ---------- */
 .section{border-bottom:1px solid var(--line)}
 .section:last-child{border-bottom:0}
 .section-title{padding:10px;font-weight:750;color:var(--text-primary)}
@@ -232,7 +256,7 @@ body{
 .copy-row{display:flex;align-items:center;gap:8px}
 .placeholder{color:var(--text-muted);font-style:normal}
 
-/* Tags (visible in both themes) */
+/* ---------- Tags (visible in both themes) ---------- */
 .tag-row{display:flex;gap:8px;padding:8px 10px}
 .tag{
   --t-bg:rgba(0,0,0,.06);--t-fg:#111;
@@ -249,122 +273,9 @@ body[data-theme="dark"] .tag-green{--t-bg:rgba(56,214,124,.20);--t-fg:#9df3c0}
 /* De-boxify */
 .panel,.rail,.p-topbar{box-shadow:none}
 
-/* ---------- Uploads page ---------- */
-
-.p-uploads{
-  padding:16px;
-  display:flex;
-  flex-direction:column;
-  gap:16px;
-}
-
-/* Header */
-.uploads-header{
-  display:flex;
-  align-items:flex-start;
-  gap:14px;
-}
-.back-link{
-  all:unset;
-  cursor:pointer;
-  color:#9CA3AF;                /* subtle gray */
-  font-weight:600;
-  padding:4px 6px;
-  border-radius:8px;
-  transition: color .18s cubic-bezier(.2,.6,.2,1), transform .18s cubic-bezier(.2,.6,.2,1), background .18s cubic-bezier(.2,.6,.2,1);
-}
-.back-link:hover{
-  color:#2563EB;                /* blue on hover */
-  transform: translateX(-2px);  /* slight left shift */
-  background: color-mix(in srgb, var(--panel) 92%, var(--line));
-}
-.title-wrap{display:flex; flex-direction:column; gap:4px}
-.crumbs{color:var(--muted); font-size:12.5px}
-.page-title{font-size:20px; line-height:1.25; font-weight:700}
-
-/* Card shell */
-.u-card{
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  box-shadow: var(--shadow);
-}
-.u-card + .u-card{ margin-top: 2px; }
-.u-card .card-head{
-  padding:10px 12px;
-  border-bottom:1px solid var(--line);
-  font-weight:700;
-}
-
-/* Dropzone */
-.dropzone{
-  display:block;
-  border: 1px dashed var(--line);
-  border-radius: 12px;
-  padding: 18px 14px;
-  text-align:center;
-  cursor: pointer;
-  transition: border-color .18s cubic-bezier(.2,.6,.2,1), background .18s cubic-bezier(.2,.6,.2,1);
-  background: color-mix(in srgb, var(--panel) 96%, var(--line) 4%);
-}
-.dropzone:hover{ border-color: color-mix(in srgb, var(--blue) 40%, var(--line)); }
-.dropzone.drag{
-  border-color: color-mix(in srgb, var(--blue) 60%, var(--line));
-  background: color-mix(in srgb, var(--panel) 92%, var(--blue) 8%);
-}
-.dropzone.busy{ opacity:.8; pointer-events:none }
-.dz-body{ display:flex; flex-direction:column; gap:8px; align-items:center; justify-content:center }
-.dz-title{ font-weight:700 }
-.dz-sub{ color:var(--muted); font-size:12.5px }
-
-/* Table */
-.table-wrap{ overflow:auto }
-.u-table{ width:100%; border-collapse:collapse }
-.u-table th, .u-table td{ padding:10px 12px; white-space:nowrap }
-.u-table thead th{
-  font-size:12px; color:var(--muted); font-weight:600; text-transform:none; letter-spacing:.2px;
-  border-bottom:1px solid var(--line);
-  background: color-mix(in srgb, var(--panel) 92%, var(--line));
-}
-.u-table tbody td{ border-top:1px solid var(--line) }
-.u-table td.file{ max-width: 420px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
-.u-table td.num, .u-table th.num{ text-align:right; font-variant-numeric: tabular-nums }
-.u-table td.right, .u-table th.right{ text-align:right }
-.u-table .empty{ padding:28px 12px; color:var(--muted); text-align:center }
-
-/* Pills */
-.pill{
-  display:inline-flex; align-items:center; gap:6px;
-  height:22px; padding:0 8px; border-radius:999px;
-  font-size:12px; font-weight:600; border:1px solid var(--line);
-}
-.pill.success{
-  color: #15803D;
-  background: color-mix(in srgb, var(--panel) 92%, #16a34a 8%);
-  border-color: color-mix(in srgb, var(--line) 70%, #16a34a 30%);
-}
-.pill.partial{
-  color: #92400E;
-  background: color-mix(in srgb, var(--panel) 92%, #f59e0b 10%);
-  border-color: color-mix(in srgb, var(--line) 70%, #f59e0b 30%);
-}
-.pill.failed{
-  color: #B91C1C;
-  background: color-mix(in srgb, var(--panel) 92%, #ef4444 10%);
-  border-color: color-mix(in srgb, var(--line) 70%, #ef4444 30%);
-}
-
-/* Icon button (download) */
-.icon-btn.ghost{
-  height:28px; width:28px; display:grid; place-items:center;
-  border-radius:8px; border:1px solid var(--line);
-  background: transparent; color: inherit; cursor:pointer;
-  transition: background .15s cubic-bezier(.2,.6,.2,1), border-color .15s cubic-bezier(.2,.6,.2,1), opacity .15s;
-}
-.icon-btn.ghost:hover{ background: color-mix(in srgb, var(--panel) 92%, var(--line)) }
-.icon-btn.ghost:disabled{ opacity:.35; cursor:not-allowed }
-
-/* ---------- Uploads page (final, polished, no dupes) ---------- */
+/* =================================================================== */
+/*                          Uploads + Product                          */
+/* =================================================================== */
 
 /* Page container (structure unchanged) */
 .p-uploads{ padding:16px 18px 24px; max-width:1280px; margin:0 auto; }
@@ -400,19 +311,16 @@ body[data-theme="dark"] .tag-green{--t-bg:rgba(56,214,124,.20);--t-fg:#9df3c0}
 .card:hover{ box-shadow:0 4px 12px rgba(0,0,0,.06); }
 .card-head{ padding:10px 12px; border-bottom:1px solid var(--line); font-weight:700 }
 
-/* --- Dropzone card (centered) --- */
+/* Dropzone (product card style) */
 .dropcard{
   display:block; max-width:760px; margin:0 auto;
   border-radius:16px;
-  /* slightly darker border for contrast (light + dark) */
   border:1px solid color-mix(in srgb, var(--line) 70%, #000 0%);
   background: var(--panel);
   box-shadow:0 2px 8px rgba(0,0,0,.04);
   transition: box-shadow .2s ease, border-color .2s ease, background .2s ease;
   padding:28px; text-align:center;
 }
-
-/* depth on hover with soft neutral gradient (keeps flat vibe) */
 .dropcard:hover{
   border-color: color-mix(in srgb, var(--line-strong) 80%, #000 0%);
   background: linear-gradient(
@@ -422,17 +330,12 @@ body[data-theme="dark"] .tag-green{--t-bg:rgba(56,214,124,.20);--t-fg:#9df3c0}
   );
   box-shadow:0 6px 16px rgba(0,0,0,.06);
 }
-
-/* dragover state */
 .dropcard.drag{
   outline:2px solid color-mix(in srgb, var(--blue) 60%, transparent);
   background: color-mix(in srgb, var(--panel) 90%, var(--blue) 10%);
 }
-
-/* make the whole area clickable; keep your input hidden in JSX */
 .dropcard [role="button"]{ cursor:pointer }
 
-/* icon smaller so text reads first */
 .upl-icon{
   width:48px; height:48px; opacity:.8;
   color:var(--muted); margin:2px auto 10px; display:block;
@@ -444,19 +347,15 @@ body[data-theme="dark"] .tag-green{--t-bg:rgba(56,214,124,.20);--t-fg:#9df3c0}
 .drop-sub{ color:var(--muted); font-size:13px; margin-top:2px }
 .drop-helper{ text-align:center; margin-top:10px; color:var(--muted); font-size:12.5px }
 
-/* helper note below card */
 .max-hint{
   text-align:center; margin-top:10px;
   color:var(--muted); font-size:12px;
 }
 
-/* --- History table --- */
+/* History table */
 .history{ margin-top:18px; }
-
-.table-wrap{ width:100%; overflow:auto; }
+.table-wrap{ width:100%; overflow:auto }
 .u-table{ width:100%; border-collapse:collapse; font-size:13.5px; }
-
-/* sticky header (respect your top rhythm) */
 .u-table thead th{
   position:sticky; top:16px; z-index:1;
   background: color-mix(in srgb, var(--panel) 92%, transparent);
@@ -464,47 +363,26 @@ body[data-theme="dark"] .tag-green{--t-bg:rgba(56,214,124,.20);--t-fg:#9df3c0}
   text-transform:uppercase; letter-spacing:.02em;
   color:var(--muted); font-weight:600;
   padding:8px 10px; text-align:left;
-  /* subtle bottom divider */
   border-bottom:1px solid color-mix(in srgb, var(--line) 85%, transparent);
 }
-
-/* row cells + subtle row dividers */
 .u-table td{
   padding:10px; vertical-align:middle;
   border-bottom:1px solid color-mix(in srgb, var(--line) 85%, transparent);
 }
-
-/* hover readability (light & dark) */
-.u-table tbody tr:hover{
-  background: color-mix(in srgb, var(--panel) 96%, var(--line));
-}
-
-/* numeric alignment */
-.u-table th.num, .u-table td.num{ text-align:right; font-variant-numeric: tabular-nums; }
-
-/* file cell treatment */
+.u-table tbody tr:hover{ background: color-mix(in srgb, var(--panel) 96%, var(--line)) }
+.u-table th.num, .u-table td.num{ text-align:right; font-variant-numeric: tabular-nums }
 .u-table td .filecell{ display:flex; align-items:center; gap:8px }
 .u-table td .fname{ font-weight:600 }
 .u-table td .fmeta{ color:var(--muted); font-size:12px }
-
-/* empty state row */
-.u-table .empty{
-  text-align:center; color:var(--muted); padding:26px 10px; font-size:13.5px;
-}
+.u-table .empty{ text-align:center; color:var(--muted); padding:26px 10px; font-size:13.5px; }
 .empty-icon{ opacity:.35; margin-right:6px }
 
-/* --- Status pills (includes Processing) --- */
-.pill{
-  display:inline-flex; align-items:center; gap:6px;
-  padding:2px 8px; border-radius:999px;
-  font-size:12px; font-weight:600;
-}
-.pill.success{  background:rgba(16,185,129,.12); color:rgb(16,185,129) }   /* emerald */
-.pill.partial{  background:rgba(245,158,11,.14); color:rgb(217,119,6) }    /* amber   */
-.pill.failed{   background:rgba(244,63,94,.12);  color:rgb(225,29,72) }    /* rose    */
-/* processing (neutral/blue) */
-.pill.processing{ background:rgba(59,130,246,.12); color:rgb(37,99,235) }  /* blue    */
-
+/* Status pills */
+.pill{ display:inline-flex; align-items:center; gap:6px; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:600 }
+.pill.success{  background:rgba(16,185,129,.12); color:rgb(16,185,129) }
+.pill.partial{  background:rgba(245,158,11,.14); color:rgb(217,119,6) }
+.pill.failed{   background:rgba(244,63,94,.12);  color:rgb(225,29,72) }
+.pill.processing{ background:rgba(59,130,246,.12); color:rgb(37,99,235) }
 body[data-theme="dark"] .pill.success{    background:rgba(16,185,129,.14); color:rgba(110,231,183,1) }
 body[data-theme="dark"] .pill.partial{    background:rgba(245,158,11,.14); color:rgba(252,211,77,1) }
 body[data-theme="dark"] .pill.failed{     background:rgba(244,63,94,.16);  color:rgba(253,164,175,1) }
@@ -528,4 +406,37 @@ body[data-theme="dark"] .pill.processing{ background:rgba(59,130,246,.14); color
 .icon-btn.ghost:focus-visible{
   outline:2px solid color-mix(in srgb, var(--blue) 70%, transparent);
   outline-offset:2px;
+}
+
+/* ---------- Workflows empty state polish ---------- */
+.wf-empty{
+  padding: 28px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+.wf-empty svg{ opacity: .7 }
+.wf-empty-title{
+  font-weight: 700;
+  color: var(--ink);
+}
+.wf-empty-sub{
+  color: var(--muted);
+  font-size: 13px;
+}
+.wf-new-btn{
+  transition: background .18s cubic-bezier(.2,.6,.2,1), border-color .18s cubic-bezier(.2,.6,.2,1), box-shadow .18s cubic-bezier(.2,.6,.2,1);
+}
+.wf-new-btn:hover{
+  border-color: var(--line-strong);
+  background: color-mix(in srgb, var(--panel) 92%, var(--line));
+  box-shadow: var(--shadow);
+}
+
+/* ---------- Tiny utility for phone-numbers page ---------- */
+.chip{
+  display:inline-flex; align-items:center; height:22px; padding:0 8px;
+  border:1px solid var(--line); border-radius:999px; background:var(--surface-1); font-size:12px;
 }
