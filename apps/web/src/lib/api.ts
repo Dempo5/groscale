@@ -168,3 +168,87 @@ export async function setDefaultNumber(sid: string) {
     body: JSON.stringify({ sid }),
   });
 }
+
+
+/* ---------------- workflows (server-first, LS fallback) ---------------- */
+
+export type Workflow = {
+  id: string;
+  name: string;
+  status: "draft" | "active" | "paused";
+  createdAt: string;
+  updatedAt: string;
+};
+
+const WF_LS_KEY = "gs_workflows";
+
+function lsRead(): Workflow[] {
+  try {
+    const raw = localStorage.getItem(WF_LS_KEY);
+    return raw ? (JSON.parse(raw) as Workflow[]) : [];
+  } catch {
+    return [];
+  }
+}
+function lsWrite(rows: Workflow[]) {
+  try {
+    localStorage.setItem(WF_LS_KEY, JSON.stringify(rows));
+  } catch {}
+}
+function lsCreate(input: { name: string }): Workflow {
+  const now = new Date().toISOString();
+  const row: Workflow = {
+    id: `wf_${Date.now()}`,
+    name: input.name || "Untitled workflow",
+    status: "draft",
+    createdAt: now,
+    updatedAt: now,
+  };
+  const cur = lsRead();
+  lsWrite([row, ...cur]);
+  return row;
+}
+function lsUpdate(id: string, patch: Partial<Workflow>): Workflow {
+  const cur = lsRead();
+  const idx = cur.findIndex((w) => w.id === id);
+  if (idx === -1) return lsCreate({ name: patch.name || "Untitled workflow" });
+  const updated: Workflow = {
+    ...cur[idx],
+    ...patch,
+    updatedAt: new Date().toISOString(),
+  };
+  const next = [...cur];
+  next[idx] = updated;
+  lsWrite(next);
+  return updated;
+}
+
+export async function listWorkflows(): Promise<Workflow[]> {
+  try {
+    return await http<Workflow[]>("/api/workflows");
+  } catch {
+    return lsRead();
+  }
+}
+
+export async function createWorkflow(input: { name: string }): Promise<Workflow> {
+  try {
+    return await http<Workflow>("/api/workflows", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  } catch {
+    return lsCreate(input);
+  }
+}
+
+export async function updateWorkflow(id: string, patch: Partial<Workflow>): Promise<Workflow> {
+  try {
+    return await http<Workflow>(`/api/workflows/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  } catch {
+    return lsUpdate(id, patch);
+  }
+}
