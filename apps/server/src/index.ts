@@ -1,4 +1,3 @@
-// apps/server/src/index.ts
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 
@@ -6,7 +5,8 @@ import cors from "cors";
 import authRoute from "./routes/auth.js";
 import uploadsRouter from "./routes/uploads.js";
 import numbersRouter from "./routes/numbers.js";
-import workflowsRouter from "./routes/workflows.js"; // ✅ NEW
+import workflowsRouter from "./routes/workflows.js";
+import copilotRouter from "./routes/copilot.js"; // ✅ NEW
 
 // ----- env -----
 const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
@@ -45,7 +45,8 @@ app.get("/health", (_req: Request, res: Response) => {
 app.use("/api/auth", authRoute);
 app.use("/api/uploads", uploadsRouter);
 app.use("/api/numbers", numbersRouter);
-app.use("/api/workflows", workflowsRouter); // ✅ NEW
+app.use("/api/workflows", workflowsRouter);
+app.use("/api/copilot", copilotRouter); // ✅ NEW
 
 // ---------- Demo leads (placeholder) ----------
 app.get("/api/leads", (_req: Request, res: Response) => {
@@ -68,20 +69,21 @@ POST /api/auth/register
 POST /api/auth/login
 POST /api/uploads
 GET  /api/leads
-GET  /api/workflows`
+GET  /api/workflows
+POST /api/copilot/draft`
     );
 });
 
-// 404
+// ---------- 404 ----------
 app.use((_req, res) => res.status(404).json({ error: "Not found" }));
 
-// Error handler
+// ---------- Error handler ----------
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   const code = typeof err?.status === "number" ? err.status : 500;
   res.status(code).json({ error: err?.message || "Server error" });
 });
 
-// start
+// ---------- Start ----------
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🚀 GroScales API running on port ${PORT}`);
 });
