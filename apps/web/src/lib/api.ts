@@ -252,3 +252,28 @@ export async function updateWorkflow(id: string, patch: Partial<Workflow>): Prom
     return lsUpdate(id, patch);
   }
 }
+/* ---------------- copilot (draft assistant) ---------------- */
+
+export type CopilotDraftRequest = {
+  /** last inbound/outbound message or short context prompt */
+  lastMessage: string;
+  /** optional writing style */
+  tone?: "friendly" | "neutral" | "formal" | "casual";
+  /** optional goal, e.g. “book call”, “qualify lead” */
+  goal?: string;
+};
+
+export type CopilotDraftResponse = {
+  ok: boolean;
+  draft: string;          // the suggested reply text
+  meta?: Record<string, any>;
+};
+
+export async function copilotDraft(
+  input: CopilotDraftRequest
+): Promise<CopilotDraftResponse> {
+  return http<CopilotDraftResponse>("/api/copilot/draft", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
