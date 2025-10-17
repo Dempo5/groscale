@@ -41,7 +41,8 @@ const CopyBtn = ({ value }: { value?: string | null }) => (
       navigator.clipboard?.writeText(String(value)).catch(() => {});
     }}
   >
-    <OutlineIcon d="M9 9V7a2 2 0 0 1 2-2h6M7 9h6a2 2 0  1 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z" />
+    {/* ✅ fixed the path (had an extra space + wrong arc values) */}
+    <OutlineIcon d="M9 9V7a2 2 0 0 1 2-2h6M7 9h6a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z" />
   </button>
 );
 
@@ -71,7 +72,8 @@ export default function Dashboard() {
         console.error(e);
       }
     })();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const selected = useMemo(
     () => leads.find((l) => String(l.id) === String(selectedId)) || null,
