@@ -9,11 +9,11 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import Uploads from "./pages/Uploads";
-import PhoneNumbers from "./pages/PhoneNumbers"; // ✅ Added
+import PhoneNumbers from "./pages/PhoneNumbers"; // ✅ added
 import ProtectedRoute from "./components/auth-gates/ProtectedRoute";
 import { isAuthed } from "./lib/api";
 
-// Handles initial redirect depending on auth status
+// Initial redirect based on auth
 function RootRedirect() {
   return <Navigate to={isAuthed() ? "/dashboard" : "/login"} replace />;
 }
@@ -26,11 +26,11 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           {/* Default redirect */}
           <Route path="/" element={<RootRedirect />} />
 
-          {/* Public routes */}
+          {/* Public */}
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
 
-          {/* Protected routes */}
+          {/* Protected */}
           <Route
             path="/dashboard"
             element={
@@ -58,7 +58,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             }
           />
 
-          {/* Unknown → redirect */}
+          {/* Fallback */}
           <Route path="*" element={<RootRedirect />} />
         </Routes>
       </AppShell>
