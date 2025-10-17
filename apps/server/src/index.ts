@@ -6,6 +6,7 @@ import cors from "cors";
 import authRoute from "./routes/auth.js";
 import uploadsRouter from "./routes/uploads.js";
 import numbersRouter from "./routes/numbers.js";
+import workflowsRouter from "./routes/workflows.js"; // ✅ NEW
 
 // ----- env -----
 const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
@@ -43,7 +44,8 @@ app.get("/health", (_req: Request, res: Response) => {
 // ---------- API routes ----------
 app.use("/api/auth", authRoute);
 app.use("/api/uploads", uploadsRouter);
-app.use("/api/numbers", numbersRouter); // ✅ moved here — safe and clean
+app.use("/api/numbers", numbersRouter);
+app.use("/api/workflows", workflowsRouter); // ✅ NEW
 
 // ---------- Demo leads (placeholder) ----------
 app.get("/api/leads", (_req: Request, res: Response) => {
@@ -65,7 +67,8 @@ Try:
 POST /api/auth/register
 POST /api/auth/login
 POST /api/uploads
-GET  /api/leads`
+GET  /api/leads
+GET  /api/workflows`
     );
 });
 
