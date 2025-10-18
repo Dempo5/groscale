@@ -1,6 +1,6 @@
 // apps/web/src/lib/api.ts
 // Flat, safe helpers used across the web app.
-// Same-origin in dev. In prod, set VITE_API_URL to your server origin.
+// Same-origin in dev. In prod, set VITE_API_URL to your server origin (no trailing slash).
 
 export type Lead = {
   id: string | number;
@@ -27,32 +27,21 @@ type AuthResponse =
 
 const TOKEN_KEY = "jwt";
 
-// Base URL: empty = same-origin. In prod set VITE_API_URL (e.g. https://your-render.onrender.com)
+// ---- Base URL: empty = same-origin. In prod set VITE_API_URL (e.g. https://groscale.onrender.com)
 const BASE =
-  (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/+$/, "") ||
-  "";
+  (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/+$/, "") || "";
 
 /* ---------------- token helpers ---------------- */
 export function getToken(): string | null {
-  try {
-    return localStorage.getItem(TOKEN_KEY);
-  } catch {
-    return null;
-  }
+  try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
 }
 export function setToken(token: string) {
-  try {
-    localStorage.setItem(TOKEN_KEY, token);
-  } catch {}
+  try { localStorage.setItem(TOKEN_KEY, token); } catch {}
 }
 export function clearToken() {
-  try {
-    localStorage.removeItem(TOKEN_KEY);
-  } catch {}
+  try { localStorage.removeItem(TOKEN_KEY); } catch {}
 }
-export function isAuthed(): boolean {
-  return !!getToken();
-}
+export function isAuthed(): boolean { return !!getToken(); }
 
 /* ---------------- fetch helper ---------------- */
 async function http<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
@@ -79,7 +68,8 @@ export async function register(p: AuthPayload): Promise<AuthResponse> {
     method: "POST",
     body: JSON.stringify(p),
   });
-  const token = (data as any).token || (data as any).jwt || (data as any).accessToken || "";
+  const token =
+    (data as any).token || (data as any).jwt || (data as any).accessToken || "";
   if (token) setToken(token);
   return data;
 }
@@ -89,17 +79,15 @@ export async function login(p: AuthPayload): Promise<AuthResponse> {
     method: "POST",
     body: JSON.stringify(p),
   });
-  const token = (data as any).token || (data as any).jwt || (data as any).accessToken || "";
+  const token =
+    (data as any).token || (data as any).jwt || (data as any).accessToken || "";
   if (token) setToken(token);
   return data;
 }
 
 export async function logout(): Promise<void> {
-  try {
-    await http("/api/auth/logout", { method: "POST" });
-  } finally {
-    clearToken();
-  }
+  try { await http("/api/auth/logout", { method: "POST" }); }
+  finally { clearToken(); }
 }
 
 /* ---------------- leads (demo) ---------------- */
@@ -119,13 +107,13 @@ export async function uploadLeads(file: File): Promise<UploadSummary> {
 
 /* ---------------- phone numbers ---------------- */
 export type SearchNumbersParams = {
-  country?: string;     // default US
-  areaCode?: string;    // e.g. "949"
-  contains?: string;    // e.g. "555"
-  sms?: boolean;        // default true
-  mms?: boolean;        // default false
-  voice?: boolean;      // default false
-  limit?: number;       // default 20
+  country?: string;
+  areaCode?: string;
+  contains?: string;
+  sms?: boolean;
+  mms?: boolean;
+  voice?: boolean;
+  limit?: number;
 };
 
 export async function searchNumbers(params: SearchNumbersParams = {}) {
@@ -151,10 +139,7 @@ export async function purchaseNumber(input: {
 }) {
   return http<{ ok: boolean; error?: string; number?: any }>(
     "/api/numbers/purchase",
-    {
-      method: "POST",
-      body: JSON.stringify(input),
-    }
+    { method: "POST", body: JSON.stringify(input) }
   );
 }
 
@@ -169,9 +154,7 @@ export async function setDefaultNumber(sid: string) {
   });
 }
 
-
 /* ---------------- workflows (server-first, LS fallback) ---------------- */
-
 export type Workflow = {
   id: string;
   name: string;
@@ -181,95 +164,46 @@ export type Workflow = {
 };
 
 const WF_LS_KEY = "gs_workflows";
-
 function lsRead(): Workflow[] {
-  try {
-    const raw = localStorage.getItem(WF_LS_KEY);
-    return raw ? (JSON.parse(raw) as Workflow[]) : [];
-  } catch {
-    return [];
-  }
+  try { const raw = localStorage.getItem(WF_LS_KEY); return raw ? JSON.parse(raw) : []; }
+  catch { return []; }
 }
-function lsWrite(rows: Workflow[]) {
-  try {
-    localStorage.setItem(WF_LS_KEY, JSON.stringify(rows));
-  } catch {}
-}
+function lsWrite(rows: Workflow[]) { try { localStorage.setItem(WF_LS_KEY, JSON.stringify(rows)); } catch {} }
 function lsCreate(input: { name: string }): Workflow {
   const now = new Date().toISOString();
-  const row: Workflow = {
-    id: `wf_${Date.now()}`,
-    name: input.name || "Untitled workflow",
-    status: "draft",
-    createdAt: now,
-    updatedAt: now,
-  };
-  const cur = lsRead();
-  lsWrite([row, ...cur]);
-  return row;
+  const row: Workflow = { id: `wf_${Date.now()}`, name: input.name || "Untitled workflow", status: "draft", createdAt: now, updatedAt: now };
+  const cur = lsRead(); lsWrite([row, ...cur]); return row;
 }
 function lsUpdate(id: string, patch: Partial<Workflow>): Workflow {
   const cur = lsRead();
   const idx = cur.findIndex((w) => w.id === id);
   if (idx === -1) return lsCreate({ name: patch.name || "Untitled workflow" });
-  const updated: Workflow = {
-    ...cur[idx],
-    ...patch,
-    updatedAt: new Date().toISOString(),
-  };
-  const next = [...cur];
-  next[idx] = updated;
-  lsWrite(next);
-  return updated;
+  const updated: Workflow = { ...cur[idx], ...patch, updatedAt: new Date().toISOString() };
+  const next = [...cur]; next[idx] = updated; lsWrite(next); return updated;
 }
-
 export async function listWorkflows(): Promise<Workflow[]> {
-  try {
-    return await http<Workflow[]>("/api/workflows");
-  } catch {
-    return lsRead();
-  }
+  try { return await http<Workflow[]>("/api/workflows"); } catch { return lsRead(); }
 }
-
 export async function createWorkflow(input: { name: string }): Promise<Workflow> {
-  try {
-    return await http<Workflow>("/api/workflows", {
-      method: "POST",
-      body: JSON.stringify(input),
-    });
-  } catch {
-    return lsCreate(input);
-  }
+  try { return await http<Workflow>("/api/workflows", { method: "POST", body: JSON.stringify(input) }); }
+  catch { return lsCreate(input); }
 }
-
 export async function updateWorkflow(id: string, patch: Partial<Workflow>): Promise<Workflow> {
-  try {
-    return await http<Workflow>(`/api/workflows/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify(patch),
-    });
-  } catch {
-    return lsUpdate(id, patch);
-  }
+  try { return await http<Workflow>(`/api/workflows/${id}`, { method: "PATCH", body: JSON.stringify(patch) }); }
+  catch { return lsUpdate(id, patch); }
 }
-/* ---------------- copilot (draft assistant) ---------------- */
 
+/* ---------------- copilot (draft assistant) ---------------- */
 export type CopilotDraftRequest = {
   lastMessage: string;
   tone?: "friendly" | "neutral" | "formal" | "casual";
   goal?: string;
 };
-
-export type CopilotDraftResponse = {
-  ok: boolean;
-  draft: string;
-  meta?: Record<string, any>;
-};
+export type CopilotDraftResponse = { ok: boolean; draft: string; meta?: Record<string, any> };
 
 export async function copilotDraft(
   input: CopilotDraftRequest
 ): Promise<CopilotDraftResponse> {
-  // ✅ USE the shared http() so it automatically uses VITE_API_URL, headers, creds, errors
   return http<CopilotDraftResponse>("/api/copilot/draft", {
     method: "POST",
     body: JSON.stringify(input),
