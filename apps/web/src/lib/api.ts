@@ -269,23 +269,9 @@ export type CopilotDraftResponse = {
 export async function copilotDraft(
   input: CopilotDraftRequest
 ): Promise<CopilotDraftResponse> {
-  // ✅ Use full backend base URL if defined (e.g. https://your-api.onrender.com)
-  const base =
-    (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/+$/, "") ||
-    "";
-  const path = `${base}/api/copilot/draft`;
-
-  const res = await fetch(path, {
+  // ✅ USE the shared http() so it automatically uses VITE_API_URL, headers, creds, errors
+  return http<CopilotDraftResponse>("/api/copilot/draft", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
     body: JSON.stringify(input),
   });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(text || `${res.status} ${res.statusText}`);
-  }
-
-  return (await res.json()) as CopilotDraftResponse;
 }
