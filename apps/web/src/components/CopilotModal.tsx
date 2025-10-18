@@ -50,26 +50,26 @@ export default function CopilotModal({ open, onClose }: Props) {
 
   // 🚀 Use backend helper (no more 405)
   const ask = async () => {
-    const q = prompt.trim();
-    if (!q) return;
+  const q = prompt.trim();
+  if (!q) return;
 
-    setLoading(true);
-    setError(null);
-    setAnswer("");
+  setLoading(true);
+  setError(null);
+  setAnswer("");
 
-    try {
-      const data = await copilotDraft({
-        lastMessage: q,
-        tone: "friendly",
-      });
-      if (!data.ok) throw new Error("Copilot failed");
-      setAnswer((data.draft || "").trim());
-    } catch (err: any) {
-      setError(err?.message || "Request failed");
-    } finally {
-      setLoading(false);
-    }
-  };
+  try {
+    // ✅ uses VITE_API_URL under the hood
+    const data = await copilotDraft({ lastMessage: q, tone: "friendly" });
+    if (!data.ok) throw new Error("Copilot failed");
+    setAnswer((data.draft || "").trim());
+  } catch (err: any) {
+    // show base + message to quickly see if URL is wrong
+    setError(`(${BASE || "no BASE"}) ${err?.message || "Request failed"}`);
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   if (!open) return null;
 
