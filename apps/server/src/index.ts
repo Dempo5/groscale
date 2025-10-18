@@ -1,85 +1,77 @@
+// apps/server/src/index.ts
 import express, { Request, Response, NextFunction } from "express";
-import cors, { CorsOptionsDelegate } from "cors";
 
-// ESM imports (.js required)
+// ESM imports must include .js
 import authRoute from "./routes/auth.js";
 import uploadsRouter from "./routes/uploads.js";
 import numbersRouter from "./routes/numbers.js";
 import workflowsRouter from "./routes/workflows.js";
 import copilotRouter from "./routes/copilot.js";
 
-const PORT = Number(process.env.PORT || 10000);
+const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
 
-/* ---------------- helpers ---------------- */
-const norm = (u?: string | null) => {
+/** Normalize to "scheme://host[:port]" */
+function norm(u?: string | null) {
   if (!u) return "";
-  try {
-    return new URL(u).origin;
-  } catch {
-    return String(u).replace(/\/+$/, "");
-  }
-};
+  try { return new URL(u).origin; } catch { return String(u).replace(/\/+$/, ""); }
+}
 
+/** Explicit allow-list from env (comma separated) */
 const envList = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
-  .map((s) => norm(s.trim()))
+  .map(s => norm(s.trim()))
   .filter(Boolean);
 
+/** Allow any Vercel preview, Onrender, and localhost */
 const allowRegex = /(localhost(:\d+)?|\.vercel\.app|\.onrender\.com)$/;
 
-const isAllowedOrigin = (origin?: string | null) => {
-  if (!origin) return true;
-  const o = norm(origin);
-  return envList.includes(o) || allowRegex.test(o);
-};
+/** Single CORS middleware that always answers OPTIONS */
+function corsGuard(req: Request, res: Response, next: NextFunction) {
+  const origin = norm(req.headers.origin as string | undefined);
 
-/* ---------------- app ---------------- */
-const app = express();
-app.use(express.json());
+  const allowed =
+    !origin ||                         // server-to-server / same-origin
+    envList.includes(origin) ||        // explicit allow-list
+    allowRegex.test(origin);           // preview domains + localhost
 
-/* ---------------- CORS ---------------- */
-const corsDelegate: CorsOptionsDelegate = (req, cb) => {
-  const origin = req.headers.origin; // ✅ FIX: use headers (plural)
-  const ok = isAllowedOrigin(origin);
-  const opts = {
-    origin: ok,
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  };
-  if (!ok) console.warn("[CORS] Blocked:", origin, "allowed:", envList);
-  cb(null, opts);
-};
-
-app.use(cors(corsDelegate));
-
-// Fallback OPTIONS handler for some strict browsers/proxies
-app.options("*", (req, res) => {
-  const origin = req.headers.origin || "*";
-  if (isAllowedOrigin(origin)) {
-    res.header("Access-Control-Allow-Origin", origin);
+  if (allowed) {
+    // Vary=Origin so caches don’t mix responses for different origins
     res.header("Vary", "Origin");
+    if (origin) res.header("Access-Control-Allow-Origin", origin);
+    else res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Credentials", "true");
     res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
     res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-    return res.status(204).end();
-  }
-  return res.status(403).json({ error: "Not allowed by CORS" });
-});
 
-/* ---------------- health ---------------- */
+    if (req.method === "OPTIONS") {
+      // Always succeed preflight
+      return res.sendStatus(204);
+    }
+    return next();
+  }
+
+  // Blocked by CORS (still answer preflight clearly)
+  if (req.method === "OPTIONS") return res.sendStatus(403);
+  return res.status(403).json({ error: "Not allowed by CORS" });
+}
+
+const app = express();
+app.use(express.json());
+app.use(corsGuard); // <-- our CORS & preflight handler FIRST
+
+// ---------- Health ----------
 app.get("/health", (_req, res) => {
   res.status(200).json({ ok: true, ts: Date.now() });
 });
 
-/* ---------------- routes ---------------- */
+// ---------- API routes ----------
 app.use("/api/auth", authRoute);
 app.use("/api/uploads", uploadsRouter);
 app.use("/api/numbers", numbersRouter);
 app.use("/api/workflows", workflowsRouter);
 app.use("/api/copilot", copilotRouter);
 
-/* ---------------- demo ---------------- */
+// ---------- Demo ----------
 app.get("/api/leads", (_req, res) => {
   res.json([
     { id: 1, name: "Test Lead", email: "lead@example.com" },
@@ -87,11 +79,9 @@ app.get("/api/leads", (_req, res) => {
   ]);
 });
 
-/* ---------------- root ---------------- */
+// ---------- Root ----------
 app.get("/", (_req, res) => {
-  res
-    .type("text")
-    .send(`GroScale API is running ✅
+  res.type("text").send(`GroScale API is running ✅
 
 Try:
 /health
@@ -103,15 +93,16 @@ GET  /api/workflows
 POST /api/copilot/draft`);
 });
 
-/* ---------------- errors ---------------- */
+// ---------- 404 ----------
 app.use((_req, res) => res.status(404).json({ error: "Not found" }));
 
+// ---------- Error handler ----------
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   const code = typeof err?.status === "number" ? err.status : 500;
   res.status(code).json({ error: err?.message || "Server error" });
 });
 
-/* ---------------- start ---------------- */
+// ---------- Start ----------
 app.listen(PORT, () => {
   console.log(`🚀 GroScales API running on port ${PORT}`);
 });
