@@ -22,25 +22,26 @@ const app = express();
 app.use(express.json());
 
 // ----- CORS -----
+function norm(u?: string | null) {
+  if (!u) return "";
+  try { return new URL(u).origin; } catch { return (u || "").replace(/\/+$/,""); }
+}
+
+const allowRegex = /(\.vercel\.app|\.onrender\.com|localhost)(:\d+)?$/;
+
 app.use(
   cors({
     origin(origin, cb) {
-      // allow same-origin / server-to-server / curl
-      if (!origin) return cb(null, true);
+      if (!origin) return cb(null, true); // same-origin/server-to-server
+      const o = norm(origin);
 
-      const o = origin.trim().replace(/\/+$/, "");
+      const ok =
+        allowedOrigins.includes(o) ||
+        allowRegex.test(o);
 
-      const isEnvAllowed = envAllowed.includes(o);
-      const isVercel = /^https?:\/\/[a-z0-9-]+\.vercel\.app$/i.test(o);
-      const isRender = /^https?:\/\/[a-z0-9.-]+\.onrender\.com$/i.test(o);
-      const isLocalhost = /^https?:\/\/localhost(?::\d+)?$/i.test(o);
+      if (ok) return cb(null, true);
 
-      if (isEnvAllowed || isVercel || isRender || isLocalhost) {
-        return cb(null, true);
-      }
-
-      // helpful debug so you can copy/paste into ALLOWED_ORIGINS
-      console.warn(`[CORS] Blocked Origin: ${o}`);
+      console.warn("[CORS] Blocked origin:", origin, "allowed:", allowedOrigins);
       return cb(new Error("Not allowed by CORS"));
     },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -48,6 +49,8 @@ app.use(
     credentials: true,
   })
 );
+app.options("*", cors());
+
 
 // ensure preflight always ok
 app.options("*", cors());
