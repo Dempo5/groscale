@@ -1,69 +1,143 @@
 import { useEffect, useRef, useState } from "react";
 import { copilotDraft } from "../lib/api";
 
-/**
- * Props:
- *  - open: controls visibility
- *  - onClose: called when ESC, backdrop click, or Close button
- */
 type Props = {
   open: boolean;
   onClose: () => void;
 };
 
 export default function CopilotModal({ open, onClose }: Props) {
-  const [prompt, setPrompt] = useState<string>("");
-  const [answer, setAnswer] = useState<string>("");
-  const [loading, setLoading] = useState<boolean>(false);
+  const [prompt, setPrompt] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const dlgRef = useRef<HTMLDivElement | null>(null);
+  const closeBtnRef = useRef<HTMLButtonElement | null>(null);
 
-  // Focus textarea when modal opens
+  // Track the latest request so older responses can't overwrite newer ones
+  const reqIdRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Focus textarea when modal opens; reset when it closes
   useEffect(() => {
     if (open) {
-      window.setTimeout(() => taRef.current?.focus(), 0);
+      setTimeout(() => taRef.current?.focus(), 0);
     } else {
-      // reset state when closed
       setError(null);
       setPrompt("");
       setAnswer("");
       setLoading(false);
+      abortRef.current?.abort();
+      abortRef.current = null;
     }
   }, [open]);
 
-  // Close on ESC
+  // Basic focus trap (first/last focusable in the dialog)
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
 
-  // Backdrop click (ignore clicks inside card)
+    const focusables = () => {
+      if (!dlgRef.current) return [] as HTMLElement[];
+      const sel = dlgRef.current.querySelectorAll<HTMLElement>(
+        "button, [href], textarea, input, select, [tabindex]:not([tabindex='-1'])"
+      );
+      return Array.from(sel).filter(el => !el.hasAttribute("disabled"));
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (loading) {
+        // prevent closing while loading (ESC)
+        if (e.key === "Escape") e.preventDefault();
+      } else if (e.key === "Escape") {
+        onClose();
+      }
+      if (e.key !== "Tab") return;
+      const items = focusables();
+      if (items.length === 0) return;
+      const first = items[0], last = items[items.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey && active === first) {
+        e.preventDefault(); last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault(); first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, loading, onClose]);
+
+  // Clear previous answer when user edits the prompt (optional UX)
+  useEffect(() => {
+    setAnswer("");
+    setError(null);
+  }, [prompt]);
+
+  // Backdrop click (disabled while loading)
   const onBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (loading) return;
     if (e.target === dlgRef.current) onClose();
+  };
+
+  // Cmd/Ctrl+Enter to submit
+  const onKeyDownTA = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      ask();
+    }
   };
 
   // Ask backend for a draft
   const ask = async () => {
     const q = prompt.trim();
-    if (!q) return;
+    if (!q || loading) return;
 
     setLoading(true);
     setError(null);
     setAnswer("");
 
+    // Cancel any previous request
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const myReqId = ++reqIdRef.current;
+
     try {
+      // Optionally pass { signal: controller.signal } through your api helper
       const data = await copilotDraft({ lastMessage: q, tone: "friendly" });
-      if (!data.ok) throw new Error("Copilot failed");
+
+      // Ignore if an older request finishes after a newer one was started
+      if (reqIdRef.current !== myReqId) return;
+
+      if (!data?.ok) {
+        throw new Error(data?.error || "Copilot failed");
+      }
       setAnswer((data.draft || "").trim());
     } catch (err: any) {
+      if (controller.signal.aborted) return; // closed or resubmitted
       setError(err?.message || "Request failed");
     } finally {
-      setLoading(false);
+      if (reqIdRef.current === myReqId) setLoading(false);
+    }
+  };
+
+  // Clipboard helper (defensive)
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(answer);
+    } catch {
+      // fallback for older browsers
+      const ta = document.createElement("textarea");
+      ta.value = answer;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus(); ta.select();
+      try { document.execCommand("copy"); } catch {}
+      document.body.removeChild(ta);
     }
   };
 
@@ -76,22 +150,21 @@ export default function CopilotModal({ open, onClose }: Props) {
       className="gs-copilot-modal"
       aria-modal="true"
       role="dialog"
+      aria-labelledby="gs-copilot-title"
     >
       <div className="gs-copilot-card">
         {/* Header */}
         <div className="gs-copilot-head">
-          <div className="gs-copilot-title">AI Copilot</div>
-          <button className="icon-btn" onClick={onClose} aria-label="Close">
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
+          <div id="gs-copilot-title" className="gs-copilot-title">AI Copilot</div>
+          <button
+            ref={closeBtnRef}
+            className="icon-btn"
+            onClick={onClose}
+            aria-label="Close"
+            disabled={loading}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
           </button>
@@ -106,11 +179,13 @@ export default function CopilotModal({ open, onClose }: Props) {
           placeholder="e.g., Write a friendly follow-up SMS asking about their preferred call time."
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
+          onKeyDown={onKeyDownTA}
+          disabled={loading}
         />
 
         {/* Actions */}
         <div className="gs-actions">
-          <button className="btn-outline" onClick={onClose}>Cancel</button>
+          <button className="btn-outline" onClick={onClose} disabled={loading}>Cancel</button>
           <button className="btn-primary" onClick={ask} disabled={loading || !prompt.trim()}>
             {loading ? "Thinking…" : "Ask Copilot"}
           </button>
@@ -125,18 +200,13 @@ export default function CopilotModal({ open, onClose }: Props) {
             <div className="gs-answer-label">Suggestion</div>
             <pre className="gs-answer-pre">{answer}</pre>
             <div className="gs-answer-actions">
-              <button
-                className="btn-outline"
-                onClick={() => navigator.clipboard?.writeText(answer).catch(() => {})}
-              >
-                Copy
-              </button>
+              <button className="btn-outline" onClick={copy}>Copy</button>
             </div>
           </div>
         )}
       </div>
 
-      {/* Lightweight styles that match your existing theme tokens */}
+      {/* Styles unchanged */}
       <style>{`
         .gs-copilot-modal{
           position: fixed; inset: 0; z-index: 60;
@@ -174,18 +244,14 @@ export default function CopilotModal({ open, onClose }: Props) {
           border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
           box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
         }
-        .gs-actions{
-          display:flex; gap:8px; justify-content:flex-end; margin-top:10px;
-        }
+        .gs-actions{ display:flex; gap:8px; justify-content:flex-end; margin-top:10px; }
         .gs-error{
           margin-top:10px; color:#b91c1c;
           background: color-mix(in srgb, #ef4444 12%, var(--surface-1));
           border:1px solid color-mix(in srgb, #ef4444 40%, var(--line));
           padding:8px 10px; border-radius:10px;
         }
-        .gs-answer{
-          margin-top:12px; border-top:1px solid var(--line); padding-top:10px;
-        }
+        .gs-answer{ margin-top:12px; border-top:1px solid var(--line); padding-top:10px; }
         .gs-answer-label{ font-weight:700; margin-bottom:6px; }
         .gs-answer-pre{
           margin:0; white-space:pre-wrap; line-height:1.45;
