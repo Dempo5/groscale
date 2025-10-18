@@ -11,8 +11,9 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 },
 });
 
-// ---------------- Header normalization ----------------
+/* ---------------- Header canon + synonyms (expand any time) ---------------- */
 const HMAP: Record<string, string> = {
+  // core
   firstname: "first",
   "first name": "first",
   first: "first",
@@ -35,6 +36,16 @@ const HMAP: Record<string, string> = {
   primaryphc: "phone",
   phone2: "phone",
   "primary phone": "phone",
+  // nice-to-have (not yet stored in DB, but we parse for future)
+  dob: "dob",
+  "date of birth": "dob",
+  city: "city",
+  state: "state",
+  "postal code": "zip",
+  zipcode: "zip",
+  zip: "zip",
+  address: "address",
+  // meta
   tags: "tags",
   label: "tags",
   labels: "tags",
@@ -42,25 +53,33 @@ const HMAP: Record<string, string> = {
   note: "note",
   notes: "note",
 };
+
 function normalizeHeader(h: string): string {
   const k = (h || "").replace(/\uFEFF/g, "").trim().toLowerCase().replace(/\s+/g, " ");
   return HMAP[k] || k;
 }
 
+/* ------------------------ Light delimiter detection ----------------------- */
 function guessDelimiter(sample: string): "," | ";" | "\t" | "|" {
   const cand = [",", ";", "\t", "|"] as const;
   const lines = sample.split(/\r?\n/).slice(0, 8);
-  let best = cand[0], bestScore = -1;
+  let best = cand[0];
+  let bestScore = -1;
   for (const ch of cand) {
     const counts = lines.map((l) => (l.match(new RegExp(ch, "g")) || []).length);
     const avg = counts.reduce((a, b) => a + b, 0) / (counts.length || 1);
-    const variance = counts.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / (counts.length || 1);
+    const variance =
+      counts.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / (counts.length || 1);
     const score = avg - Math.sqrt(variance);
-    if (score > bestScore) { bestScore = score; best = ch; }
+    if (score > bestScore) {
+      bestScore = score;
+      best = ch;
+    }
   }
   return best;
 }
 
+/* ----------------------------- Value helpers ----------------------------- */
 function asEmail(s?: string) {
   const t = (s || "").trim().toLowerCase();
   return t && /\S+@\S+\.\S+/.test(t) ? t : undefined;
@@ -82,56 +101,59 @@ function combineName(name?: string, first?: string, last?: string) {
   return full || undefined;
 }
 
+/* --------------------------- Tag upsert + linking ------------------------- */
 async function upsertTagsAndLink(ownerId: string, leadId: string, names: string[]) {
   if (!names?.length) return;
   for (const raw of names) {
-    const name = raw.trim();
-    if (!name) continue;
+    const nm = raw.trim();
+    if (!nm) continue;
+
     const tag = await prisma.tag.upsert({
-      where: { ownerId_name: { ownerId, name } },
-      create: { ownerId, name },
+      where: { ownerId_name: { ownerId, name: nm } }, // @@unique([ownerId, name])
+      create: { ownerId, name: nm },
       update: {},
       select: { id: true },
     });
+
     await prisma.leadTag.upsert({
-      where: { leadId_tagId: { leadId, tagId: tag.id } },
+      where: { leadId_tagId: { leadId, tagId: tag.id } }, // @@id([leadId, tagId])
       create: { leadId, tagId: tag.id },
       update: {},
     });
   }
 }
 
-// ---------------- Main: /api/uploads/import ----------------
+/* --------------------------------- Route --------------------------------- */
 router.post("/import", upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ ok: false, error: "file required" });
 
+  // In your app, use auth middleware (req.user.id). Fallback keeps dev easy.
   const ownerId = (req as any)?.user?.id || "system";
 
-  // parse UI-provided mapping/options
-  let clientMapping: any = {};
-  let clientOptions: any = {};
-  try {
-    if (req.body?.mapping) clientMapping = JSON.parse(String(req.body.mapping));
-    if (req.body?.options) clientOptions = JSON.parse(String(req.body.options));
-  } catch {}
-
-  const ignoreDuplicates = !!clientOptions?.ignoreDuplicates;
-  const workflowId: string | undefined = clientOptions?.workflowId || undefined;
-  const globalTags: string[] = Array.isArray(clientOptions?.tags) ? clientOptions.tags : [];
-
-  // create upload row (PROCESSING)
+  // Create Upload history row
   const uploadRow = await prisma.upload.create({
     data: {
       ownerId,
       fileName: req.file.originalname || "upload.csv",
       byteSize: req.file.size,
       status: "PROCESSING",
-      // store chosen workflow + raw options on the upload for transparency
-      reportUrl: JSON.stringify({ workflowId, options: clientOptions }),
     },
   });
 
-  // parse CSV text
+  // Parse optional mapping/options (sent by wizard)
+  let clientMapping: any = {};
+  let clientOptions: any = {};
+  try {
+    if (req.body?.mapping) clientMapping = JSON.parse(String(req.body.mapping));
+    if (req.body?.options) clientOptions = JSON.parse(String(req.body.options));
+  } catch {
+    // ignore
+  }
+  const ignoreDuplicates = !!clientOptions?.ignoreDuplicates;
+  const requestTags: string[] = Array.isArray(clientOptions?.tags) ? clientOptions.tags : [];
+  const chosenWorkflowId: string | undefined = clientOptions?.workflowId || undefined;
+
+  // Parse CSV
   const text = req.file.buffer.toString("utf8");
   const delimiter = guessDelimiter(text);
 
@@ -159,56 +181,92 @@ router.post("/import", upload.single("file"), async (req, res) => {
     return res.status(400).json({ ok: false, error: "Invalid CSV/headers", details: e?.message });
   }
 
-  // quick lookup helpers
-  const firstIdx = normalizedHeaders.indexOf("first");
-  const lastIdx  = normalizedHeaders.indexOf("last");
-  const nameIdx  = normalizedHeaders.indexOf("name");
-  const emailIdx = normalizedHeaders.indexOf("email");
-  const phoneIdx = normalizedHeaders.indexOf("phone");
-  const tagsIdx  = normalizedHeaders.indexOf("tags");
-  const noteIdx  = normalizedHeaders.indexOf("note");
+  // Quick index lookups for default mapping
+  const idx = (name: string) => normalizedHeaders.indexOf(name);
+  const firstIdx = idx("first");
+  const lastIdx = idx("last");
+  const nameIdx = idx("name");
+  const emailIdx = idx("email");
+  const phoneIdx = idx("phone");
+  const tagsIdx = idx("tags");
+  const noteIdx = idx("note");
+  // extra parsed (not stored yet)
+  const dobIdx = idx("dob");
+  const cityIdx = idx("city");
+  const stateIdx = idx("state");
+  const zipIdx = idx("zip");
+  const addressIdx = idx("address");
 
-  function getVal(row: any, canonical: "name" | "first" | "last" | "email" | "phone" | "tags" | "note") {
-    const chosen = (clientMapping?.[canonical] || "").toString().trim();
-    if (chosen) return row[normalizeHeader(chosen)] ?? row[chosen];
+  // Helper to pull from client mapping OR from normalized header
+  function getVal(row: any, canonical: string) {
+    const col = (clientMapping?.[canonical] || "").toString().trim();
+    if (col) return row[col];
     switch (canonical) {
       case "first": return firstIdx >= 0 ? row["first"] : undefined;
-      case "last":  return lastIdx  >= 0 ? row["last"]  : undefined;
-      case "name":  return nameIdx  >= 0 ? row["name"]  : undefined;
+      case "last": return lastIdx >= 0 ? row["last"] : undefined;
+      case "name": return nameIdx >= 0 ? row["name"] : undefined;
       case "email": return emailIdx >= 0 ? row["email"] : undefined;
       case "phone": return phoneIdx >= 0 ? row["phone"] : undefined;
-      case "tags":  return tagsIdx  >= 0 ? row["tags"]  : undefined;
-      case "note":  return noteIdx  >= 0 ? row["note"]  : undefined;
+      case "tags": return tagsIdx >= 0 ? row["tags"] : undefined;
+      case "note": return noteIdx >= 0 ? row["note"] : undefined;
+      case "dob": return dobIdx >= 0 ? row["dob"] : undefined;
+      case "city": return cityIdx >= 0 ? row["city"] : undefined;
+      case "state": return stateIdx >= 0 ? row["state"] : undefined;
+      case "zip": return zipIdx >= 0 ? row["zip"] : undefined;
+      case "address": return addressIdx >= 0 ? row["address"] : undefined;
+      default: return undefined;
     }
   }
 
-  // stats
+  // Stats
+  const seenInFile = new Set<string>();
   let inserted = 0;
   let invalids = 0;
-  let fileDuplicates = 0;
   let dbDuplicates = 0;
+  let fileDuplicates = 0;
   let skipped = 0;
 
-  const seenInFile = new Set<string>();
-  const sampleMapped: Array<{ name?: string; email?: string; phone?: string; tags?: string[]; note?: string }> = [];
+  const mappedSamples: Array<{
+    name?: string; email?: string; phone?: string; tags?: string[]; note?: string;
+    dob?: string; city?: string; state?: string; zip?: string; address?: string;
+  }> = [];
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i] || {};
+
     const first = getVal(r, "first");
-    const last  = getVal(r, "last");
-    const nm    = getVal(r, "name");
+    const last = getVal(r, "last");
+    const nm = getVal(r, "name");
     const email = asEmail(getVal(r, "email"));
     const phone = asPhone(getVal(r, "phone"), "US");
-    const tagsFromRow = (getVal(r, "tags") || "")
-      .toString().split(",").map((t: string) => t.trim()).filter(Boolean);
-    const note  = (getVal(r, "note") || "").toString().trim() || undefined;
-    const name  = combineName(nm, first, last);
+    const name = combineName(nm, first, last);
 
-    if (sampleMapped.length < 10) {
-      sampleMapped.push({ name, email, phone, tags: tagsFromRow.length ? tagsFromRow : undefined, note });
+    const rowTags = (getVal(r, "tags") || "")
+      .toString()
+      .split(",")
+      .map((t: string) => t.trim())
+      .filter(Boolean);
+
+    const note = (getVal(r, "note") || "").toString().trim() || undefined;
+
+    // parsed only for preview/future
+    const dob = (getVal(r, "dob") || "").toString().trim() || undefined;
+    const city = (getVal(r, "city") || "").toString().trim() || undefined;
+    const state = (getVal(r, "state") || "").toString().trim() || undefined;
+    const zip = (getVal(r, "zip") || "").toString().trim() || undefined;
+    const address = (getVal(r, "address") || "").toString().trim() || undefined;
+
+    if (mappedSamples.length < 10) {
+      mappedSamples.push({
+        name, email, phone, tags: rowTags.length ? rowTags : undefined, note,
+        dob, city, state, zip, address,
+      });
     }
 
-    if (!name || (!email && !phone)) { invalids++; continue; }
+    if (!name || (!email && !phone)) {
+      invalids++;
+      continue;
+    }
 
     const key = email || phone!;
     if (seenInFile.has(key)) {
@@ -219,7 +277,7 @@ router.post("/import", upload.single("file"), async (req, res) => {
     }
 
     try {
-      // real duplicate check
+      // check DB dupes (per owner)
       const exists = await prisma.lead.findFirst({
         where: {
           ownerId,
@@ -230,20 +288,29 @@ router.post("/import", upload.single("file"), async (req, res) => {
         },
         select: { id: true },
       });
-      if (exists) { dbDuplicates++; continue; }
+
+      if (exists) {
+        dbDuplicates++;
+        continue;
+      }
 
       const lead = await prisma.lead.create({
         data: { name, email, phone, ownerId },
         select: { id: true },
       });
 
-      // link tags (global + row)
-      const merged = Array.from(new Set([...(globalTags || []), ...tagsFromRow]));
-      if (merged.length) await upsertTagsAndLink(ownerId, lead.id, merged);
+      // merge UI tags + row tags
+      const mergedTags = Array.from(new Set([...(requestTags || []), ...rowTags]));
+      if (mergedTags.length) {
+        await upsertTagsAndLink(ownerId, lead.id, mergedTags);
+      }
+
+      // future: attach to workflow chosenWorkflowId (no join table in schema yet)
+      // you can enqueue a send-text job here later.
 
       inserted++;
     } catch (e: any) {
-      console.error(`Insert failed row ${i + 2}:`, e?.message || e);
+      console.error(`Insert failed at row ${i + 2}:`, e?.message || e);
       skipped++;
     }
   }
@@ -257,29 +324,20 @@ router.post("/import", upload.single("file"), async (req, res) => {
   await prisma.upload.update({
     where: { id: uploadRow.id },
     data: {
-      leads: inserted,            // number actually inserted
-      duplicates: dbDuplicates,   // already in DB
+      leads: inserted,            // what actually landed in DB
+      duplicates: dbDuplicates,   // already present in DB
       invalids,
       status,
-      // keep a small JSON summary in reportUrl for download later if you want
-      reportUrl: JSON.stringify({
-        delimiter, totalRows, validRows, fileDuplicates,
-        mappingUsed: {
-          name:  clientMapping?.name  || (nameIdx  >= 0 ? originalHeaders[nameIdx]  : undefined),
-          first: clientMapping?.first || (firstIdx >= 0 ? originalHeaders[firstIdx] : undefined),
-          last:  clientMapping?.last  || (lastIdx  >= 0 ? originalHeaders[lastIdx]  : undefined),
-          email: clientMapping?.email || (emailIdx >= 0 ? originalHeaders[emailIdx] : undefined),
-          phone: clientMapping?.phone || (phoneIdx >= 0 ? originalHeaders[phoneIdx] : undefined),
-          tags:  clientMapping?.tags  || (tagsIdx  >= 0 ? originalHeaders[tagsIdx]  : undefined),
-          note:  clientMapping?.note  || (noteIdx  >= 0 ? originalHeaders[noteIdx]  : undefined),
-        },
-        globalTags, workflowId,
-      }),
     },
   });
 
-  const emailHits = sampleMapped.filter(s => s.email).length;
-  const phoneHits = sampleMapped.filter(s => s.phone).length;
+  const emailHits = mappedSamples.filter(s => s.email).length;
+  const phoneHits = mappedSamples.filter(s => s.phone).length;
+  const confidence = {
+    emailDetected: emailHits >= 3,
+    phoneDetected: phoneHits >= 3,
+    note: `sample emails=${emailHits}, phones=${phoneHits}`,
+  };
 
   return res.json({
     ok: true,
@@ -288,27 +346,30 @@ router.post("/import", upload.single("file"), async (req, res) => {
     invalids,
     skipped,
     stats: { totalRows, validRows, fileDuplicates },
-    confidence: {
-      emailDetected: emailHits >= 3,
-      phoneDetected: phoneHits >= 3,
-      note: `sample emails=${emailHits}, phones=${phoneHits}`,
-    },
     meta: {
       delimiter,
+      originalHeaders,
+      normalizedHeaders,
       mappingUsed: {
         name:  clientMapping?.name  || (nameIdx  >= 0 ? originalHeaders[nameIdx]  : undefined),
         first: clientMapping?.first || (firstIdx >= 0 ? originalHeaders[firstIdx] : undefined),
         last:  clientMapping?.last  || (lastIdx  >= 0 ? originalHeaders[lastIdx]  : undefined),
         email: clientMapping?.email || (emailIdx >= 0 ? originalHeaders[emailIdx] : undefined),
-        phone: clientMapping?.phone || (phoneIdx  >= 0 ? originalHeaders[phoneIdx]  : undefined),
+        phone: clientMapping?.phone || (phoneIdx >= 0 ? originalHeaders[phoneIdx] : undefined),
         tags:  clientMapping?.tags  || (tagsIdx  >= 0 ? originalHeaders[tagsIdx]  : undefined),
         note:  clientMapping?.note  || (noteIdx  >= 0 ? originalHeaders[noteIdx]  : undefined),
+        dob:   clientMapping?.dob   || (dobIdx   >= 0 ? originalHeaders[dobIdx]   : undefined),
+        city:  clientMapping?.city  || (cityIdx  >= 0 ? originalHeaders[cityIdx]  : undefined),
+        state: clientMapping?.state || (stateIdx >= 0 ? originalHeaders[stateIdx] : undefined),
+        zip:   clientMapping?.zip   || (zipIdx   >= 0 ? originalHeaders[zipIdx]   : undefined),
+        address: clientMapping?.address || (addressIdx >= 0 ? originalHeaders[addressIdx] : undefined),
       },
-      sampleMapped,
-      requestTags: globalTags,
-      workflowId,
+      sampleMapped: mappedSamples,
+      requestTags,
       ignoreDuplicates,
+      chosenWorkflowId,
     },
+    confidence,
   });
 });
 
