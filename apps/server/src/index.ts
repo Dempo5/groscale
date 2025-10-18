@@ -1,8 +1,8 @@
 // apps/server/src/index.ts
 import express, { Request, Response, NextFunction } from "express";
-import cors, { CorsOptions } from "cors";
+import cors from "cors";
 
-// ESM imports must include .js
+// Routes
 import authRoute from "./routes/auth.js";
 import uploadsRouter from "./routes/uploads.js";
 import numbersRouter from "./routes/numbers.js";
@@ -11,33 +11,30 @@ import copilotRouter from "./routes/copilot.js";
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
 
-/* ---------------- utils ---------------- */
-const norm = (u?: string | null) => {
+/* ---------- Normalize + Allowed Origins ---------- */
+function norm(u?: string | null) {
   if (!u) return "";
   try { return new URL(u).origin; } catch { return String(u).replace(/\/+$/, ""); }
-};
+}
 
-// explicit allow-list from env
 const allowedFromEnv = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
   .map(s => norm(s.trim()))
   .filter(Boolean);
 
-// allow any vercel/onrender preview + localhost
 const allowRegex = /(localhost(:\d+)?|\.vercel\.app|\.onrender\.com)$/;
 
-/* ---------------- app ---------------- */
+/* ---------- Express App ---------- */
 const app = express();
 
-/** CORS config */
-const corsOptions: CorsOptions = {
-  origin(origin, cb) {
-    // same-origin / server-to-server
+// ✅ CORS FIRST (before JSON, before routes)
+const corsOptions = {
+  origin(origin: any, cb: any) {
     if (!origin) return cb(null, true);
     const o = norm(origin);
     const ok = allowedFromEnv.includes(o) || allowRegex.test(o);
     if (ok) return cb(null, true);
-    console.warn("[CORS] Blocked origin:", origin, "allowed:", allowedFromEnv);
+    console.warn("[CORS] Blocked origin:", origin);
     cb(new Error("Not allowed by CORS"));
   },
   credentials: true,
@@ -45,30 +42,22 @@ const corsOptions: CorsOptions = {
   allowedHeaders: ["Content-Type", "Authorization"],
 };
 
-// Attach CORS BEFORE any routes/body-parsers
-app.use(cors(corsOptions));
-
-/**
- * Strong preflight handler — guarantees OPTIONS never 404s.
- * Responds 204 quickly and sets the same headers CORS would set.
- */
+// 🚀 Handle preflights globally *before anything else*
 app.options("*", cors(corsOptions), (_req, res) => res.sendStatus(204));
-
+app.use(cors(corsOptions));
 app.use(express.json());
 
-/* ---------------- health ---------------- */
-app.get("/health", (_req: Request, res: Response) => {
-  res.status(200).json({ ok: true, ts: Date.now() });
-});
+/* ---------- Health ---------- */
+app.get("/health", (_req, res) => res.status(200).json({ ok: true, ts: Date.now() }));
 
-/* ---------------- routes ---------------- */
+/* ---------- Routes ---------- */
 app.use("/api/auth", authRoute);
 app.use("/api/uploads", uploadsRouter);
 app.use("/api/numbers", numbersRouter);
 app.use("/api/workflows", workflowsRouter);
 app.use("/api/copilot", copilotRouter);
 
-/* ---------------- demo ---------------- */
+/* ---------- Demo ---------- */
 app.get("/api/leads", (_req, res) => {
   res.json([
     { id: 1, name: "Test Lead", email: "lead@example.com" },
@@ -76,23 +65,20 @@ app.get("/api/leads", (_req, res) => {
   ]);
 });
 
-/* ---------------- root ---------------- */
+/* ---------- Root ---------- */
 app.get("/", (_req, res) => {
   res
     .type("text")
-    .send(`GroScale API is running ✅
+    .send(`GroScales API running ✅
 
 Try:
 /health
 POST /api/auth/register
 POST /api/auth/login
-POST /api/uploads
-GET  /api/leads
-GET  /api/workflows
-POST /api/copilot/draft`);
+`);
 });
 
-/* ---------------- 404 & errors ---------------- */
+/* ---------- 404 + Error Handling ---------- */
 app.use((_req, res) => res.status(404).json({ error: "Not found" }));
 
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -100,7 +86,7 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   res.status(code).json({ error: err?.message || "Server error" });
 });
 
-/* ---------------- start ---------------- */
+/* ---------- Start ---------- */
 app.listen(PORT, () => {
   console.log(`🚀 GroScales API running on port ${PORT}`);
 });
