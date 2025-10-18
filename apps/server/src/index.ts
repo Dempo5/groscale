@@ -21,23 +21,40 @@ const envAllowed = (process.env.ALLOWED_ORIGINS || "")
 const app = express();
 app.use(express.json());
 
-// ----- CORS -----
+// ----- env -----
+const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
+
+// Normalize origins to consistent "scheme://host[:port]"
 function norm(u?: string | null) {
   if (!u) return "";
-  try { return new URL(u).origin; } catch { return (u || "").replace(/\/+$/,""); }
+  try { return new URL(u).origin; } catch { return (u || "").replace(/\/+$/, ""); }
 }
 
+// Parse env and pre-normalize all allowed origins once
+const ALLOWED_ORIGINS_ENV = process.env.ALLOWED_ORIGINS || "";
+const allowedOrigins: string[] = ALLOWED_ORIGINS_ENV
+  .split(",")
+  .map((s) => norm(s.trim()))
+  .filter(Boolean);
+
+// Accept any vercel/onrender previews + localhost by regex
 const allowRegex = /(\.vercel\.app|\.onrender\.com|localhost)(:\d+)?$/;
 
+// ----- app -----
+const app = express();
+app.use(express.json());
+
+// ----- CORS -----
 app.use(
   cors({
     origin(origin, cb) {
-      if (!origin) return cb(null, true); // same-origin/server-to-server
-      const o = norm(origin);
+      // allow same-origin / server-to-server
+      if (!origin) return cb(null, true);
 
+      const o = norm(origin);
       const ok =
-        allowedOrigins.includes(o) ||
-        allowRegex.test(o);
+        allowedOrigins.includes(o) || // explicit allowlist from env
+        allowRegex.test(o);           // previews + localhost
 
       if (ok) return cb(null, true);
 
@@ -49,7 +66,10 @@ app.use(
     credentials: true,
   })
 );
+
+// Make sure OPTIONS preflights succeed everywhere
 app.options("*", cors());
+
 
 
 // ensure preflight always ok
