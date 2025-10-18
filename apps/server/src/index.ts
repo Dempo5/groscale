@@ -1,110 +1,76 @@
 // apps/server/src/index.ts
-import express, { Request, Response, NextFunction } from "express";
+import express from "express";
 import cors from "cors";
 
-// ESM imports must include .js (your tsconfig uses NodeNext)
 import authRoute from "./routes/auth.js";
 import uploadsRouter from "./routes/uploads.js";
 import numbersRouter from "./routes/numbers.js";
 import workflowsRouter from "./routes/workflows.js";
 import copilotRouter from "./routes/copilot.js";
 
-// ----- env -----
-const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
+const PORT = process.env.PORT || 10000;
 
-/** Normalize to "scheme://host[:port]" (or trimmed string if URL ctor fails). */
+// Normalize a URL to its origin
 function norm(u?: string | null): string {
   if (!u) return "";
-  try {
-    return new URL(u).origin;
-  } catch {
-    return String(u).trim().replace(/\/+$/, "");
-  }
+  try { return new URL(u).origin; } catch { return u.replace(/\/+$/, ""); }
 }
 
-/** Explicit allow-list from env: ALLOWED_ORIGINS="https://siteA,https://siteB" */
-const allowedFromEnv: string[] = (process.env.ALLOWED_ORIGINS || "")
+// Allowlist
+const allowedFromEnv = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
-  .map((s) => norm(s))
+  .map(s => norm(s.trim()))
   .filter(Boolean);
 
-/** Also allow any Vercel/Onrender preview + localhost during development */
 const allowRegex = /(localhost(:\d+)?|\.vercel\.app|\.onrender\.com)$/i;
 
-// ----- app -----
+// Express
 const app = express();
 app.use(express.json());
 
-// ----- CORS -----
+// 🔥 CORS configured BEFORE routes
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type,Authorization");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
+
 app.use(
   cors({
     origin(origin, cb) {
-      // Same-origin / server-to-server (no Origin header) → allow
       if (!origin) return cb(null, true);
-
       const o = norm(origin);
       const ok = allowedFromEnv.includes(o) || allowRegex.test(o);
       if (ok) return cb(null, true);
-
-      console.warn("[CORS] Blocked origin:", origin, "allowed:", allowedFromEnv);
-      return cb(new Error("Not allowed by CORS"));
+      console.warn("[CORS] blocked:", origin);
+      cb(new Error("Not allowed by CORS"));
     },
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
   })
 );
 
-// Make sure OPTIONS preflights always succeed
-app.options("*", cors());
+// Health
+app.get("/health", (_req, res) => res.json({ ok: true, ts: Date.now() }));
 
-// ---------- Health ----------
-app.get("/health", (_req: Request, res: Response) => {
-  res.status(200).json({ ok: true, ts: Date.now() });
-});
-
-// ---------- API routes ----------
+// Routes
 app.use("/api/auth", authRoute);
 app.use("/api/uploads", uploadsRouter);
 app.use("/api/numbers", numbersRouter);
 app.use("/api/workflows", workflowsRouter);
 app.use("/api/copilot", copilotRouter);
 
-// ---------- Demo leads (placeholder) ----------
-app.get("/api/leads", (_req: Request, res: Response) => {
-  res.json([
-    { id: 1, name: "Test Lead", email: "lead@example.com" },
-    { id: 2, name: "Demo Lead", email: "demo@example.com" },
-  ]);
-});
-
-// ---------- Root ----------
-app.get("/", (_req: Request, res: Response) => {
-  res
-    .type("text")
-    .send(`GroScale API is running ✅
-
-Try:
-/health
-POST /api/auth/register
-POST /api/auth/login
-POST /api/uploads
-GET  /api/leads
-GET  /api/workflows
-POST /api/copilot/draft`);
-});
-
-// ---------- 404 ----------
+// 404
 app.use((_req, res) => res.status(404).json({ error: "Not found" }));
 
-// ---------- Error handler ----------
-app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-  const code = typeof err?.status === "number" ? err.status : 500;
-  res.status(code).json({ error: err?.message || "Server error" });
+// Error handler
+app.use((err, _req, res, _next) => {
+  console.error("Error:", err.message);
+  res.status(500).json({ error: err.message || "Server error" });
 });
 
-// ---------- Start ----------
 app.listen(PORT, () => {
-  console.log("🚀 GroScales API running on port", PORT);
-  console.log("[CORS allowlist]", allowedFromEnv.join(", ") || "(none from env)");
+  console.log(`✅ GroScales API running on port ${PORT}`);
 });
