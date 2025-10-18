@@ -199,13 +199,21 @@ export type CopilotDraftRequest = {
   tone?: "friendly" | "neutral" | "formal" | "casual";
   goal?: string;
 };
-export type CopilotDraftResponse = { ok: boolean; draft: string; meta?: Record<string, any> };
+
+export type CopilotDraftResponse = {
+  ok: boolean;
+  draft?: string;          // <-- optional when ok === false
+  error?: string;          // <-- add error so TS stops complaining
+  meta?: Record<string, any>;
+};
 
 export async function copilotDraft(
-  input: CopilotDraftRequest
+  input: CopilotDraftRequest,
+  opts?: { signal?: AbortSignal }   // <-- optional; does not break existing callers
 ): Promise<CopilotDraftResponse> {
   return http<CopilotDraftResponse>("/api/copilot/draft", {
     method: "POST",
     body: JSON.stringify(input),
+    signal: opts?.signal,          // pass through if provided
   });
 }
