@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { copilotDraft } from "../lib/api";
 
 /**
  * Props:
@@ -47,6 +48,7 @@ export default function CopilotModal({ open, onClose }: Props) {
     if (e.target === dlgRef.current) onClose();
   };
 
+  // 🚀 Use backend helper (no more 405)
   const ask = async () => {
     const q = prompt.trim();
     if (!q) return;
@@ -56,32 +58,12 @@ export default function CopilotModal({ open, onClose }: Props) {
     setAnswer("");
 
     try {
-      // ✅ match server route + payload
-      const res = await fetch("/api/copilot/draft", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          lastMessage: q,
-          tone: "friendly",
-        }),
+      const data = await copilotDraft({
+        lastMessage: q,
+        tone: "friendly",
       });
-
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(text || `${res.status} ${res.statusText}`);
-      }
-
-      // server returns { ok: true, draft: string }
-      const data = (await res.json()) as {
-        ok: boolean;
-        draft?: string;
-        answer?: string;
-        error?: string;
-      };
-
-      if (!data.ok) throw new Error(data.error || "Copilot failed");
-      setAnswer((data.draft || data.answer || "").trim());
+      if (!data.ok) throw new Error("Copilot failed");
+      setAnswer((data.draft || "").trim());
     } catch (err: any) {
       setError(err?.message || "Request failed");
     } finally {
