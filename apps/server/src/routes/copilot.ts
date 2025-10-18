@@ -1,13 +1,17 @@
 // apps/server/src/routes/copilot.ts
 import { Router } from "express";
-
-// If you're using OpenAI:
-//   pnpm add openai
-//   add OPENAI_API_KEY=sk-... to your server .env
 import OpenAI from "openai";
 
 const router = Router();
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+function getClient() {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) {
+    // Do NOT throw at module load. Throw when the route is hit.
+    throw new Error("OPENAI_API_KEY is not set on the server");
+  }
+  return new OpenAI({ apiKey: key });
+}
 
 // Minimal content policy — short, clear, professional, safe
 const SYSTEM = `
@@ -22,11 +26,14 @@ Rules:
 `;
 
 type CopilotBody = {
-  lastMessage?: string;          // the latest incoming message from the lead
-  threadPreview?: string[];      // optional: last few messages in order
-  lead?: { name?: string; email?: string; phone?: string }; // optional context
+  lastMessage?: string;
+  threadPreview?: string[];
+  lead?: { name?: string; email?: string; phone?: string };
   tone?: "friendly" | "direct" | "formal";
 };
+
+// Optional: quick ping to verify this router is mounted without hitting OpenAI
+router.get("/ping", (_req, res) => res.json({ ok: true }));
 
 router.post("/draft", async (req, res) => {
   const body = (req.body || {}) as CopilotBody;
@@ -35,7 +42,9 @@ router.post("/draft", async (req, res) => {
 
   const parts: string[] = [];
   if (body.threadPreview?.length) {
-    parts.push(`Thread preview:\n${body.threadPreview.map((m, i) => `${i+1}. ${m}`).join("\n")}`);
+    parts.push(
+      `Thread preview:\n${body.threadPreview.map((m, i) => `${i + 1}. ${m}`).join("\n")}`
+    );
   }
   if (body.lastMessage) {
     parts.push(`Latest lead message: "${body.lastMessage}"`);
@@ -53,16 +62,25 @@ Return ONLY the message text, no prefixes.
   `.trim();
 
   try {
-    // OpenAI (fast + good): gpt-4o-mini is a solid, cost-effective default
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: SYSTEM },
-        { role: "user", content: userPrompt },
-      ],
-      temperature: 0.7,
-      max_tokens: 220,
-    });
+    const openai = getClient();
+
+    // Short timeout so a slow OpenAI call doesn't hang your request
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 15000);
+
+    const completion = await openai.chat.completions.create(
+      {
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: SYSTEM },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.7,
+        max_tokens: 220,
+      },
+      { signal: controller.signal }
+    );
+    clearTimeout(t);
 
     const draft =
       completion.choices?.[0]?.message?.content?.trim() ||
@@ -70,10 +88,14 @@ Return ONLY the message text, no prefixes.
 
     res.json({ ok: true, draft });
   } catch (e: any) {
-    console.error("[Copilot] draft error:", e?.message || e);
+    console.error("[Copilot] draft error:", e?.stack || e);
+    const msg =
+      e?.message?.includes("OPENAI_API_KEY")
+        ? "Server is missing OpenAI credentials"
+        : "Copilot failed to draft. Try again.";
     res.status(500).json({
       ok: false,
-      error: "Copilot failed to draft. Try again.",
+      error: msg,
       draft:
         "Hey — happy to help! Could you share your preferred budget and current carrier? I’ll outline a couple options right away.",
     });
