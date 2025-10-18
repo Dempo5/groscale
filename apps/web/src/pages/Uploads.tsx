@@ -1,134 +1,121 @@
 // apps/web/src/pages/Uploads.tsx
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useRef, useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
-/* ------------------------------ Types ------------------------------ */
+/* ----------------------------- local types ----------------------------- */
 type Status = "success" | "partial" | "failed";
 type Row = {
   id: string;
   name: string;
   size: number;
-  at: string;           // ISO string
+  at: string;
   leads: number;
   duplicates: number;
   invalids: number;
   status: Status;
   note?: string;
 };
-
-type Mapping = Partial<Record<
-  | "name" | "first" | "last" | "email" | "phone"
-  | "tags" | "note" | "dob" | "city" | "state" | "zip" | "address",
-  string
->>;
-
+type Mapping = {
+  name?: string;
+  first?: string;
+  last?: string;
+  email?: string;
+  phone?: string;
+  tags?: string;
+  note?: string;
+};
 type ImportOptions = {
   ignoreDuplicates?: boolean;
   tags?: string[];
   workflowId?: string;
 };
 
-type Workflow = {
-  id: string;
-  name: string;
-  status: "draft" | "active" | "paused";
-  createdAt: string;
-  updatedAt: string;
-};
-
-/* --------------- Header canon + client-side synonyms --------------- */
+/* ----------------------- header normalization (client) ----------------------- */
 const HMAP: Record<string, string> = {
-  firstname: "first",
-  "first name": "first",
-  first: "first",
-  lastname: "last",
-  "last name": "last",
-  last: "last",
-  name: "name",
-  "full name": "name",
-  fullname: "name",
-  "contact name": "name",
-  email: "email",
-  "e-mail": "email",
-  "email address": "email",
-  phone: "phone",
-  "phone number": "phone",
-  mobile: "phone",
-  cell: "phone",
-  "cell phone": "phone",
-  telephone: "phone",
-  primaryphc: "phone",
-  phone2: "phone",
-  "primary phone": "phone",
-  // extras
-  dob: "dob",
-  "date of birth": "dob",
-  city: "city",
-  state: "state",
-  zipcode: "zip",
-  "postal code": "zip",
-  zip: "zip",
-  address: "address",
-  // meta
-  tags: "tags",
-  label: "tags",
-  labels: "tags",
-  segments: "tags",
-  note: "note",
-  notes: "note",
+  firstname: "first", "first name": "first", first: "first",
+  lastname: "last", "last name": "last", last: "last",
+  name: "name", "full name": "name", fullname: "name", "contact name": "name",
+  email: "email", "e-mail": "email", "email address": "email",
+  phone: "phone", "phone number": "phone", mobile: "phone", cell: "phone", "cell phone": "phone", telephone: "phone", primaryphc: "phone", phone2: "phone", "primary phone": "phone",
+  tags: "tags", label: "tags", labels: "tags", segments: "tags",
+  note: "note", notes: "note",
+  dob: "dob", "date of birth": "dob", birthday: "dob",
+  city: "city", state: "state", zip: "zip", zipcode: "zip", "postal code": "zip",
+  address: "address", "address 1": "address", street: "address",
 };
-const CANONICAL_ORDER: Array<keyof Mapping> = [
-  "name", "first", "last", "email", "phone",
-  "tags", "note", "dob", "city", "state", "zip", "address",
-];
-
 function normalizeHeader(h: string): string {
   const k = (h || "").replace(/\uFEFF/g, "").trim().toLowerCase().replace(/\s+/g, " ");
   return HMAP[k] || k;
 }
+
+/* ----------------------- tiny CSV ‘light’ header parser ---------------------- */
+/** robust-ish delimiter guesser (same spirit as server) */
 function guessDelimiter(sample: string): string {
-  const cand = [",", ";", "\t", "|"] as const;
-  const lines = sample.split(/\r?\n/).slice(0, 8);
-  let best: string = cand[0];
-  let bestScore = -1;
-  for (const ch of cand) {
-    const counts = lines.map((l) => (l.match(new RegExp(ch, "g")) || []).length);
+  const cands: string[] = [",", ";", "\t", "|"];
+  const lines = sample.split(/\r?\n/).slice(0, 12);
+  let best = cands[0], bestScore = -1;
+  for (const ch of cands) {
+    const counts = lines.map(l => (l.match(new RegExp(`${ch}(?=(?:[^"]*"[^"]*")*[^"]*$)`, "g")) || []).length);
     const avg = counts.reduce((a, b) => a + b, 0) / (counts.length || 1);
-    const variance =
-      counts.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / (counts.length || 1);
+    const variance = counts.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / (counts.length || 1);
     const score = avg - Math.sqrt(variance);
     if (score > bestScore) { bestScore = score; best = ch; }
   }
   return best;
 }
 
-/* -------------------------------- Page -------------------------------- */
+/** split a single CSV line respecting quotes */
+function splitCSVLine(line: string, delim: string) {
+  const out: string[] = [];
+  let cur = "";
+  let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQ && line[i + 1] === '"') { cur += '"'; i++; }
+      else { inQ = !inQ; }
+    } else if (ch === delim && !inQ) {
+      out.push(cur); cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  out.push(cur);
+  return out.map(s => s.trim());
+}
+
+/* ------------------------------ page component ------------------------------ */
 export default function Uploads() {
   const nav = useNavigate();
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const [dragOver, setDragOver] = useState(false);
+
   const [rows, setRows] = useState<Row[]>([]);
+  const [dragOver, setDrag] = useState(false);
 
   // wizard state
   const [open, setOpen] = useState(false);
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const [stage, setStage] = useState<"idle" | "map" | "config" | "review" | "importing" | "done">("idle");
+
   const [file, setFile] = useState<File | null>(null);
-  const [rawHeaders, setRawHeaders] = useState<string[]>([]);
-  const [normalizedHeaders, setNormalizedHeaders] = useState<string[]>([]);
-  const [sampleLines, setSampleLines] = useState<string[]>([]);
+  const [fileHeaders, setFileHeaders] = useState<string[]>([]);
+  const [normalized, setNormalized] = useState<string[]>([]);
+  const [sampleRows, setSampleRows] = useState<string[][]>([]);
+  const [delimiter, setDelimiter] = useState<string>(",");
+  const [rawCount, setRawCount] = useState<number>(0);
+
   const [mapping, setMapping] = useState<Mapping>({});
   const [opts, setOpts] = useState<ImportOptions>({ ignoreDuplicates: false, tags: [] });
-  const [workflows, setWorkflows] = useState<Workflow[]>([]);
+
   const [err, setErr] = useState<string | null>(null);
-  const [wip, setWip] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<number>(0);
+  const [summary, setSummary] = useState<any>(null);
 
-  // helpers
-  const fmtBytes = (n: number) => {
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} KB`;
-    return `${(n / 1024 ** 2).toFixed(1)} MB`;
-  };
+  // UI helpers
+  const fmtBytes = (n: number) => n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n/1024).toFixed(1)} KB` : `${(n/1024**2).toFixed(1)} MB`;
 
+  /* ------------------------------ read & preview ----------------------------- */
   const readText = (f: File) =>
     new Promise<string>((resolve, reject) => {
       const fr = new FileReader();
@@ -137,160 +124,162 @@ export default function Uploads() {
       fr.readAsText(f);
     });
 
-  // preview parsing
-  const parsePreview = async (f: File) => {
+  async function parsePreview(f: File) {
     const text = await readText(f);
     const delim = guessDelimiter(text);
-    const lines = text.split(/\r?\n/).filter((ln) => ln.length > 0);
-    if (!lines.length) throw new Error("Empty file");
+    setDelimiter(delim);
 
-    const headers = lines[0].split(delim).map((h) => String(h).replace(/\uFEFF/g, "").trim());
-    setRawHeaders(headers);
-    const normalized = headers.map(normalizeHeader);
-    setNormalizedHeaders(normalized);
+    const lines = text.split(/\r?\n/).filter(Boolean);
+    setRawCount(Math.max(0, lines.length - 1));
 
-    // show first ~10 body rows in a single textarea (fast, no heavy table libs)
-    const samples = lines.slice(1, 11);
-    setSampleLines(samples);
+    if (lines.length === 0) throw new Error("Empty file");
 
-    // auto-map: pick the original header text for any canonical we detect
-    const auto: Mapping = {};
-    for (const canon of CANONICAL_ORDER) {
-      const ix = normalized.indexOf(canon);
-      if (ix >= 0) auto[canon] = headers[ix];
-    }
-    setMapping((m) => ({ ...auto, ...m }));
-  };
+    const rawHdr = splitCSVLine(lines[0], delim);
+    setFileHeaders(rawHdr);
+    const norm = rawHdr.map(normalizeHeader);
+    setNormalized(norm);
 
-  // list of headers actually present in file
-  const presentHeaderOptions = useMemo(() => rawHeaders, [rawHeaders]);
+    const samples = lines.slice(1, 8).map(ln => splitCSVLine(ln, delim));
+    setSampleRows(samples);
 
-  // mapping validity: need Name or First+Last AND (Email or Phone)
-  const mappingValid = useMemo(() => {
-    const hasName = !!(mapping.name || (mapping.first && mapping.last));
-    const hasKey = !!(mapping.email || mapping.phone);
-    return hasName && hasKey;
-  }, [mapping]);
+    // auto-map: prefer (name) or (first+last), and at least one of email/phone
+    const pick = (canon: string) => {
+      const idx = norm.indexOf(canon);
+      return idx >= 0 ? rawHdr[idx] : "";
+    };
+    const auto: Mapping = {
+      name: pick("name"),
+      first: pick("first"),
+      last: pick("last"),
+      email: pick("email"),
+      phone: pick("phone"),
+      tags: pick("tags"),
+      note: pick("note"),
+    };
+    setMapping(auto);
+  }
 
-  // fetch workflows (for Configure step)
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch("/api/workflows", { credentials: "include" });
-        if (res.ok) {
-          const data = await res.json();
-          setWorkflows(Array.isArray(data) ? data : []);
-        }
-      } catch {
-        // ignore
-      }
-    })();
-  }, []);
-
-  // open wizard
-  const beginWizard = async (f: File) => {
-    setFile(f);
-    setErr(null);
-    setOpen(true);
-    setStep(1);
-    try {
-      await parsePreview(f);
-      setStep(2);
-    } catch (e: any) {
-      setErr(e?.message || "Failed to read file.");
-    }
-  };
-
-  // drop
-  const handleFiles = async (files: FileList | null) => {
-    if (!files || !files.length) return;
-    await beginWizard(files[0]);
-  };
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault(); e.stopPropagation(); setDragOver(false);
-    handleFiles(e.dataTransfer.files);
-  };
-
-  // server import
-  const importToServer = async () => {
+  /* ------------------------------- import call ------------------------------- */
+  async function importToServer() {
     if (!file) return;
-    setWip(true);
+    setBusy(true);
     setErr(null);
+    setProgress(0);
+    setNote(null);
 
     const form = new FormData();
     form.append("file", file);
     form.append("mapping", JSON.stringify(mapping));
     form.append("options", JSON.stringify(opts));
 
-    const jwt = (() => {
-      try { return localStorage.getItem("jwt") || ""; } catch { return ""; }
-    })();
+    // simulate progress bar
+    const timer = setInterval(() => setProgress(p => Math.min(92, p + 3)), 120);
 
-    const res = await fetch("/api/uploads/import", {
-      method: "POST",
-      body: form,
-      headers: jwt ? { Authorization: `Bearer ${jwt}` } : undefined,
-      credentials: "include",
-    });
+    try {
+      const jwt = (() => { try { return localStorage.getItem("jwt") || ""; } catch { return ""; } })();
+      const res = await fetch("/api/uploads/import", {
+        method: "POST",
+        body: form,
+        headers: jwt ? { Authorization: `Bearer ${jwt}` } : undefined,
+        credentials: "include",
+      });
+      clearInterval(timer);
 
-    if (!res.ok) {
-      const msg = await res.text().catch(() => "");
-      throw new Error(msg || `${res.status} ${res.statusText}`);
+      if (!res.ok) {
+        const msg = await res.text().catch(() => "");
+        throw new Error(msg || `${res.status} ${res.statusText}`);
+      }
+
+      const data = await res.json();
+      setProgress(100);
+      setSummary(data);
+
+      const inserted = Number(data?.inserted || 0);
+      const invalids = Number(data?.invalids || 0);
+      const dups = Number(data?.duplicates || 0);
+      const status: Status =
+        inserted > 0 && (invalids > 0 || dups > 0) ? "partial" :
+        inserted > 0 ? "success" : "failed";
+
+      const row: Row = {
+        id: crypto.randomUUID(),
+        name: file.name,
+        size: file.size,
+        at: new Date().toISOString(),
+        leads: inserted,
+        duplicates: dups,
+        invalids,
+        status,
+        note:
+          status === "success"
+            ? `Imported ${inserted} leads.`
+            : status === "partial"
+              ? `Imported ${inserted}. Skipped ${dups} duplicates, ${invalids} invalid.`
+              : (data?.error || "Import failed."),
+      };
+      setRows(r => [row, ...r]);
+
+      setStage("done");
+    } catch (e: any) {
+      setErr(e?.message || "Import failed");
+      setStage("review");
+    } finally {
+      setBusy(false);
     }
+  }
 
-    const data = await res.json();
-
-    // Build UI row
-    const inserted = Number(data?.inserted || 0);
-    const invalids = Number(data?.invalids || 0);
-    const dups = Number(data?.duplicates || 0);
-    const status: Status =
-      inserted > 0 && (invalids > 0 || dups > 0)
-        ? "partial"
-        : inserted > 0
-        ? "success"
-        : "failed";
-
-    const note =
-      status === "success"
-        ? "Imported successfully."
-        : status === "partial"
-        ? "Some rows were invalid or duplicated."
-        : String(data?.error || "Failed to import.");
-
-    const newRow: Row = {
-      id: crypto.randomUUID(),
-      name: file.name,
-      size: file.size,
-      at: new Date().toISOString(),
-      leads: inserted,
-      duplicates: dups,
-      invalids,
-      status,
-      note,
-    };
-    setRows((r) => [newRow, ...r]);
+  /* ----------------------------- pipeline handlers --------------------------- */
+  const begin = async (f: File) => {
+    setFile(f);
+    setOpen(true);
+    setStage("map");
+    setErr(null);
+    setNote(null);
+    await parsePreview(f);
   };
 
-  /* -------------------------------- Render -------------------------------- */
+  const handleFiles = async (files: FileList | null) => {
+    if (!files || !files.length) return;
+    await begin(files[0]);
+  };
+
+  // DnD
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    setDrag(false);
+    handleFiles(e.dataTransfer.files);
+  };
+
+  // mapping validity gate
+  const mappingValid = useMemo(() => {
+    const hasName = !!(mapping.name || (mapping.first && mapping.last));
+    const hasKey = !!(mapping.email || mapping.phone);
+    return hasName && hasKey;
+  }, [mapping]);
+
+  /* ----------------------------------- UI ----------------------------------- */
   return (
     <div className="p-uploads">
+      {/* crumbs */}
       <div className="crumbs">
         <button className="crumb-back" onClick={() => nav("/dashboard")}>← Dashboard</button>
         <span className="crumb-sep">›</span>
         <span className="crumb-here">Uploads</span>
       </div>
 
-      <div className="uploads-head"><div className="title">Uploads</div></div>
+      {/* title */}
+      <div className="uploads-head">
+        <div className="title">Uploads</div>
+      </div>
 
+      {/* drop zone */}
       <label
         className={`dropcard ${dragOver ? "drag" : ""}`}
         onDrop={onDrop}
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-        onDragLeave={(e) => { e.preventDefault(); setDragOver(false); }}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") inputRef.current?.click(); }}
+        onDragOver={e => { e.preventDefault(); e.stopPropagation(); setDrag(true); }}
+        onDragLeave={e => { e.preventDefault(); e.stopPropagation(); setDrag(false); }}
+        role="button" tabIndex={0}
+        onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && inputRef.current?.click()}
       >
         <input
           ref={inputRef}
@@ -303,9 +292,9 @@ export default function Uploads() {
         <div className="drop-head">Drop CSV or JSON</div>
         <div className="drop-sub">Click to browse • Max 50 MB • UTF-8 • Headers required</div>
       </label>
-
       <div className="drop-helper">CSV or JSON • Click to browse</div>
 
+      {/* history */}
       <section className="history">
         <div className="card">
           <div className="card-head">Recent uploads</div>
@@ -331,7 +320,7 @@ export default function Uploads() {
                     </td>
                   </tr>
                 )}
-                {rows.map((r) => (
+                {rows.map(r => (
                   <tr key={r.id}>
                     <td title={`${r.name} • ${fmtBytes(r.size)}`}>
                       <div className="filecell">
@@ -357,320 +346,301 @@ export default function Uploads() {
         </div>
       </section>
 
-      {/* ------------------------ Wizard modal ------------------------ */}
+      {/* ------------------------------ Import Studio ----------------------------- */}
       {open && (
         <div className="modal" role="dialog" aria-modal="true">
-          <div className="sheet">
-            <div className="sheet-head">
-              <div className="w-title">Upload csv file</div>
-              <button className="icon-btn" aria-label="Close" disabled={wip} onClick={() => setOpen(false)}>✕</button>
+          <div className="studio">
+            <div className="studio-head">
+              <div className="studio-title">Import Studio</div>
+              <div className="studio-meta">
+                <span>Delimiter: <code>{delimiter || "?"}</code></span>
+                <span>Rows: <code>{rawCount}</code></span>
+              </div>
+              <button className="icon-btn" aria-label="Close" onClick={() => setOpen(false)} disabled={busy}>✕</button>
             </div>
 
-            <div className="steps">
-              <Step n={1} label="Select CSV file" on={step >= 1} />
-              <span className="chev">›</span>
-              <Step n={2} label="Map columns" on={step >= 2} />
-              <span className="chev">›</span>
-              <Step n={3} label="Configure" on={step >= 3} />
-              <span className="chev">›</span>
-              <Step n={4} label="Review" on={step >= 4} />
-              <div className="meta right">
-                {rawHeaders.length > 0 && (
+            <div className="studio-body">
+              {/* left rail (steps) */}
+              <aside className="rail">
+                <Step label="Map"      on={["map","config","review","importing","done"].includes(stage)} />
+                <Step label="Configure" on={["config","review","importing","done"].includes(stage)} />
+                <Step label="Review"    on={["review","importing","done"].includes(stage)} />
+                <Step label="Import"    on={["importing","done"].includes(stage)} />
+              </aside>
+
+              {/* main content */}
+              <main className="panel">
+                {stage === "map" && (
                   <>
-                    <span className="meta-badge">Delimiter: <strong>{/* determined client-side */}</strong></span>
-                    <span className="meta-badge">Rows: <strong>{sampleLines.length ? "…" : "…"}</strong></span>
-                  </>
-                )}
-              </div>
-            </div>
+                    <Section title="Preview">
+                      <div className="preview">
+                        <div className="p-grid">
+                          <div className="p-row p-row--head">
+                            {fileHeaders.map((h,i) => (<div className="p-cell" key={i}>{h}</div>))}
+                          </div>
+                          {sampleRows.map((r,ri) => (
+                            <div className="p-row" key={ri}>
+                              {r.map((c,ci) => (<div className="p-cell" key={ci}>{c}</div>))}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </Section>
 
-            {err && <div className="err">{err}</div>}
+                    <Section title="Map columns">
+                      <MapGrid>
+                        <MapRow label="Name (optional if First+Last)">
+                          <Select headers={fileHeaders} value={mapping.name || ""} onChange={v => setMapping(m=>({ ...m, name: v }))} placeholder="(none)" />
+                        </MapRow>
+                        <MapRow label="First name">
+                          <Select headers={fileHeaders} value={mapping.first || ""} onChange={v => setMapping(m=>({ ...m, first: v }))} />
+                        </MapRow>
+                        <MapRow label="Last name">
+                          <Select headers={fileHeaders} value={mapping.last || ""} onChange={v => setMapping(m=>({ ...m, last: v }))} />
+                        </MapRow>
+                        <MapRow label="Email">
+                          <Select headers={fileHeaders} value={mapping.email || ""} onChange={v => setMapping(m=>({ ...m, email: v }))} />
+                        </MapRow>
+                        <MapRow label="Phone">
+                          <Select headers={fileHeaders} value={mapping.phone || ""} onChange={v => setMapping(m=>({ ...m, phone: v }))} />
+                        </MapRow>
+                        {normalized.includes("tags") && (
+                          <MapRow label="Tags (per row)">
+                            <Select headers={fileHeaders} value={mapping.tags || ""} onChange={v => setMapping(m=>({ ...m, tags: v }))} placeholder="(optional)" />
+                          </MapRow>
+                        )}
+                        {normalized.includes("note") && (
+                          <MapRow label="Note">
+                            <Select headers={fileHeaders} value={mapping.note || ""} onChange={v => setMapping(m=>({ ...m, note: v }))} placeholder="(optional)" />
+                          </MapRow>
+                        )}
+                      </MapGrid>
 
-            {/* Step 1: Preview */}
-            {step === 1 && (
-              <div className="s1">
-                <div className="filebadge">
-                  <strong>{file?.name}</strong>
-                  {!!file && <span> · {fmtBytes(file.size)}</span>}
-                </div>
-                {rawHeaders.length > 0 && (
-                  <>
-                    <label className="blocklabel">Preview</label>
-                    <textarea
-                      className="previewarea"
-                      readOnly
-                      value={[rawHeaders.join(","), ...sampleLines].join("\n")}
-                    />
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Step 2: Mapping */}
-            {step === 2 && (
-              <div className="map">
-                <FieldRow
-                  label="Name (optional if First+Last)"
-                  value={mapping.name || ""}
-                  onChange={(v) => setMapping((m) => ({ ...m, name: v }))}
-                  options={presentHeaderOptions}
-                  placeholder="(none)"
-                />
-                <div className="map-grid-2">
-                  <FieldRow
-                    label="First name"
-                    value={mapping.first || ""}
-                    onChange={(v) => setMapping((m) => ({ ...m, first: v }))}
-                    options={presentHeaderOptions}
-                  />
-                  <FieldRow
-                    label="Last name"
-                    value={mapping.last || ""}
-                    onChange={(v) => setMapping((m) => ({ ...m, last: v }))}
-                    options={presentHeaderOptions}
-                  />
-                </div>
-
-                <div className="map-grid-2">
-                  <FieldRow
-                    label="Email"
-                    value={mapping.email || ""}
-                    onChange={(v) => setMapping((m) => ({ ...m, email: v }))}
-                    options={presentHeaderOptions}
-                  />
-                  <FieldRow
-                    label="Phone"
-                    value={mapping.phone || ""}
-                    onChange={(v) => setMapping((m) => ({ ...m, phone: v }))}
-                    options={presentHeaderOptions}
-                  />
-                </div>
-
-                <div className="map-grid-2">
-                  <FieldRow
-                    label="Tags (per row)"
-                    value={mapping.tags || ""}
-                    onChange={(v) => setMapping((m) => ({ ...m, tags: v }))}
-                    options={presentHeaderOptions}
-                    placeholder="(optional)"
-                  />
-                  <FieldRow
-                    label="Note"
-                    value={mapping.note || ""}
-                    onChange={(v) => setMapping((m) => ({ ...m, note: v }))}
-                    options={presentHeaderOptions}
-                    placeholder="(optional)"
-                  />
-                </div>
-
-                <details className="adv">
-                  <summary>More fields</summary>
-                  <div className="map-grid-3">
-                    <FieldRow label="DOB" value={mapping.dob || ""} onChange={(v) => setMapping((m) => ({ ...m, dob: v }))} options={presentHeaderOptions} placeholder="(optional)" />
-                    <FieldRow label="City" value={mapping.city || ""} onChange={(v) => setMapping((m) => ({ ...m, city: v }))} options={presentHeaderOptions} placeholder="(optional)" />
-                    <FieldRow label="State" value={mapping.state || ""} onChange={(v) => setMapping((m) => ({ ...m, state: v }))} options={presentHeaderOptions} placeholder="(optional)" />
-                    <FieldRow label="Zip" value={mapping.zip || ""} onChange={(v) => setMapping((m) => ({ ...m, zip: v }))} options={presentHeaderOptions} placeholder="(optional)" />
-                    <FieldRow label="Address" value={mapping.address || ""} onChange={(v) => setMapping((m) => ({ ...m, address: v }))} options={presentHeaderOptions} placeholder="(optional)" />
-                  </div>
-                </details>
-
-                {!mappingValid && (
-                  <div className="hint">
-                    Map either <strong>Name</strong> or <strong>First+Last</strong>, and at least one of <strong>Email</strong> or <strong>Phone</strong>.
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Step 3: Configure */}
-            {step === 3 && (
-              <div className="cfg">
-                <div className="opt-row">
-                  <label className="chk">
-                    <input
-                      type="checkbox"
-                      checked={!!opts.ignoreDuplicates}
-                      onChange={(e) => setOpts((o) => ({ ...o, ignoreDuplicates: e.target.checked }))}
-                    />
-                    Ignore duplicates within file
-                  </label>
-                </div>
-
-                <div className="opt-row">
-                  <label>Apply tags to all leads</label>
-                  <input
-                    className="text"
-                    placeholder="comma,separated,tags"
-                    value={(opts.tags || []).join(",")}
-                    onChange={(e) =>
-                      setOpts((o) => ({
-                        ...o,
-                        tags: e.target.value.split(",").map((t) => t.trim()).filter(Boolean),
-                      }))
-                    }
-                  />
-                </div>
-
-                <div className="opt-row">
-                  <label>Workflow</label>
-                  <select
-                    className="select"
-                    value={opts.workflowId || ""}
-                    onChange={(e) => setOpts((o) => ({ ...o, workflowId: e.target.value || undefined }))}
-                  >
-                    <option value="">(none)</option>
-                    {workflows.map((w) => (
-                      <option key={w.id} value={w.id}>
-                        {w.name} {w.status !== "active" ? ` • ${w.status}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="muted">Pick a workflow to start these leads automatically after import.</div>
-                </div>
-              </div>
-            )}
-
-            {/* Step 4: Review */}
-            {step === 4 && (
-              <div className="review">
-                <div className="r-head">Import Summary</div>
-                <div className="r-grid">
-                  <div>
-                    <div className="k">File:</div>
-                    <div className="v">{file?.name}</div>
-                  </div>
-                  <div>
-                    <div className="k">Mapped fields:</div>
-                    <ul className="mapping">
-                      {CANONICAL_ORDER.map((k) =>
-                        mapping[k] ? (
-                          <li key={k}>
-                            <span className="mm-key">{labelFor(k)}</span>
-                            <span className="mm-sep">—</span>
-                            <span className="mm-val">{mapping[k]}</span>
-                          </li>
-                        ) : null
+                      {!mappingValid && (
+                        <div className="hint">
+                          Map either <strong>Name</strong> or <strong>First+Last</strong>, and at least one of <strong>Email</strong> or <strong>Phone</strong>.
+                        </div>
                       )}
-                    </ul>
-                  </div>
-                  <div>
-                    <div className="k">Options:</div>
-                    <ul className="mapping">
-                      <li>Ignore file duplicates: <strong>{opts.ignoreDuplicates ? "Yes" : "No"}</strong></li>
-                      <li>Global tags: <strong>{(opts.tags || []).join(", ") || "(none)"}</strong></li>
-                      <li>Workflow: <strong>{workflows.find((w) => w.id === opts.workflowId)?.name || "(none)"}</strong></li>
-                    </ul>
-                  </div>
-                </div>
-                <div className="note-blurb">
-                  Phone numbers will be formatted to E.164 when possible. Invalid emails/phones are skipped.
-                </div>
-              </div>
-            )}
+                    </Section>
+                  </>
+                )}
 
-            {/* Footer actions */}
-            <div className="sheet-foot">
-              <button className="btn-outline" onClick={() => setOpen(false)} disabled={wip}>Cancel</button>
-              {step > 1 && <button className="btn-outline" onClick={() => setStep((s) => (s > 1 ? ((s - 1) as any) : s))} disabled={wip}>Back</button>}
-              {step === 1 && <button className="btn-primary" onClick={() => setStep(2)} disabled={!rawHeaders.length || wip}>Next</button>}
-              {step === 2 && <button className="btn-primary" onClick={() => setStep(3)} disabled={!mappingValid || wip}>Next</button>}
-              {step === 3 && <button className="btn-primary" onClick={() => setStep(4)} disabled={!mappingValid || wip}>Next</button>}
-              {step === 4 && (
+                {stage === "config" && (
+                  <>
+                    <Section title="Configure">
+                      <div className="opt-row">
+                        <label className="chk">
+                          <input
+                            type="checkbox"
+                            checked={!!opts.ignoreDuplicates}
+                            onChange={(e) => setOpts(o => ({ ...o, ignoreDuplicates: e.target.checked }))}
+                          />
+                          Ignore duplicates within file
+                        </label>
+                      </div>
+
+                      <div className="opt-row">
+                        <label>Apply tags to all leads</label>
+                        <Chips
+                          value={opts.tags || []}
+                          onChange={(tags) => setOpts(o => ({ ...o, tags }))}
+                          placeholder="type and press Enter"
+                        />
+                      </div>
+
+                      <div className="opt-row">
+                        <label>Workflow</label>
+                        <WorkflowSelect
+                          value={opts.workflowId || ""}
+                          onChange={(id) => setOpts(o => ({ ...o, workflowId: id || undefined }))}
+                        />
+                        <div className="subtle">Pick a workflow to start these leads automatically after import.</div>
+                      </div>
+                    </Section>
+                  </>
+                )}
+
+                {stage === "review" && (
+                  <>
+                    <Section title="Review">
+                      <div className="review">
+                        <div className="review-grid">
+                          <div><b>File</b></div><div>{file?.name} · {file ? fmtBytes(file.size) : ""}</div>
+                          <div><b>Rows</b></div><div>{rawCount}</div>
+                          <div><b>Delimiter</b></div><div><code>{delimiter}</code></div>
+                          <div><b>Mapping</b></div>
+                          <div>
+                            <code>
+                              {Object.entries(mapping)
+                                .filter(([_,v]) => v)
+                                .map(([k,v]) => `${k} ← ${v}`)
+                                .join(" · ") || "(none)"}
+                            </code>
+                          </div>
+                          <div><b>Options</b></div>
+                          <div>
+                            {opts.ignoreDuplicates ? "Ignore in-file duplicates" : "Don’t ignore in-file duplicates"}
+                            { (opts.tags?.length ? ` · Tags: ${opts.tags.join(", ")}` : "") }
+                            { (opts.workflowId ? ` · Workflow: ${opts.workflowId}` : "") }
+                          </div>
+                        </div>
+                      </div>
+                      {err && <div className="err">{err}</div>}
+                      {note && <div className="note">{note}</div>}
+                    </Section>
+                  </>
+                )}
+
+                {stage === "importing" && (
+                  <>
+                    <Section title="Importing">
+                      <div className="progress">
+                        <div className="bar" style={{ width: `${progress}%` }} />
+                      </div>
+                      <div className="progress-note">Importing… hang tight.</div>
+                    </Section>
+                  </>
+                )}
+
+                {stage === "done" && summary && (
+                  <>
+                    <Section title="Completed">
+                      <div className="success-card">
+                        <div className="check">✓</div>
+                        <div className="success-title">Import Complete</div>
+                        <div className="success-sub">
+                          Inserted <b>{summary.inserted}</b>, duplicates skipped <b>{summary.duplicates}</b>, invalid <b>{summary.invalids}</b>.
+                        </div>
+                      </div>
+                    </Section>
+                  </>
+                )}
+              </main>
+            </div>
+
+            <div className="studio-foot">
+              <button className="btn-outline" disabled={busy} onClick={() => setOpen(false)}>Cancel</button>
+
+              {stage === "map" && (
+                <button className="btn-primary" disabled={!mappingValid || busy} onClick={() => setStage("config")}>Next</button>
+              )}
+              {stage === "config" && (
+                <button className="btn-primary" disabled={!mappingValid || busy} onClick={() => setStage("review")}>Next</button>
+              )}
+              {stage === "review" && (
                 <button
                   className="btn-primary"
-                  disabled={!mappingValid || wip}
-                  onClick={async () => {
-                    try {
-                      await importToServer();
-                      setOpen(false);
-                    } catch (e: any) {
-                      setErr(e?.message || "Import failed");
-                    } finally {
-                      setWip(false);
-                    }
-                  }}
+                  disabled={!mappingValid || busy}
+                  onClick={async () => { setStage("importing"); await importToServer(); }}
                 >
-                  {wip ? "Importing…" : "Import contacts"}
+                  {busy ? "Importing…" : "Import"}
                 </button>
+              )}
+              {stage === "done" && (
+                <button className="btn-primary" onClick={() => setOpen(false)}>Close</button>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Scoped styles for this page only */}
+      {/* styles scoped to this page */}
       <style>{STYLES}</style>
     </div>
   );
 }
 
-/* ---------------------------- Little components --------------------------- */
-function Step({ n, label, on }: { n: number; label: string; on: boolean }) {
+/* ---------------------------------- UI bits --------------------------------- */
+function Step({ label, on }: { label: string; on: boolean }) {
   return (
-    <>
-      <span className={`step ${on ? "on" : ""}`}>{n}</span>
-      <span className="step-label">{label}</span>
-    </>
+    <div className={`rail-step ${on ? "on" : ""}`}>
+      <span className="dot" />
+      <span className="rl">{label}</span>
+    </div>
   );
 }
-
-function FieldRow({
-  label,
-  value,
-  onChange,
-  options,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: string[];
-  placeholder?: string;
-}) {
+function Section({ title, children }: { title: string; children: any }) {
+  return (
+    <section className="sec">
+      <div className="sec-title">{title}</div>
+      {children}
+    </section>
+  );
+}
+function MapGrid({ children }: { children: any }) {
+  return <div className="map-grid">{children}</div>;
+}
+function MapRow({ label, children }: { label: string; children: any }) {
   return (
     <div className="map-row">
       <label>{label}</label>
-      <select className="select" value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">{placeholder || "(none)"}</option>
-        {options.map((h) => (
-          <option key={h} value={h}>{h}</option>
-        ))}
-      </select>
+      <div className="map-ctl">{children}</div>
+    </div>
+  );
+}
+function Select({
+  headers, value, onChange, placeholder
+}: { headers: string[]; value: string; onChange: (v: string) => void; placeholder?: string; }) {
+  return (
+    <select className="select" value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">{placeholder || "(none)"}</option>
+      {headers.map(h => (<option key={h} value={h}>{h}</option>))}
+    </select>
+  );
+}
+
+/* Tags as chips */
+function Chips({ value, onChange, placeholder }: {
+  value: string[]; onChange: (tags: string[]) => void; placeholder?: string;
+}) {
+  const [text, setText] = useState("");
+  return (
+    <div className="chips">
+      {value.map((t, i) => (
+        <span className="chip" key={t + i}>
+          {t}
+          <button className="x" onClick={() => onChange(value.filter((_, j) => j !== i))}>×</button>
+        </span>
+      ))}
+      <input
+        className="chip-input"
+        value={text}
+        placeholder={placeholder || ""}
+        onChange={e => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && text.trim()) {
+            onChange([...value, text.trim()]);
+            setText("");
+          }
+          if (e.key === "Backspace" && !text && value.length) {
+            onChange(value.slice(0, -1));
+          }
+        }}
+      />
     </div>
   );
 }
 
-function labelFor(k: keyof Mapping) {
-  switch (k) {
-    case "name": return "Name";
-    case "first": return "First name";
-    case "last": return "Last name";
-    case "email": return "Email";
-    case "phone": return "Phone";
-    case "tags": return "Tags";
-    case "note": return "Note";
-    case "dob": return "DOB";
-    case "city": return "City";
-    case "state": return "State";
-    case "zip": return "Zip";
-    case "address": return "Address";
-    default: return k;
-  }
+/* Mock workflow select — replace options with your real list */
+function WorkflowSelect({ value, onChange }: { value: string; onChange: (v: string) => void; }) {
+  // Replace with server-fetched workflows if available
+  const workflows = [
+    { id: "", name: "(none)" },
+    { id: "wf_welcome", name: "Welcome drip" },
+    { id: "wf_followup", name: "5-min follow-up" },
+    { id: "wf_nurture", name: "Nurture (30 days)" },
+  ];
+  return (
+    <select className="select" value={value} onChange={e => onChange(e.target.value)}>
+      {workflows.map(w => (<option key={w.id || "none"} value={w.id}>{w.name}</option>))}
+    </select>
+  );
 }
 
-/* ------------------------------ Small icons ------------------------------ */
+/* icon */
 function UploadIcon({ className = "" }: { className?: string }) {
   return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M12 3v14" />
       <path d="M7 8l5-5 5 5" />
       <path d="M5 21h14" />
@@ -678,24 +648,24 @@ function UploadIcon({ className = "" }: { className?: string }) {
   );
 }
 
-/* -------------------------------- Styles --------------------------------- */
+/* --------------------------- page-scoped CSS (modern) ------------------------ */
 const STYLES = `
-.p-uploads { padding: 14px; }
-.crumbs { display:flex; gap:8px; align-items:center; color: var(--text-secondary); margin-bottom:10px; }
+.p-uploads{ padding:14px; }
+.crumbs{ display:flex; gap:8px; align-items:center; color:var(--text-secondary); margin-bottom:10px; }
 .crumb-back{ background:none;border:0;color:inherit;cursor:pointer;padding:0; }
-.uploads-head .title { font-weight:750; }
+.uploads-head .title{ font-weight:750; }
 
 .dropcard{
   display:grid; place-items:center; text-align:center;
   margin-top:10px; padding:28px 10px; border:1px dashed var(--line);
-  border-radius:12px; background: color-mix(in srgb, var(--surface-1) 96%, var(--line));
-  cursor:pointer; transition: border-color .15s, background .15s, transform .15s;
+  border-radius:14px; background: color-mix(in srgb, var(--surface-1) 96%, var(--line));
+  cursor:pointer; transition: border-color .15s, background .15s, box-shadow .15s;
 }
-.dropcard:hover{ transform: translateY(-1px); }
+.dropcard:hover{ border-color: var(--accent); box-shadow: 0 10px 32px rgba(0,0,0,.06); }
 .dropcard.drag{ border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface-1)); }
 .upl-icon{ width:40px; height:40px; opacity:.9; }
 .upl-icon.breathe{ animation: breathe 1.2s ease-in-out infinite; }
-@keyframes breathe{ 0%{ transform:scale(1); } 60%{ transform:scale(1.06);} 100%{ transform:scale(1);} }
+@keyframes breathe{ 0%{ transform:scale(1);} 60%{ transform:scale(1.06);} 100%{ transform:scale(1);} }
 .drop-head{ font-weight:700; margin-top:6px; }
 .drop-sub{ font-size:12px; color: var(--text-secondary); }
 .drop-helper{ text-align:center; color: var(--text-secondary); font-size:12px; margin:6px 0 16px; }
@@ -704,12 +674,12 @@ const STYLES = `
 .card-head{ padding:10px; border-bottom:1px solid var(--line); font-weight:700; }
 .table-wrap{ overflow:auto; }
 .u-table{ width:100%; border-collapse:collapse; }
-.u-table th, .u-table td{ padding:10px; border-top:1px solid var(--line); }
-.u-table th{ text-align:left; font-size:12px; color: var(--text-secondary); }
+.u-table th,.u-table td{ padding:10px; border-top:1px solid var(--line); }
+.u-table th{ text-align:left; font-size:12px; color:var(--text-secondary); }
 .u-table .num{ text-align:right; }
 .filecell .fname{ font-weight:600; }
-.filecell .fmeta{ color: var(--text-secondary); margin-left:6px; }
-.empty{ color: var(--text-secondary); text-align:center; padding:36px 0; }
+.filecell .fmeta{ color:var(--text-secondary); margin-left:6px; }
+.empty{ color:var(--text-secondary); text-align:center; padding:36px 0; }
 .empty-icon{ display:inline-block; transform: rotate(180deg); margin-right:6px; opacity:.6; }
 .pill{ padding:4px 8px; border-radius:999px; font-size:12px; }
 .pill.success{ background:#daf5e6; color:#0a7e3d; }
@@ -718,51 +688,3 @@ const STYLES = `
 .link{ background:none;border:0;color:var(--accent); cursor:default; }
 
 .modal{ position:fixed; inset:0; background:rgba(0,0,0,.35); display:grid; place-items:center; z-index:70; }
-.sheet{ width:min(980px, 94vw); background:var(--surface-1); border:1px solid var(--line); border-radius:14px; box-shadow:0 24px 80px rgba(0,0,0,.24); }
-.sheet-head{ display:flex; justify-content:space-between; align-items:center; padding:12px 14px; border-bottom:1px solid var(--line); }
-.w-title{ font-weight:750; }
-.icon-btn{ background:none; border:0; padding:6px 8px; cursor:pointer; opacity:.8; }
-
-.steps{ display:flex; align-items:center; gap:6px; padding:10px 14px; border-bottom:1px dashed var(--line); color:var(--text-secondary); }
-.step{ width:18px; height:18px; border-radius:999px; display:grid; place-items:center; border:1px solid var(--line); font-size:12px; }
-.step.on{ background: color-mix(in srgb, var(--accent) 20%, transparent); border-color: var(--accent); color: var(--accent-contrast, #000); }
-.step-label{ margin-right:6px; font-size:12px; }
-.chev{ opacity:.6; margin:0 2px; }
-.steps .meta.right{ margin-left:auto; display:flex; gap:8px; }
-.meta-badge{ font-size:12px; color:var(--text-secondary); }
-
-.s1{ padding:12px 14px; display:grid; gap:10px; }
-.blocklabel{ font-size:12px; color:var(--text-secondary); }
-.previewarea{ width:100%; min-height:220px; border:1px solid var(--line); border-radius:8px; padding:8px 10px; background:var(--surface-1); color:inherit; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size:12px; }
-
-.map{ padding:12px 14px; display:grid; gap:12px; }
-.map-grid-2{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
-.map-grid-3{ display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; }
-.map-row label{ display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px; }
-.select{ width:100%; border:1px solid var(--line); background:var(--surface-1); color:inherit; border-radius:10px; padding:8px 10px; }
-.hint{ font-size:12px; color:#9a6b00; background:#fff6db; border:1px solid #f7e7b2; padding:8px 10px; border-radius:8px; }
-
-.adv summary{ cursor:pointer; color:var(--text-secondary); }
-.adv{ border:1px dashed var(--line); border-radius:8px; padding:10px; }
-
-.cfg{ padding:12px 14px; display:grid; gap:12px; }
-.opt-row{ display:grid; gap:6px; }
-.chk{ display:flex; align-items:center; gap:8px; }
-.text{ border:1px solid var(--line); background:var(--surface-1); color:inherit; border-radius:10px; padding:8px 10px; }
-.muted{ color:var(--text-secondary); font-size:12px; }
-
-.review{ padding:12px 14px; display:grid; gap:12px; }
-.r-head{ font-weight:700; }
-.r-grid{ display:grid; grid-template-columns: 1.2fr 1fr; gap:12px; }
-.mapping{ margin:6px 0 0 0; padding:0 0 0 16px; }
-.mm-key{ font-weight:600; }
-.mm-sep{ margin:0 6px; opacity:.6; }
-.note-blurb{ font-size:12px; color:var(--text-secondary); padding:8px 10px; border-radius:8px; background: color-mix(in srgb, var(--surface-1) 96%, var(--line)); }
-
-.sheet-foot{ display:flex; justify-content:flex-end; gap:8px; padding:12px 14px; border-top:1px solid var(--line); }
-.btn-outline{ background:transparent; border:1px solid var(--line); border-radius:10px; padding:8px 12px; }
-.btn-primary{ background: var(--accent); color: var(--accent-contrast, #fff); border:0; border-radius:10px; padding:8px 12px; transition: transform .05s ease; }
-.btn-primary:active{ transform: translateY(1px); }
-
-.err{ margin:10px 14px; color:#b91c1c; background:#ffe8e8; border:1px solid #f7b3b3; padding:8px 10px; border-radius:8px; }
-`;
