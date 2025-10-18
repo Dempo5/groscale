@@ -3,31 +3,37 @@ import { Router } from "express";
 import multer from "multer";
 import { parse } from "csv-parse/sync";
 import { prisma } from "../../prisma";
+import { Prisma } from "@prisma/client";
 
 const router = Router();
 
+/** 50 MB; memory is fine for staged imports */
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 },
 });
 
-/* ---------------- Header canon + synonyms (expand any time) ---------------- */
+/* ------------------------- header normalization ------------------------- */
 const HMAP: Record<string, string> = {
-  // core
   firstname: "first",
   "first name": "first",
   first: "first",
+
   lastname: "last",
   "last name": "last",
   last: "last",
+
   name: "name",
   "full name": "name",
   fullname: "name",
   "contact name": "name",
+
   email: "email",
   "e-mail": "email",
   "email address": "email",
+
   phone: "phone",
+  "phone #": "phone",
   "phone number": "phone",
   mobile: "phone",
   cell: "phone",
@@ -36,50 +42,53 @@ const HMAP: Record<string, string> = {
   primaryphc: "phone",
   phone2: "phone",
   "primary phone": "phone",
-  // nice-to-have (not yet stored in DB, but we parse for future)
+
+  tags: "tags",
+  label: "tags",
+  labels: "tags",
+  segments: "tags",
+
+  note: "note",
+  notes: "note",
+
   dob: "dob",
   "date of birth": "dob",
+  birthday: "dob",
+
   city: "city",
   state: "state",
   "postal code": "zip",
   zipcode: "zip",
   zip: "zip",
   address: "address",
-  // meta
-  tags: "tags",
-  label: "tags",
-  labels: "tags",
-  segments: "tags",
-  note: "note",
-  notes: "note",
+  "address 1": "address",
+  "street": "address",
 };
 
 function normalizeHeader(h: string): string {
-  const k = (h || "").replace(/\uFEFF/g, "").trim().toLowerCase().replace(/\s+/g, " ");
+  const k = (h || "")
+    .replace(/\uFEFF/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
   return HMAP[k] || k;
 }
 
-/* ------------------------ Light delimiter detection ----------------------- */
 function guessDelimiter(sample: string): "," | ";" | "\t" | "|" {
-  const cand = [",", ";", "\t", "|"] as const;
-  const lines = sample.split(/\r?\n/).slice(0, 8);
-  let best = cand[0];
-  let bestScore = -1;
-  for (const ch of cand) {
-    const counts = lines.map((l) => (l.match(new RegExp(ch, "g")) || []).length);
+  const cands = [",", ";", "\t", "|"] as const;
+  const lines = sample.split(/\r?\n/).slice(0, 12);
+  let best = cands[0], bestScore = -1;
+  for (const ch of cands) {
+    const counts = lines.map(l => (l.match(new RegExp(`${ch}(?=(?:[^"]*"[^"]*")*[^"]*$)`, "g")) || []).length);
     const avg = counts.reduce((a, b) => a + b, 0) / (counts.length || 1);
-    const variance =
-      counts.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / (counts.length || 1);
+    const variance = counts.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / (counts.length || 1);
     const score = avg - Math.sqrt(variance);
-    if (score > bestScore) {
-      bestScore = score;
-      best = ch;
-    }
+    if (score > bestScore) { bestScore = score; best = ch; }
   }
   return best;
 }
 
-/* ----------------------------- Value helpers ----------------------------- */
+/* ----------------------------- value helpers ---------------------------- */
 function asEmail(s?: string) {
   const t = (s || "").trim().toLowerCase();
   return t && /\S+@\S+\.\S+/.test(t) ? t : undefined;
@@ -87,6 +96,7 @@ function asEmail(s?: string) {
 function asPhone(s?: string, defaultCountry: "US" | "INTL" = "US") {
   let t = (s || "").toString().trim();
   if (!t) return undefined;
+  // keep digits and +, fix CSV-in-Excel artifacts
   t = t.replace(/[^\d+]/g, "");
   if (!t.startsWith("+") && defaultCountry === "US" && /^\d{10}$/.test(t)) t = "+1" + t;
   if (!/^\+?\d{7,15}$/.test(t)) return undefined;
@@ -101,7 +111,7 @@ function combineName(name?: string, first?: string, last?: string) {
   return full || undefined;
 }
 
-/* --------------------------- Tag upsert + linking ------------------------- */
+/* ------------------------- tag + workflow helpers ----------------------- */
 async function upsertTagsAndLink(ownerId: string, leadId: string, names: string[]) {
   if (!names?.length) return;
   for (const raw of names) {
@@ -109,28 +119,27 @@ async function upsertTagsAndLink(ownerId: string, leadId: string, names: string[
     if (!nm) continue;
 
     const tag = await prisma.tag.upsert({
-      where: { ownerId_name: { ownerId, name: nm } }, // @@unique([ownerId, name])
-      create: { ownerId, name: nm },
+      where: { ownerId_name: { ownerId, name: nm } },
       update: {},
+      create: { ownerId, name: nm },
       select: { id: true },
     });
 
     await prisma.leadTag.upsert({
-      where: { leadId_tagId: { leadId, tagId: tag.id } }, // @@id([leadId, tagId])
-      create: { leadId, tagId: tag.id },
+      where: { leadId_tagId: { leadId, tagId: tag.id } },
       update: {},
+      create: { leadId, tagId: tag.id },
     });
   }
 }
 
-/* --------------------------------- Route --------------------------------- */
+/* ------------------------------ import route ---------------------------- */
 router.post("/import", upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ ok: false, error: "file required" });
 
-  // In your app, use auth middleware (req.user.id). Fallback keeps dev easy.
   const ownerId = (req as any)?.user?.id || "system";
 
-  // Create Upload history row
+  // Create upload history row early (PROCESSING)
   const uploadRow = await prisma.upload.create({
     data: {
       ownerId,
@@ -140,25 +149,24 @@ router.post("/import", upload.single("file"), async (req, res) => {
     },
   });
 
-  // Parse optional mapping/options (sent by wizard)
-  let clientMapping: any = {};
+  // Options coming from the wizard
+  let clientMapping: Record<string, string> = {};
   let clientOptions: any = {};
   try {
     if (req.body?.mapping) clientMapping = JSON.parse(String(req.body.mapping));
     if (req.body?.options) clientOptions = JSON.parse(String(req.body.options));
-  } catch {
-    // ignore
-  }
+  } catch { /* ignore */ }
+
   const ignoreDuplicates = !!clientOptions?.ignoreDuplicates;
+  const workflowId: string | undefined = clientOptions?.workflowId || undefined;
   const requestTags: string[] = Array.isArray(clientOptions?.tags) ? clientOptions.tags : [];
-  const chosenWorkflowId: string | undefined = clientOptions?.workflowId || undefined;
 
   // Parse CSV
   const text = req.file.buffer.toString("utf8");
   const delimiter = guessDelimiter(text);
 
-  let originalHeaders: string[] = [];
-  let normalizedHeaders: string[] = [];
+  let origHeaders: string[] = [];
+  let normHeaders: string[] = [];
   let rows: any[] = [];
 
   try {
@@ -167,10 +175,11 @@ router.post("/import", upload.single("file"), async (req, res) => {
       bom: true,
       trim: true,
       relax_column_count: true,
+      skip_empty_lines: true,
       columns: (hdrs: string[]) => {
-        originalHeaders = hdrs.map((h) => String(h).replace(/\uFEFF/g, "").trim());
-        normalizedHeaders = originalHeaders.map(normalizeHeader);
-        return normalizedHeaders;
+        origHeaders = hdrs.map(h => String(h).replace(/\uFEFF/g, "").trim());
+        normHeaders = origHeaders.map(normalizeHeader);
+        return normHeaders;
       },
     });
   } catch (e: any) {
@@ -181,65 +190,55 @@ router.post("/import", upload.single("file"), async (req, res) => {
     return res.status(400).json({ ok: false, error: "Invalid CSV/headers", details: e?.message });
   }
 
-  // Quick index lookups for default mapping
-  const idx = (name: string) => normalizedHeaders.indexOf(name);
-  const firstIdx = idx("first");
-  const lastIdx = idx("last");
-  const nameIdx = idx("name");
-  const emailIdx = idx("email");
-  const phoneIdx = idx("phone");
-  const tagsIdx = idx("tags");
-  const noteIdx = idx("note");
-  // extra parsed (not stored yet)
-  const dobIdx = idx("dob");
-  const cityIdx = idx("city");
-  const stateIdx = idx("state");
-  const zipIdx = idx("zip");
-  const addressIdx = idx("address");
+  // column lookups
+  const idx = (canon: string) => normHeaders.indexOf(canon);
 
-  // Helper to pull from client mapping OR from normalized header
-  function getVal(row: any, canonical: string) {
-    const col = (clientMapping?.[canonical] || "").toString().trim();
-    if (col) return row[col];
-    switch (canonical) {
-      case "first": return firstIdx >= 0 ? row["first"] : undefined;
-      case "last": return lastIdx >= 0 ? row["last"] : undefined;
-      case "name": return nameIdx >= 0 ? row["name"] : undefined;
-      case "email": return emailIdx >= 0 ? row["email"] : undefined;
-      case "phone": return phoneIdx >= 0 ? row["phone"] : undefined;
-      case "tags": return tagsIdx >= 0 ? row["tags"] : undefined;
-      case "note": return noteIdx >= 0 ? row["note"] : undefined;
-      case "dob": return dobIdx >= 0 ? row["dob"] : undefined;
-      case "city": return cityIdx >= 0 ? row["city"] : undefined;
-      case "state": return stateIdx >= 0 ? row["state"] : undefined;
-      case "zip": return zipIdx >= 0 ? row["zip"] : undefined;
-      case "address": return addressIdx >= 0 ? row["address"] : undefined;
+  const iFirst = idx("first");
+  const iLast = idx("last");
+  const iName = idx("name");
+  const iEmail = idx("email");
+  const iPhone = idx("phone");
+  const iTags = idx("tags");
+  const iNote = idx("note");
+
+  const getVal = (row: any, canon: string) => {
+    const chosen = (clientMapping?.[canon] || "").toString().trim();
+    if (chosen) {
+      // client sent original header; map it to normalized key
+      const oIndex = origHeaders.findIndex(h => h === chosen);
+      const nKey = normHeaders[oIndex];
+      return row[nKey];
+    }
+    switch (canon) {
+      case "first": return iFirst >= 0 ? row["first"] : undefined;
+      case "last": return iLast >= 0 ? row["last"] : undefined;
+      case "name": return iName >= 0 ? row["name"] : undefined;
+      case "email": return iEmail >= 0 ? row["email"] : undefined;
+      case "phone": return iPhone >= 0 ? row["phone"] : undefined;
+      case "tags": return iTags >= 0 ? row["tags"] : undefined;
+      case "note": return iNote >= 0 ? row["note"] : undefined;
       default: return undefined;
     }
-  }
+  };
 
   // Stats
-  const seenInFile = new Set<string>();
   let inserted = 0;
   let invalids = 0;
-  let dbDuplicates = 0;
   let fileDuplicates = 0;
+  let dbDuplicates = 0;
   let skipped = 0;
 
-  const mappedSamples: Array<{
-    name?: string; email?: string; phone?: string; tags?: string[]; note?: string;
-    dob?: string; city?: string; state?: string; zip?: string; address?: string;
-  }> = [];
+  const seenInFile = new Set<string>();
+  const sampleMapped: Array<{ name?: string; email?: string; phone?: string; tags?: string[]; note?: string }> = [];
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i] || {};
 
     const first = getVal(r, "first");
-    const last = getVal(r, "last");
-    const nm = getVal(r, "name");
+    const last  = getVal(r, "last");
+    const nm    = getVal(r, "name");
     const email = asEmail(getVal(r, "email"));
     const phone = asPhone(getVal(r, "phone"), "US");
-    const name = combineName(nm, first, last);
 
     const rowTags = (getVal(r, "tags") || "")
       .toString()
@@ -247,37 +246,21 @@ router.post("/import", upload.single("file"), async (req, res) => {
       .map((t: string) => t.trim())
       .filter(Boolean);
 
+    const name = combineName(nm, first, last);
     const note = (getVal(r, "note") || "").toString().trim() || undefined;
 
-    // parsed only for preview/future
-    const dob = (getVal(r, "dob") || "").toString().trim() || undefined;
-    const city = (getVal(r, "city") || "").toString().trim() || undefined;
-    const state = (getVal(r, "state") || "").toString().trim() || undefined;
-    const zip = (getVal(r, "zip") || "").toString().trim() || undefined;
-    const address = (getVal(r, "address") || "").toString().trim() || undefined;
-
-    if (mappedSamples.length < 10) {
-      mappedSamples.push({
-        name, email, phone, tags: rowTags.length ? rowTags : undefined, note,
-        dob, city, state, zip, address,
-      });
+    if (sampleMapped.length < 10) {
+      sampleMapped.push({ name, email, phone, tags: rowTags.length ? rowTags : undefined, note });
     }
 
-    if (!name || (!email && !phone)) {
-      invalids++;
-      continue;
-    }
+    if (!name || (!email && !phone)) { invalids++; continue; }
 
     const key = email || phone!;
-    if (seenInFile.has(key)) {
-      fileDuplicates++;
-      if (ignoreDuplicates) continue;
-    } else {
-      seenInFile.add(key);
-    }
+    if (seenInFile.has(key)) { fileDuplicates++; if (ignoreDuplicates) continue; }
+    else seenInFile.add(key);
 
     try {
-      // check DB dupes (per owner)
+      // DB duplicate check
       const exists = await prisma.lead.findFirst({
         where: {
           ownerId,
@@ -289,34 +272,29 @@ router.post("/import", upload.single("file"), async (req, res) => {
         select: { id: true },
       });
 
-      if (exists) {
-        dbDuplicates++;
-        continue;
-      }
+      if (exists) { dbDuplicates++; continue; }
 
       const lead = await prisma.lead.create({
-        data: { name, email, phone, ownerId },
+        data: { ownerId, name, email, phone },
         select: { id: true },
       });
 
-      // merge UI tags + row tags
+      // Merge UI + row tags
       const mergedTags = Array.from(new Set([...(requestTags || []), ...rowTags]));
-      if (mergedTags.length) {
-        await upsertTagsAndLink(ownerId, lead.id, mergedTags);
-      }
+      if (mergedTags.length) await upsertTagsAndLink(ownerId, lead.id, mergedTags);
 
-      // future: attach to workflow chosenWorkflowId (no join table in schema yet)
-      // you can enqueue a send-text job here later.
+      // (Optional) enqueue workflow here if you want immediate automation kickoff
+      // if (workflowId) await enqueueLeadIntoWorkflow(lead.id, workflowId);
 
       inserted++;
     } catch (e: any) {
-      console.error(`Insert failed at row ${i + 2}:`, e?.message || e);
-      skipped++;
+      // Prisma unique error (if you later put unique constraints)
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") dbDuplicates++;
+      else skipped++;
     }
   }
 
   const totalRows = rows.length;
-  const validRows = totalRows - invalids;
   const status =
     inserted > 0 && (invalids > 0 || dbDuplicates > 0) ? "PARTIAL" :
     inserted > 0 ? "SUCCESS" : "FAILED";
@@ -324,20 +302,15 @@ router.post("/import", upload.single("file"), async (req, res) => {
   await prisma.upload.update({
     where: { id: uploadRow.id },
     data: {
-      leads: inserted,            // what actually landed in DB
-      duplicates: dbDuplicates,   // already present in DB
+      leads: inserted,              // honest: how many got in
+      duplicates: dbDuplicates,     // “already existed in DB”
       invalids,
       status,
     },
   });
 
-  const emailHits = mappedSamples.filter(s => s.email).length;
-  const phoneHits = mappedSamples.filter(s => s.phone).length;
-  const confidence = {
-    emailDetected: emailHits >= 3,
-    phoneDetected: phoneHits >= 3,
-    note: `sample emails=${emailHits}, phones=${phoneHits}`,
-  };
+  const emailHits = sampleMapped.filter(s => s.email).length;
+  const phoneHits = sampleMapped.filter(s => s.phone).length;
 
   return res.json({
     ok: true,
@@ -345,31 +318,27 @@ router.post("/import", upload.single("file"), async (req, res) => {
     duplicates: dbDuplicates,
     invalids,
     skipped,
-    stats: { totalRows, validRows, fileDuplicates },
+    stats: { totalRows, fileDuplicates },
     meta: {
       delimiter,
-      originalHeaders,
-      normalizedHeaders,
       mappingUsed: {
-        name:  clientMapping?.name  || (nameIdx  >= 0 ? originalHeaders[nameIdx]  : undefined),
-        first: clientMapping?.first || (firstIdx >= 0 ? originalHeaders[firstIdx] : undefined),
-        last:  clientMapping?.last  || (lastIdx  >= 0 ? originalHeaders[lastIdx]  : undefined),
-        email: clientMapping?.email || (emailIdx >= 0 ? originalHeaders[emailIdx] : undefined),
-        phone: clientMapping?.phone || (phoneIdx >= 0 ? originalHeaders[phoneIdx] : undefined),
-        tags:  clientMapping?.tags  || (tagsIdx  >= 0 ? originalHeaders[tagsIdx]  : undefined),
-        note:  clientMapping?.note  || (noteIdx  >= 0 ? originalHeaders[noteIdx]  : undefined),
-        dob:   clientMapping?.dob   || (dobIdx   >= 0 ? originalHeaders[dobIdx]   : undefined),
-        city:  clientMapping?.city  || (cityIdx  >= 0 ? originalHeaders[cityIdx]  : undefined),
-        state: clientMapping?.state || (stateIdx >= 0 ? originalHeaders[stateIdx] : undefined),
-        zip:   clientMapping?.zip   || (zipIdx   >= 0 ? originalHeaders[zipIdx]   : undefined),
-        address: clientMapping?.address || (addressIdx >= 0 ? originalHeaders[addressIdx] : undefined),
+        name:  clientMapping?.name  || (iName  >= 0 ? origHeaders[iName]  : undefined),
+        first: clientMapping?.first || (iFirst >= 0 ? origHeaders[iFirst] : undefined),
+        last:  clientMapping?.last  || (iLast  >= 0 ? origHeaders[iLast]  : undefined),
+        email: clientMapping?.email || (iEmail >= 0 ? origHeaders[iEmail] : undefined),
+        phone: clientMapping?.phone || (iPhone >= 0 ? origHeaders[iPhone] : undefined),
+        tags:  clientMapping?.tags  || (iTags  >= 0 ? origHeaders[iTags]  : undefined),
+        note:  clientMapping?.note  || (iNote  >= 0 ? origHeaders[iNote]  : undefined),
       },
-      sampleMapped: mappedSamples,
+      sampleMapped,
       requestTags,
+      workflowId,
       ignoreDuplicates,
-      chosenWorkflowId,
     },
-    confidence,
+    confidence: {
+      emailDetected: emailHits >= 3,
+      phoneDetected: phoneHits >= 3,
+    },
   });
 });
 
