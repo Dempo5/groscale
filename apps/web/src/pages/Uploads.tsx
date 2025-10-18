@@ -84,6 +84,20 @@ function guessDelimiter(sample: string): string {
   return best;
 }
 
+/* ----------------------------- toast helper ---------------------------- */
+function Toast({ kind, text, onClose }: { kind: "success" | "error"; text: string; onClose: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onClose, 3500);
+    return () => clearTimeout(t);
+  }, [onClose]);
+  return (
+    <div className={`toast ${kind}`} role="status" aria-live="polite">
+      <span className="t-ico" aria-hidden>{kind === "success" ? "✓" : "!"}</span>
+      <span>{text}</span>
+      <button className="t-x" aria-label="Close" onClick={onClose}>×</button>
+    </div>
+  );
+}
 
 /* -------------------------------- page --------------------------------- */
 export default function Uploads() {
@@ -102,6 +116,9 @@ export default function Uploads() {
   const [opts, setOpts] = useState<ImportOptions>({ ignoreDuplicates: false, tags: [] });
   const [wip, setWip] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // toast
+  const [toast, setToast] = useState<{ kind: "success" | "error"; text: string } | null>(null);
 
   // small helper for table
   const fmtBytes = (n: number) => {
@@ -125,15 +142,15 @@ export default function Uploads() {
     const delim = guessDelimiter(text);
     const lines = text.split(/\r?\n/).filter(Boolean);
     if (!lines.length) throw new Error("Empty file");
-    // headers
+
     const rawHeaders = lines[0]
       .split(delim)
       .map((h) => String(h).replace(/\uFEFF/g, "").trim());
     setFileHeaders(rawHeaders);
-    // sample rows
+
     const samples = lines.slice(1, 8).map((ln) => ln.split(delim));
     setSampleRows(samples);
-    // initial mapping guess from normalized headers
+
     const normalized = rawHeaders.map(normalizeHeader);
     const find = (canon: string) => {
       const idx = normalized.indexOf(canon);
@@ -162,7 +179,6 @@ export default function Uploads() {
     form.append("mapping", JSON.stringify(mapping));
     form.append("options", JSON.stringify(opts));
 
-    // forward existing auth token if you have one
     const jwt = (() => {
       try { return localStorage.getItem("jwt") || ""; } catch { return ""; }
     })();
@@ -180,7 +196,6 @@ export default function Uploads() {
     }
 
     const data = await res.json();
-    // decide status label
     const inserted = Number(data?.inserted || 0);
     const invalids = Number(data?.invalids || 0);
     const dups = Number(data?.duplicates || 0);
@@ -210,6 +225,14 @@ export default function Uploads() {
       note,
     };
     setRows((r) => [newRow, ...r]);
+
+    setToast({
+      kind: status === "failed" ? "error" : "success",
+      text:
+        status === "failed"
+          ? note
+          : `Imported ${inserted} lead${inserted === 1 ? "" : "s"} • ${dups} duplicate${dups === 1 ? "" : "s"} • ${invalids} invalid`,
+    });
   };
 
   /* ------------------------------- handlers -------------------------------- */
@@ -221,8 +244,9 @@ export default function Uploads() {
     try {
       await parsePreview(f);
       setStep(2);
-    } catch (e: any) {
-      setErr(e?.message || "Failed to read file.");
+    } catch (e: unknown) {
+      const msg = (e as Error)?.message || "Failed to read file.";
+      setErr(msg);
     }
   };
 
@@ -378,6 +402,7 @@ export default function Uploads() {
               </button>
             </div>
 
+            {/* steps */}
             <div className="steps">
               <span className={`step ${step >= 1 ? "on" : ""}`}>1</span>
               <span className="step-label">Select CSV file</span>
@@ -389,7 +414,7 @@ export default function Uploads() {
               <span className="step-label">Configure</span>
             </div>
 
-            {err && <div className="err">{err}</div>}
+            {err && <div className="msg error"><span className="m-ico">!</span>{err}</div>}
 
             {/* step 1 & preview grid */}
             {step >= 1 && (
@@ -512,8 +537,10 @@ export default function Uploads() {
                     try {
                       await importToServer();
                       setOpen(false);
-                    } catch (e: any) {
-                      setErr(e?.message || "Import failed");
+                    } catch (e: unknown) {
+                      const msg = (e as Error)?.message || "Import failed";
+                      setErr(msg);
+                      setToast({ kind: "error", text: msg });
                     } finally {
                       setWip(false);
                     }
@@ -533,78 +560,118 @@ export default function Uploads() {
         </div>
       )}
 
-      {/* local styles (keeps your existing look/feel) */}
+      {toast && <Toast kind={toast.kind} text={toast.text} onClose={() => setToast(null)} />}
+
+      {/* local styles (page-scoped, no globals touched) */}
       <style>{`
+        /* page */
         .p-uploads { padding: 14px; }
-        .crumbs { display:flex; gap:8px; align-items:center; color: var(--text-secondary); margin-bottom:10px; }
+        .crumbs { display:flex; gap:8px; align-items:center; color: var(--text-secondary, #64748b); margin-bottom:10px; }
         .crumb-back{ background:none;border:0;color:inherit;cursor:pointer;padding:0; }
         .uploads-head .title { font-weight:750; }
+
+        /* drop zone */
         .dropcard{
           display:grid; place-items:center; text-align:center;
-          margin-top:10px; padding:28px 10px; border:1px dashed var(--line);
-          border-radius:12px; background: color-mix(in srgb, var(--surface-1) 96%, var(--line));
-          cursor:pointer; transition: border-color .15s, background .15s;
+          margin-top:10px; padding:30px 12px; border:1px dashed var(--line, rgba(0,0,0,.1));
+          border-radius:14px; background: color-mix(in srgb, var(--surface-1, #fff) 96%, var(--line, rgba(0,0,0,.06)));
+          cursor:pointer; transition: border-color .18s, background .18s, box-shadow .18s, transform .18s;
+          box-shadow: 0 2px 10px rgba(0,0,0,.02);
         }
-        .dropcard.drag{ border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface-1)); }
-        .upl-icon{ width:40px; height:40px; opacity:.9; }
-        .upl-icon.breathe{ animation: breathe 1.2s ease-in-out infinite; }
+        .dropcard:hover{ transform: translateY(-1px); box-shadow: 0 8px 26px rgba(0,0,0,.06); }
+        .dropcard.drag{
+          border-color: var(--accent, #10b981);
+          background: color-mix(in srgb, var(--accent, #10b981) 8%, var(--surface-1, #fff));
+          box-shadow: 0 12px 36px rgba(16,185,129,.18);
+        }
+        .upl-icon{ width:44px; height:44px; opacity:.9; }
+        .upl-icon.breathe{ animation: breathe 1.4s ease-in-out infinite; }
         @keyframes breathe{ 0%{ transform:scale(1); } 60%{ transform:scale(1.06);} 100%{ transform:scale(1);} }
-        .drop-head{ font-weight:700; margin-top:6px; }
-        .drop-sub{ font-size:12px; color: var(--text-secondary); }
-        .drop-helper{ text-align:center; color: var(--text-secondary); font-size:12px; margin:6px 0 16px; }
+        .drop-head{ font-weight:750; margin-top:8px; }
+        .drop-sub{ font-size:12px; color: var(--text-secondary, #64748b); }
+        .drop-helper{ text-align:center; color: var(--text-secondary, #64748b); font-size:12px; margin:6px 0 16px; }
 
-        .card{ border:1px solid var(--line); border-radius:12px; overflow:hidden; background:var(--surface-1); }
-        .card-head{ padding:10px; border-bottom:1px solid var(--line); font-weight:700; }
+        /* table */
+        .card{ border:1px solid var(--line, rgba(0,0,0,.08)); border-radius:12px; overflow:hidden; background:var(--surface-1, #fff); box-shadow: 0 6px 18px rgba(0,0,0,.05); }
+        .card-head{ padding:12px; border-bottom:1px solid var(--line, rgba(0,0,0,.08)); font-weight:750; }
         .table-wrap{ overflow:auto; }
-        .u-table{ width:100%; border-collapse:collapse; }
-        .u-table th, .u-table td{ padding:10px; border-top:1px solid var(--line); }
-        .u-table th{ text-align:left; font-size:12px; color: var(--text-secondary); }
+        .u-table{ width:100%; border-collapse:separate; border-spacing:0; }
+        .u-table thead th{ position:sticky; top:0; background: #f8fafc; }
+        .u-table th, .u-table td{ padding:11px 12px; border-top:1px solid var(--line, rgba(0,0,0,.08)); }
+        .u-table tbody tr:nth-child(odd){ background:#fbfdff; }
+        .u-table th{ text-align:left; font-size:12px; color: var(--text-secondary, #64748b); }
         .u-table .num{ text-align:right; }
-        .filecell .fname{ font-weight:600; }
-        .filecell .fmeta{ color: var(--text-secondary); margin-left:6px; }
-        .empty{ color: var(--text-secondary); text-align:center; padding:36px 0; }
+        .u-table tbody tr:hover{ background:#f3f7ff; }
+        .filecell .fname{ font-weight:650; }
+        .filecell .fmeta{ color: var(--text-secondary, #64748b); margin-left:6px; }
+        .empty{ color: var(--text-secondary, #64748b); text-align:center; padding:36px 0; }
         .empty-icon{ display:inline-block; transform: rotate(180deg); margin-right:6px; opacity:.6; }
         .pill{ padding:4px 8px; border-radius:999px; font-size:12px; }
         .pill.success{ background: #daf5e6; color:#0a7e3d; }
         .pill.partial{ background:#fff3d6; color:#9a6b00; }
         .pill.failed{ background:#ffe1e1; color:#b91c1c; }
-        .link{ background:none;border:0;color:var(--accent); cursor:default; }
+        .link{ background:none;border:0;color:var(--accent, #10b981); cursor:default; }
 
         /* modal */
-        .modal{ position:fixed; inset:0; background:rgba(0,0,0,.35); display:grid; place-items:center; z-index:70; }
-        .sheet{ width:min(920px, 92vw); background:var(--surface-1); border:1px solid var(--line); border-radius:12px; box-shadow:0 18px 60px rgba(0,0,0,.2); }
-        .sheet-head{ display:flex; justify-content:space-between; align-items:center; padding:12px 14px; border-bottom:1px solid var(--line); }
-        .w-title{ font-weight:750; }
-        .icon-btn{ background:none; border:0; padding:6px 8px; cursor:pointer; opacity:.8; }
-        .steps{ display:flex; align-items:center; gap:6px; padding:10px 14px; border-bottom:1px dashed var(--line); color:var(--text-secondary); }
-        .step{ width:18px; height:18px; border-radius:999px; display:grid; place-items:center; border:1px solid var(--line); font-size:12px; }
-        .step.on{ background: color-mix(in srgb, var(--accent) 20%, transparent); border-color: var(--accent); color: var(--accent-contrast, #000); }
-        .step-label{ margin-right:6px; font-size:12px; }
+        .modal{ position:fixed; inset:0; background:rgba(15,23,42,.45); display:grid; place-items:center; z-index:70; animation: fade .18s ease-out; }
+        @keyframes fade { from { opacity:0 } to { opacity:1 } }
+        .sheet{ width:min(960px, 94vw); background:var(--surface-1, #fff); border:1px solid var(--line, rgba(0,0,0,.08)); border-radius:14px; box-shadow:0 24px 70px rgba(0,0,0,.25); transform: translateY(8px); animation: slide .2s ease-out both; }
+        @keyframes slide { to { transform: translateY(0) } }
+        .sheet-head{ display:flex; justify-content:space-between; align-items:center; padding:14px; border-bottom:1px solid var(--line, rgba(0,0,0,.08)); }
+        .w-title{ font-weight:800; }
+        .icon-btn{ background:none; border:0; padding:6px 8px; cursor:pointer; opacity:.8; border-radius:8px; }
+        .icon-btn:hover{ background:#f1f5f9; }
+
+        /* steps */
+        .steps{ display:flex; align-items:center; gap:8px; padding:12px 14px; border-bottom:1px dashed var(--line, rgba(0,0,0,.08)); color:var(--text-secondary, #64748b); }
+        .step{ width:20px; height:20px; border-radius:999px; display:grid; place-items:center; border:1px solid var(--line, rgba(0,0,0,.18)); font-size:12px; }
+        .step.on{ background: color-mix(in srgb, var(--accent, #10b981) 18%, transparent); border-color: var(--accent, #10b981); color: #065f46; font-weight:700; }
+        .step-label{ margin-right:4px; font-size:12px; }
         .chev{ opacity:.6; margin:0 2px; }
 
+        /* messages */
+        .msg{ margin:12px 14px; padding:10px 12px; border-radius:10px; display:flex; gap:8px; align-items:flex-start; }
+        .msg.error{ color:#7f1d1d; background:#ffe8e8; border:1px solid #f7b3b3; }
+        .m-ico{ font-weight:900; line-height:1; }
+
+        /* step content */
         .s1{ padding:12px 14px; }
         .filebadge{ font-size:14px; margin-bottom:10px; }
-        .preview .p-head{ font-weight:700; margin:6px 0; }
-        .p-grid{ max-height:240px; overflow:auto; border:1px solid var(--line); border-radius:8px; }
-        .p-row{ display:grid; grid-template-columns: repeat(auto-fit, minmax(120px,1fr)); border-top:1px solid var(--line); }
-        .p-row--head{ position:sticky; top:0; background: color-mix(in srgb, var(--surface-1) 92%, var(--line)); font-weight:700; }
-        .p-cell{ padding:8px 10px; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
-        .map{ padding:12px 14px; display:grid; gap:10px; }
-        .map-grid-2{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
-        .map-row label{ display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px; }
-        .select{ width:100%; border:1px solid var(--line); background:var(--surface-1); color:inherit; border-radius:8px; padding:8px 10px; }
-        .hint{ font-size:12px; color:#9a6b00; background:#fff6db; border:1px solid #f7e7b2; padding:8px 10px; border-radius:8px; }
+        .preview .p-head{ font-weight:800; margin:6px 0 8px; }
+        .p-grid{ max-height:260px; overflow:auto; border:1px solid var(--line, rgba(0,0,0,.08)); border-radius:10px; box-shadow: inset 0 1px 0 rgba(255,255,255,.7); }
+        .p-row{ display:grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); border-top:1px solid var(--line, rgba(0,0,0,.08)); }
+        .p-row--head{ position:sticky; top:0; background: #f8fafc; font-weight:700; z-index:1; }
+        .p-cell{ padding:9px 10px; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .p-row:nth-child(odd){ background:#fbfdff; }
 
-        .cfg{ padding:12px 14px; display:grid; gap:10px; }
-        .opt-row{ display:grid; gap:6px; }
+        .map{ padding:12px 14px; display:grid; gap:12px; }
+        .map-grid-2{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+        .map-row label{ display:block; font-size:12px; color: var(--text-secondary, #64748b); margin-bottom:6px; font-weight:600; letter-spacing:.01em; }
+        .select{ width:100%; border:1px solid var(--line, rgba(0,0,0,.08)); background:var(--surface-1, #fff); color:inherit; border-radius:10px; padding:9px 10px; transition: box-shadow .12s, border-color .12s; }
+        .select:focus{ outline:0; border-color: var(--accent, #10b981); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #10b981) 28%, #0000); }
+        .hint{ font-size:12px; color:#9a6b00; background:#fff6db; border:1px solid #f7e7b2; padding:9px 10px; border-radius:10px; }
+
+        .cfg{ padding:12px 14px; display:grid; gap:12px; }
+        .opt-row{ display:grid; gap:8px; }
         .chk{ display:flex; align-items:center; gap:8px; }
-        .text{ border:1px solid var(--line); background:var(--surface-1); color:inherit; border-radius:8px; padding:8px 10px; }
+        .text{ border:1px solid var(--line, rgba(0,0,0,.08)); background:var(--surface-1, #fff); color:inherit; border-radius:10px; padding:9px 10px; }
+        .text:focus{ outline:0; border-color: var(--accent, #10b981); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #10b981) 28%, #0000); }
 
-        .sheet-foot{ display:flex; justify-content:flex-end; gap:8px; padding:12px 14px; border-top:1px solid var(--line); }
-        .btn-outline{ background:transparent; border:1px solid var(--line); border-radius:10px; padding:8px 12px; }
-        .btn-primary{ background: var(--accent); color: var(--accent-contrast, #fff); border:0; border-radius:10px; padding:8px 12px; }
-        .err{ margin:10px 14px; color:#b91c1c; background:#ffe8e8; border:1px solid #f7b3b3; padding:8px 10px; border-radius:8px; }
+        .sheet-foot{ display:flex; justify-content:flex-end; gap:8px; padding:12px 14px; border-top:1px solid var(--line, rgba(0,0,0,.08)); }
+        .btn-outline{ background:transparent; border:1px solid var(--line, rgba(0,0,0,.12)); border-radius:12px; padding:9px 12px; }
+        .btn-outline:hover{ background:#f8fafc; }
+        .btn-primary{ background: var(--accent, #10b981); color: var(--accent-contrast, #fff); border:0; border-radius:12px; padding:9px 12px; transition: transform .05s; }
+        .btn-primary:active{ transform: translateY(1px) scale(.995); }
+
+        /* toast */
+        .toast{ position:fixed; right:16px; bottom:16px; display:flex; gap:10px; align-items:center; padding:10px 12px; border-radius:12px; border:1px solid var(--line, rgba(0,0,0,.08)); box-shadow: 0 8px 26px rgba(0,0,0,.12); background:#fff; z-index:90; animation: pop .14s ease-out both; }
+        @keyframes pop { from { transform: translateY(4px); opacity:0 } to { transform: translateY(0); opacity:1 } }
+        .toast.success{ background:#ecfdf5; border-color:#a7f3d0; color:#065f46; }
+        .toast.error{ background:#fef2f2; border-color:#fecaca; color:#7f1d1d; }
+        .t-ico{ font-weight:900; }
+        .t-x{ background:transparent; border:0; font-size:18px; line-height:1; margin-left:4px; cursor:pointer; opacity:.7; }
+        .t-x:hover{ opacity:1; }
       `}</style>
     </div>
   );
