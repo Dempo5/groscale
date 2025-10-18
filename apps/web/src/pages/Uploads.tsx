@@ -65,19 +65,25 @@ function normalizeHeader(h: string): string {
   const k = (h || "").replace(/\uFEFF/g, "").trim().toLowerCase().replace(/\s+/g, " ");
   return HMAP[k] || k;
 }
-function guessDelimiter(sample: string): "," | ";" | "\t" | "|" {
+function guessDelimiter(sample: string): string {
   const cand = [",", ";", "\t", "|"] as const;
   const lines = sample.split(/\r?\n/).slice(0, 8);
-  let best = cand[0], bestScore = -1;
+  let best: string = cand[0];
+  let bestScore = -1;
   for (const ch of cand) {
     const counts = lines.map((l) => (l.match(new RegExp(ch, "g")) || []).length);
     const avg = counts.reduce((a, b) => a + b, 0) / (counts.length || 1);
-    const variance = counts.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / (counts.length || 1);
+    const variance =
+      counts.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / (counts.length || 1);
     const score = avg - Math.sqrt(variance);
-    if (score > bestScore) { bestScore = score; best = ch; }
+    if (score > bestScore) {
+      bestScore = score;
+      best = ch;
+    }
   }
   return best;
 }
+
 
 /* -------------------------------- page --------------------------------- */
 export default function Uploads() {
