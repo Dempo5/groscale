@@ -245,3 +245,33 @@ export async function copilotDraft(
     signal: opts?.signal,
   });
 }
+
+// ADD at bottom of file:
+
+export type CsvMapping = {
+  name?: string;
+  first?: string;
+  last?: string;
+  email?: string;
+  phone?: string;
+  tags?: string;
+  note?: string;
+};
+
+export async function uploadLeadsMapped(
+  file: File,
+  mapping: CsvMapping,
+  opts?: {
+    ignoreDuplicates?: boolean;
+    tags?: string[];
+  }
+): Promise<UploadSummary & { meta?: any; stats?: any; confidence?: any }> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("mapping", JSON.stringify(mapping || {}));
+  form.append("options", JSON.stringify(opts || {}));
+  return http<UploadSummary & { meta?: any; stats?: any; confidence?: any }>(
+    "/api/uploads/import",
+    { method: "POST", body: form }
+  );
+}
