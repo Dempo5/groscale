@@ -6,59 +6,37 @@ import authRoute from "./routes/auth.js";
 import uploadsRouter from "./routes/uploads.js";
 import numbersRouter from "./routes/numbers.js";
 import workflowsRouter from "./routes/workflows.js";
-import copilotRouter from "./routes/copilot.js"; // ✅ NEW
+import copilotRouter from "./routes/copilot.js";
 
-// ----- env -----
+// ---------- Env ----------
 const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
 
-// normalize and cache env allow-list
-const envAllowed = (process.env.ALLOWED_ORIGINS || "")
-  .split(",")
-  .map((s) => s.trim().replace(/\/+$/, "")) // strip trailing slash
-  .filter(Boolean);
-
-// ----- app -----
-const app = express();
-app.use(express.json());
-
-// ----- env -----
-const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
-
-// Normalize origins to consistent "scheme://host[:port]"
 function norm(u?: string | null) {
   if (!u) return "";
   try { return new URL(u).origin; } catch { return (u || "").replace(/\/+$/, ""); }
 }
 
-// Parse env and pre-normalize all allowed origins once
-const ALLOWED_ORIGINS_ENV = process.env.ALLOWED_ORIGINS || "";
-const allowedOrigins: string[] = ALLOWED_ORIGINS_ENV
+const allowedOriginsFromEnv = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
   .map((s) => norm(s.trim()))
   .filter(Boolean);
 
-// Accept any vercel/onrender previews + localhost by regex
+// Allow Vercel/Render previews + localhost by regex too
 const allowRegex = /(\.vercel\.app|\.onrender\.com|localhost)(:\d+)?$/;
 
-// ----- app -----
+// ---------- App ----------
 const app = express();
 app.use(express.json());
 
-// ----- CORS -----
+// ---------- CORS ----------
 app.use(
   cors({
     origin(origin, cb) {
-      // allow same-origin / server-to-server
-      if (!origin) return cb(null, true);
-
+      if (!origin) return cb(null, true); // same-origin / server-to-server
       const o = norm(origin);
-      const ok =
-        allowedOrigins.includes(o) || // explicit allowlist from env
-        allowRegex.test(o);           // previews + localhost
-
+      const ok = allowedOriginsFromEnv.includes(o) || allowRegex.test(o);
       if (ok) return cb(null, true);
-
-      console.warn("[CORS] Blocked origin:", origin, "allowed:", allowedOrigins);
+      console.warn("[CORS] Blocked:", origin, "Allowed:", allowedOriginsFromEnv);
       return cb(new Error("Not allowed by CORS"));
     },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -67,12 +45,7 @@ app.use(
   })
 );
 
-// Make sure OPTIONS preflights succeed everywhere
-app.options("*", cors());
-
-
-
-// ensure preflight always ok
+// Preflight
 app.options("*", cors());
 
 // ---------- Health ----------
@@ -85,7 +58,7 @@ app.use("/api/auth", authRoute);
 app.use("/api/uploads", uploadsRouter);
 app.use("/api/numbers", numbersRouter);
 app.use("/api/workflows", workflowsRouter);
-app.use("/api/copilot", copilotRouter); // ✅ NEW
+app.use("/api/copilot", copilotRouter);
 
 // ---------- Demo leads (placeholder) ----------
 app.get("/api/leads", (_req: Request, res: Response) => {
@@ -99,8 +72,7 @@ app.get("/api/leads", (_req: Request, res: Response) => {
 app.get("/", (_req: Request, res: Response) => {
   res
     .type("text")
-    .send(
-      `GroScale API is running ✅
+    .send(`GroScale API is running ✅
 
 Try:
 /health
@@ -109,8 +81,7 @@ POST /api/auth/login
 POST /api/uploads
 GET  /api/leads
 GET  /api/workflows
-POST /api/copilot/draft`
-    );
+POST /api/copilot/draft`);
 });
 
 // ---------- 404 ----------
