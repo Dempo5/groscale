@@ -13,19 +13,22 @@ const PORT = Number(process.env.PORT || 10000);
 /* ---------------- helpers ---------------- */
 const norm = (u?: string | null) => {
   if (!u) return "";
-  try { return new URL(u).origin; } catch { return String(u).replace(/\/+$/, ""); }
+  try {
+    return new URL(u).origin;
+  } catch {
+    return String(u).replace(/\/+$/, "");
+  }
 };
 
 const envList = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
-  .map(s => norm(s.trim()))
+  .map((s) => norm(s.trim()))
   .filter(Boolean);
 
-// Always allow Vercel previews, Render domain, and localhost
 const allowRegex = /(localhost(:\d+)?|\.vercel\.app|\.onrender\.com)$/;
 
 const isAllowedOrigin = (origin?: string | null) => {
-  if (!origin) return true;            // curl/server-to-server/same-origin
+  if (!origin) return true;
   const o = norm(origin);
   return envList.includes(o) || allowRegex.test(o);
 };
@@ -36,7 +39,7 @@ app.use(express.json());
 
 /* ---------------- CORS ---------------- */
 const corsDelegate: CorsOptionsDelegate = (req, cb) => {
-  const origin = req.header("Origin");
+  const origin = req.headers.origin; // ✅ FIX: use headers (plural)
   const ok = isAllowedOrigin(origin);
   const opts = {
     origin: ok,
@@ -48,23 +51,20 @@ const corsDelegate: CorsOptionsDelegate = (req, cb) => {
   cb(null, opts);
 };
 
-// Primary CORS middleware
 app.use(cors(corsDelegate));
 
-// Robust fallback for any OPTIONS that might slip past (some proxies are picky)
-app.use((req, res, next) => {
-  if (req.method === "OPTIONS") {
-    const origin = req.header("Origin") || "*";
-    if (isAllowedOrigin(origin)) {
-      res.header("Access-Control-Allow-Origin", origin);
-      res.header("Vary", "Origin");
-      res.header("Access-Control-Allow-Credentials", "true");
-      res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-      res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-      return res.status(204).end();
-    }
+// Fallback OPTIONS handler for some strict browsers/proxies
+app.options("*", (req, res) => {
+  const origin = req.headers.origin || "*";
+  if (isAllowedOrigin(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
+    res.header("Vary", "Origin");
+    res.header("Access-Control-Allow-Credentials", "true");
+    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+    return res.status(204).end();
   }
-  next();
+  return res.status(403).json({ error: "Not allowed by CORS" });
 });
 
 /* ---------------- health ---------------- */
@@ -79,7 +79,7 @@ app.use("/api/numbers", numbersRouter);
 app.use("/api/workflows", workflowsRouter);
 app.use("/api/copilot", copilotRouter);
 
-/* ---------------- demo data ---------------- */
+/* ---------------- demo ---------------- */
 app.get("/api/leads", (_req, res) => {
   res.json([
     { id: 1, name: "Test Lead", email: "lead@example.com" },
@@ -89,7 +89,9 @@ app.get("/api/leads", (_req, res) => {
 
 /* ---------------- root ---------------- */
 app.get("/", (_req, res) => {
-  res.type("text").send(`GroScale API is running ✅
+  res
+    .type("text")
+    .send(`GroScale API is running ✅
 
 Try:
 /health
@@ -101,7 +103,7 @@ GET  /api/workflows
 POST /api/copilot/draft`);
 });
 
-/* ---------------- 404 & errors ---------------- */
+/* ---------------- errors ---------------- */
 app.use((_req, res) => res.status(404).json({ error: "Not found" }));
 
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
