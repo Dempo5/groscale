@@ -17,6 +17,9 @@ export type UploadSummary = {
   duplicates?: number;
   invalids?: number;
   errors?: string[];
+  // NEW: what the UI should show in the "LEADS" column
+  // (we derive this from server stats so it's the real count from the CSV)
+  leads?: number;
 };
 
 type AuthPayload = { email: string; password: string; name?: string };
@@ -99,10 +102,35 @@ export async function getLeads(): Promise<Lead[]> {
 export async function uploadLeads(file: File): Promise<UploadSummary> {
   const form = new FormData();
   form.append("file", file);
-  return http<UploadSummary>("/api/uploads/import", {
+
+  // Get the rich server response
+  const data = await http<any>("/api/uploads/import", {
     method: "POST",
     body: form, // let browser set multipart boundary
   });
+
+  // Derive the number your UI should show in the LEADS column:
+  // Prefer validRows (rows with name + email|phone), fall back to totalRows,
+  // and lastly derive from buckets if needed.
+  const leads =
+    data?.stats?.validRows ??
+    data?.stats?.totalRows ??
+    (typeof data?.inserted === "number" &&
+     typeof data?.duplicates === "number" &&
+     typeof data?.invalids === "number"
+       ? data.inserted + data.duplicates + data.invalids
+       : undefined);
+
+  return {
+    ok: !!data?.ok,
+    inserted: data?.inserted ?? 0,
+    skipped: data?.skipped ?? 0,
+    // Server "duplicates" should be DB dupes (already uploaded)
+    duplicates: data?.duplicates ?? 0,
+    invalids: data?.invalids ?? 0,
+    errors: data?.errors ?? [],
+    leads, // <- real count from CSV parsing
+  };
 }
 
 /* ---------------- phone numbers ---------------- */
@@ -202,18 +230,18 @@ export type CopilotDraftRequest = {
 
 export type CopilotDraftResponse = {
   ok: boolean;
-  draft?: string;          // <-- optional when ok === false
-  error?: string;          // <-- add error so TS stops complaining
+  draft?: string;          // optional when ok === false
+  error?: string;          // surface backend error reason when present
   meta?: Record<string, any>;
 };
 
 export async function copilotDraft(
   input: CopilotDraftRequest,
-  opts?: { signal?: AbortSignal }   // <-- optional; does not break existing callers
+  opts?: { signal?: AbortSignal }
 ): Promise<CopilotDraftResponse> {
   return http<CopilotDraftResponse>("/api/copilot/draft", {
     method: "POST",
     body: JSON.stringify(input),
-    signal: opts?.signal,          // pass through if provided
+    signal: opts?.signal,
   });
 }
