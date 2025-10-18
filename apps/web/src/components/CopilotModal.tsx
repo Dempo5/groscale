@@ -22,10 +22,9 @@ export default function CopilotModal({ open, onClose }: Props) {
   // Focus textarea when modal opens
   useEffect(() => {
     if (open) {
-      // use window.setTimeout to avoid TS2554 in Vite/DOM builds
       window.setTimeout(() => taRef.current?.focus(), 0);
     } else {
-      // reset transient error state when fully closed
+      // reset state when closed
       setError(null);
       setPrompt("");
       setAnswer("");
@@ -48,28 +47,25 @@ export default function CopilotModal({ open, onClose }: Props) {
     if (e.target === dlgRef.current) onClose();
   };
 
-  // 🚀 Use backend helper (no more 405)
+  // Ask backend for a draft
   const ask = async () => {
-  const q = prompt.trim();
-  if (!q) return;
+    const q = prompt.trim();
+    if (!q) return;
 
-  setLoading(true);
-  setError(null);
-  setAnswer("");
+    setLoading(true);
+    setError(null);
+    setAnswer("");
 
-  try {
-    // ✅ uses VITE_API_URL under the hood
-    const data = await copilotDraft({ lastMessage: q, tone: "friendly" });
-    if (!data.ok) throw new Error("Copilot failed");
-    setAnswer((data.draft || "").trim());
-  } catch (err: any) {
-    // show base + message to quickly see if URL is wrong
-    setError(`(${BASE || "no BASE"}) ${err?.message || "Request failed"}`);
-  } finally {
-    setLoading(false);
-  }
-};
-
+    try {
+      const data = await copilotDraft({ lastMessage: q, tone: "friendly" });
+      if (!data.ok) throw new Error("Copilot failed");
+      setAnswer((data.draft || "").trim());
+    } catch (err: any) {
+      setError(err?.message || "Request failed");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (!open) return null;
 
@@ -86,7 +82,6 @@ export default function CopilotModal({ open, onClose }: Props) {
         <div className="gs-copilot-head">
           <div className="gs-copilot-title">AI Copilot</div>
           <button className="icon-btn" onClick={onClose} aria-label="Close">
-            {/* X icon */}
             <svg
               width="18"
               height="18"
