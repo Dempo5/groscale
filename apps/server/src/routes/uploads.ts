@@ -122,6 +122,9 @@ router.post("/import", upload.single("file"), async (req, res) => {
   const text = req.file.buffer.toString("utf8");
   const delimiter = guessDelimiter(text);
 
+  let originalHeaders: string[] = [];
+  let normalizedHeaders: string[] = [];
+
   let rows: any[] = [];
   try {
     rows = parse(text, {
@@ -129,40 +132,66 @@ router.post("/import", upload.single("file"), async (req, res) => {
       bom: true,
       trim: true,
       relax_column_count: true,
-      columns: (hdrs: string[]) => hdrs.map(normalizeHeader),
+      columns: (hdrs: string[]) => {
+        originalHeaders = hdrs.map(h => String(h).replace(/\uFEFF/g, "").trim());
+        normalizedHeaders = originalHeaders.map(normalizeHeader);
+        return normalizedHeaders;
+      },
     });
   } catch (e: any) {
     return res.status(400).json({ ok: false, error: "Invalid CSV/headers", details: e?.message });
   }
 
+  // Build a mapping from canonical field -> ORIGINAL header we used
+  const firstIdx = normalizedHeaders.indexOf("first");
+  const lastIdx  = normalizedHeaders.indexOf("last");
+  const nameIdx  = normalizedHeaders.indexOf("name");
+  const emailIdx = normalizedHeaders.indexOf("email");
+  const phoneIdx = normalizedHeaders.indexOf("phone");
+  const tagsIdx  = normalizedHeaders.indexOf("tags");
+  const noteIdx  = normalizedHeaders.indexOf("note");
+
+  const mappingUsed = {
+    name:  nameIdx  >= 0 ? originalHeaders[nameIdx]  : undefined,
+    first: firstIdx >= 0 ? originalHeaders[firstIdx] : undefined,
+    last:  lastIdx  >= 0 ? originalHeaders[lastIdx]  : undefined,
+    email: emailIdx >= 0 ? originalHeaders[emailIdx] : undefined,
+    phone: phoneIdx >= 0 ? originalHeaders[phoneIdx] : undefined,
+    tags:  tagsIdx  >= 0 ? originalHeaders[tagsIdx]  : undefined,
+    note:  noteIdx  >= 0 ? originalHeaders[noteIdx]  : undefined,
+  };
+
   let inserted = 0, duplicates = 0, invalids = 0, skipped = 0;
   const seen = new Set<string>();
   const errors: string[] = [];
+  const mappedSamples: Array<{ name?: string; email?: string; phone?: string; tags?: string[]; note?: string }> = [];
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i] || {};
 
-    // Pull any recognized fields (supporting your headers)
-    const first = r.first;
-    const last  = r.last;
-    const name  = combineName(r.name, first, last);
+    const first = firstIdx >= 0 ? r["first"] : undefined;
+    const last  = lastIdx  >= 0 ? r["last"]  : undefined;
+    const name  = combineName(nameIdx >= 0 ? r["name"] : undefined, first, last);
 
-    // prefer 'email' and the best available phone-like column
-    const email = asEmail(r.email);
-    const phone = asPhone(r.phone || r["primaryPhc"] || r["phone2"] || r["phone number"] || r["mobile"] || r["cell"]);
+    const email = asEmail(emailIdx >= 0 ? r["email"] : undefined);
+    const phone = asPhone(phoneIdx >= 0 ? r["phone"] : undefined, "US");
 
-    const tags  = (r.tags || "")
-      .toString()
+    const tags  = (tagsIdx >= 0 && r["tags"]
+      ? String(r["tags"])
+      : "")
       .split(",")
       .map((t: string) => t.trim())
       .filter(Boolean);
 
-    const note  = (r.note || "").toString().trim() || undefined;
+    const note  = noteIdx >= 0 && r["note"] ? String(r["note"]).trim() : undefined;
+
+    if (mappedSamples.length < 10) {
+      mappedSamples.push({ name, email, phone, tags: tags.length ? tags : undefined, note });
+    }
 
     const key = email || phone;
     if (!name || !key) { invalids++; continue; }
 
-    // de-dupe within this file
     if (seen.has(key)) { duplicates++; continue; }
     seen.add(key);
 
@@ -175,6 +204,15 @@ router.post("/import", upload.single("file"), async (req, res) => {
     }
   }
 
+  // quick confidence hint
+  const emailHits = mappedSamples.filter(s => s.email).length;
+  const phoneHits = mappedSamples.filter(s => s.phone).length;
+  const confidence = {
+    emailDetected: emailHits >= 3,
+    phoneDetected: phoneHits >= 3,
+    note: `sample emails=${emailHits}, phones=${phoneHits}`,
+  };
+
   return res.json({
     ok: true,
     inserted,
@@ -182,7 +220,12 @@ router.post("/import", upload.single("file"), async (req, res) => {
     invalids,
     skipped,
     errors,
-    meta: { delimiter },
+    meta: {
+      delimiter,
+      mappingUsed,      // tells you which ORIGINAL headers were used
+      sampleMapped: mappedSamples, // first 10 rows as parsed on the server
+    },
+    confidence,
   });
 });
 
