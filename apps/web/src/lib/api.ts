@@ -255,25 +255,37 @@ export async function updateWorkflow(id: string, patch: Partial<Workflow>): Prom
 /* ---------------- copilot (draft assistant) ---------------- */
 
 export type CopilotDraftRequest = {
-  /** last inbound/outbound message or short context prompt */
   lastMessage: string;
-  /** optional writing style */
   tone?: "friendly" | "neutral" | "formal" | "casual";
-  /** optional goal, e.g. “book call”, “qualify lead” */
   goal?: string;
 };
 
 export type CopilotDraftResponse = {
   ok: boolean;
-  draft: string;          // the suggested reply text
+  draft: string;
   meta?: Record<string, any>;
 };
 
 export async function copilotDraft(
   input: CopilotDraftRequest
 ): Promise<CopilotDraftResponse> {
-  return http<CopilotDraftResponse>("/api/copilot/draft", {
+  // ✅ Use full backend base URL if defined (e.g. https://your-api.onrender.com)
+  const base =
+    (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/+$/, "") ||
+    "";
+  const path = `${base}/api/copilot/draft`;
+
+  const res = await fetch(path, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify(input),
   });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `${res.status} ${res.statusText}`);
+  }
+
+  return (await res.json()) as CopilotDraftResponse;
 }
