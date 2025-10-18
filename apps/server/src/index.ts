@@ -10,9 +10,11 @@ import copilotRouter from "./routes/copilot.js"; // ✅ NEW
 
 // ----- env -----
 const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
+
+// normalize and cache env allow-list
+const envAllowed = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
-  .map((s) => s.trim())
+  .map((s) => s.trim().replace(/\/+$/, "")) // strip trailing slash
   .filter(Boolean);
 
 // ----- app -----
@@ -23,10 +25,22 @@ app.use(express.json());
 app.use(
   cors({
     origin(origin, cb) {
-      // allow same-origin / curl / server-to-server
+      // allow same-origin / server-to-server / curl
       if (!origin) return cb(null, true);
-      if (allowedOrigins.includes(origin)) return cb(null, true);
-      if (/\.vercel\.app$/.test(origin)) return cb(null, true); // preview URLs
+
+      const o = origin.trim().replace(/\/+$/, "");
+
+      const isEnvAllowed = envAllowed.includes(o);
+      const isVercel = /^https?:\/\/[a-z0-9-]+\.vercel\.app$/i.test(o);
+      const isRender = /^https?:\/\/[a-z0-9.-]+\.onrender\.com$/i.test(o);
+      const isLocalhost = /^https?:\/\/localhost(?::\d+)?$/i.test(o);
+
+      if (isEnvAllowed || isVercel || isRender || isLocalhost) {
+        return cb(null, true);
+      }
+
+      // helpful debug so you can copy/paste into ALLOWED_ORIGINS
+      console.warn(`[CORS] Blocked Origin: ${o}`);
       return cb(new Error("Not allowed by CORS"));
     },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -34,6 +48,8 @@ app.use(
     credentials: true,
   })
 );
+
+// ensure preflight always ok
 app.options("*", cors());
 
 // ---------- Health ----------
