@@ -1,6 +1,6 @@
 // apps/web/src/pages/Tags.tsx
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState, useId } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
   getTags,
   createTag,
@@ -27,7 +27,41 @@ const PALETTE = [
   "#6b7280", // gray
 ];
 
+/* ---------- Reusable color wheel chip (label+input binding = always clickable) ---------- */
+function WheelChip({
+  value,
+  onChange,
+  selected,
+  title,
+}: {
+  value: string | null;
+  onChange: (hex: string) => void;
+  selected: boolean;
+  title?: string;
+}) {
+  const inputId = useId();
+  return (
+    <div className="wheel-wrap">
+      <input
+        id={inputId}
+        type="color"
+        className="visually-hidden-color"
+        value={value ?? "#888888"}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label="Custom color"
+      />
+      <label
+        htmlFor={inputId}
+        className={`chip wheel ${selected ? "sel" : ""}`}
+        title={title || value || "Custom color"}
+      />
+    </div>
+  );
+}
+
 export default function Tags() {
+  const nav = useNavigate();
+
   const [busy, setBusy] = useState<BusyState>("loading");
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
@@ -102,7 +136,6 @@ export default function Tags() {
       setBusy("saving");
       const tag = await createTag({
         name: n,
-        // API accepts nulls; normalize empty string to null
         color: newColor ?? null,
         workflowId: null,
       } as any);
@@ -154,14 +187,17 @@ export default function Tags() {
     }
   }
 
-  // Helpers to detect “custom” color (not from preset list)
+  // Helpers to detect custom color vs palette
   const isCustom = (v: string | null) => !!(v && !PALETTE.includes(v));
 
   return (
     <div className="p-tags">
       <div className="page-h">
         <div className="left">
-          <Link className="back" to="/dashboard">← Back</Link>
+          {/* Always-visible back button */}
+          <Link className="back" to="/dashboard" onClick={(e) => { e.preventDefault(); nav("/dashboard"); }}>
+            ← Back to Dashboard
+          </Link>
           <div>
             <div className="title">Tags</div>
             <div className="sub">
@@ -185,7 +221,7 @@ export default function Tags() {
           onKeyDown={(e) => e.key === "Enter" && onCreate()}
         />
 
-        {/* palette chips */}
+        {/* palette + wheel */}
         <div className="chips" role="radiogroup" aria-label="Tag color">
           {PALETTE.map((c) => (
             <button
@@ -199,18 +235,12 @@ export default function Tags() {
             />
           ))}
 
-          {/* custom color trigger (looks like a chip; opens hidden <input type="color">) */}
-          <button
-            className={`chip wheel ${isCustom(newColor) ? "sel" : ""}`}
-            onClick={(e) => (e.currentTarget.nextElementSibling as HTMLInputElement)?.click()}
-            title={newColor ?? "Custom color"}
-          />
-          <input
-            type="color"
-            className="hidden-color"
-            value={newColor ?? "#888888"}
-            onChange={(e) => setNewColor(e.target.value)}
-            aria-label="Custom color"
+          {/* Reliable wheel (click label triggers input) */}
+          <WheelChip
+            value={newColor}
+            onChange={(hex) => setNewColor(hex)}
+            selected={isCustom(newColor)}
+            title="Pick custom color"
           />
 
           {/* show hex box only if using a custom color */}
@@ -296,18 +326,11 @@ export default function Tags() {
                         />
                       ))}
 
-                      {/* custom color trigger for editor */}
-                      <button
-                        className={`chip wheel ${isCustom(color) ? "sel" : ""}`}
-                        onClick={(e) => (e.currentTarget.nextElementSibling as HTMLInputElement)?.click()}
-                        title={color ?? "Custom color"}
-                      />
-                      <input
-                        type="color"
-                        className="hidden-color"
-                        value={color ?? "#888888"}
-                        onChange={(e) => setColor(e.target.value)}
-                        aria-label="Custom color"
+                      <WheelChip
+                        value={color}
+                        onChange={(hex) => setColor(hex)}
+                        selected={isCustom(color)}
+                        title="Pick custom color"
                       />
 
                       {/* clear color */}
@@ -363,8 +386,9 @@ const CSS = `
 .page-h .left{display:flex;align-items:flex-start;gap:12px}
 .back{
   display:inline-flex;align-items:center;gap:6px;
-  height:32px;padding:0 10px;border-radius:8px;
+  height:36px;padding:0 12px;border-radius:10px;
   background:#fff;border:1px solid #e5e7eb;color:#111;text-decoration:none;
+  font-weight:600;
 }
 .back:hover{background:#f8fafc}
 
@@ -391,17 +415,22 @@ const CSS = `
 }
 .chip.sel{box-shadow:0 0 0 2px #10b981}
 .chip.sel::after{content:"";position:absolute;inset:5px;border:2px solid #fff;border-radius:999px}
+
+/* clear chip */
 .chip.none{
   display:grid;place-items:center;background:#f3f4f6;color:#111;border:1px dashed #d1d5db;font-weight:700;width:26px;height:26px
 }
 
-/* custom color chip (wheel) */
+/* wheel chip always clickable thanks to label+input */
+.wheel-wrap{position:relative}
 .chip.wheel{
   width:26px;height:26px;border-radius:999px;border:2px solid #fff;
   background:conic-gradient(#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00);
-  box-shadow:0 0 0 1px #e5e7eb
+  box-shadow:0 0 0 1px #e5e7eb;cursor:pointer
 }
-.hidden-color{position:absolute;left:-9999px;top:-9999px}
+.visually-hidden-color{
+  position:absolute;left:-9999px;top:-9999px;width:0;height:0;opacity:0;pointer-events:none
+}
 
 /* hex input shown when using a custom color */
 .hex{
