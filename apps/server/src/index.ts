@@ -1,13 +1,13 @@
 // apps/server/src/index.ts
 import express, { Request, Response, NextFunction } from "express";
 
-// ESM imports must include .js
+// ESM route imports must include .js
 import authRoute from "./routes/auth.js";
 import uploadsRouter from "./routes/uploads.js";
 import numbersRouter from "./routes/numbers.js";
 import workflowsRouter from "./routes/workflows.js";
 import copilotRouter from "./routes/copilot.js";
-import tagsRouter from "./routes/tags.js"; // ✅ NEW
+import tagsRouter from "./routes/tags.js"; // ← NEW
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
 
@@ -40,7 +40,6 @@ function corsGuard(req: Request, res: Response, next: NextFunction) {
     allowRegex.test(origin); // preview domains + localhost
 
   if (allowed) {
-    // Vary=Origin so caches don’t mix responses for different origins
     res.header("Vary", "Origin");
     if (origin) res.header("Access-Control-Allow-Origin", origin);
     else res.header("Access-Control-Allow-Origin", "*");
@@ -51,21 +50,17 @@ function corsGuard(req: Request, res: Response, next: NextFunction) {
       "GET,POST,PUT,PATCH,DELETE,OPTIONS"
     );
 
-    if (req.method === "OPTIONS") {
-      // Always succeed preflight
-      return res.sendStatus(204);
-    }
+    if (req.method === "OPTIONS") return res.sendStatus(204);
     return next();
   }
 
-  // Blocked by CORS (still answer preflight clearly)
   if (req.method === "OPTIONS") return res.sendStatus(403);
   return res.status(403).json({ error: "Not allowed by CORS" });
 }
 
 const app = express();
 app.use(express.json());
-app.use(corsGuard); // <-- our CORS & preflight handler FIRST
+app.use(corsGuard);
 
 // ---------- Health ----------
 app.get("/health", (_req, res) => {
@@ -78,7 +73,7 @@ app.use("/api/uploads", uploadsRouter);
 app.use("/api/numbers", numbersRouter);
 app.use("/api/workflows", workflowsRouter);
 app.use("/api/copilot", copilotRouter);
-app.use("/api/tags", tagsRouter); // ✅ NEW
+app.use("/api/tags", tagsRouter); // ← NEW
 
 // ---------- Demo ----------
 app.get("/api/leads", (_req, res) => {
@@ -90,7 +85,9 @@ app.get("/api/leads", (_req, res) => {
 
 // ---------- Root ----------
 app.get("/", (_req, res) => {
-  res.type("text").send(`GroScale API is running ✅
+  res
+    .type("text")
+    .send(`GroScale API is running ✅
 
 Try:
 /health
