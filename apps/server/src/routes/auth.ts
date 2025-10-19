@@ -1,7 +1,7 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { signToken, requireAuth, AuthedRequest } from "../middleware/auth.js";
-import { PrismaClient, Prisma } from "@prisma/client"; // <-- import Prisma as well
+import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -22,8 +22,9 @@ router.post("/register", async (req, res) => {
     const token = signToken(user.id);
     res.json({ token, user });
   } catch (e: any) {
-    // unique constraint (email) guard
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+    // Prisma unique constraint (email) -> P2002
+    const code = e?.code as string | undefined;
+    if (code === "P2002") {
       return res.status(409).json({ error: "Email already in use" });
     }
     console.error("register error:", e);
@@ -42,7 +43,9 @@ router.post("/login", async (req, res) => {
       where: { email },
       select: { id: true, email: true, name: true, hashedPassword: true },
     });
-    if (!u?.hashedPassword) return res.status(401).json({ error: "Invalid credentials" });
+    if (!u?.hashedPassword) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
 
     const ok = await bcrypt.compare(password, u.hashedPassword);
     if (!ok) return res.status(401).json({ error: "Invalid credentials" });
