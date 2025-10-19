@@ -1,12 +1,11 @@
-// apps/server/src/routes/workflows.ts
 import { Router } from "express";
-import { PrismaClient, StepType, WorkflowStatus } from "@prisma/client";
+import { prisma } from "../../prisma.js"; // single prisma import
 
 const router = Router();
-const prisma = new PrismaClient();
 
-// NOTE: auth is not enforced yet (ownerId is null).
-// Wire to your requireAuth + ownerId later.
+// If your schema uses enums, these string literals keep TS happy
+type WorkflowStatus = "DRAFT" | "ACTIVE" | "PAUSED";
+type StepType = "SEND_TEXT" | "WAIT";
 
 router.get("/", async (_req, res) => {
   const list = await prisma.workflow.findMany({
@@ -20,9 +19,7 @@ router.post("/", async (req, res) => {
   const { name } = req.body as { name?: string };
   if (!name) return res.status(400).json({ ok: false, error: "name required" });
 
-  const wf = await prisma.workflow.create({
-    data: { name, status: "DRAFT" },
-  });
+  const wf = await prisma.workflow.create({ data: { name, status: "DRAFT" } });
   res.json({ ok: true, data: wf });
 });
 
@@ -31,10 +28,7 @@ router.patch("/:id", async (req, res) => {
   const { name, status } = req.body as { name?: string; status?: WorkflowStatus };
   const wf = await prisma.workflow.update({
     where: { id },
-    data: {
-      ...(name ? { name } : {}),
-      ...(status ? { status } : {}),
-    },
+    data: { ...(name ? { name } : {}), ...(status ? { status } : {}) },
     include: { steps: { orderBy: { order: "asc" } } },
   });
   res.json({ ok: true, data: wf });
@@ -48,11 +42,8 @@ router.delete("/:id", async (req, res) => {
 
 router.post("/:id/steps", async (req, res) => {
   const { id } = req.params;
-  const { type, textBody, waitMs } = req.body as {
-    type: StepType; textBody?: string; waitMs?: number;
-  };
+  const { type, textBody, waitMs } = req.body as { type: StepType; textBody?: string; waitMs?: number; };
 
-  // determine next order
   const count = await prisma.workflowStep.count({ where: { workflowId: id } });
 
   if (type === "SEND_TEXT" && !textBody) {
@@ -75,17 +66,14 @@ router.post("/:id/steps", async (req, res) => {
 });
 
 router.patch("/:id/steps/:stepId", async (req, res) => {
-  const { id, stepId } = req.params;
-  const { textBody, waitMs, order } = req.body as {
-    textBody?: string; waitMs?: number; order?: number;
-  };
-
+  const { stepId } = req.params;
+  const { textBody, waitMs, order } = req.body as { textBody?: string; waitMs?: number; order?: number; };
   const updated = await prisma.workflowStep.update({
     where: { id: stepId },
     data: {
       ...(textBody !== undefined ? { textBody } : {}),
-      ...(waitMs !== undefined ? { waitMs } : {}),
-      ...(order !== undefined ? { order } : {}),
+      ...(waitMs   !== undefined ? { waitMs }   : {}),
+      ...(order    !== undefined ? { order }    : {}),
     },
   });
   res.json({ ok: true, data: updated });
