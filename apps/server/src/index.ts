@@ -7,19 +7,24 @@ import uploadsRouter from "./routes/uploads.js";
 import numbersRouter from "./routes/numbers.js";
 import workflowsRouter from "./routes/workflows.js";
 import copilotRouter from "./routes/copilot.js";
+import tagsRouter from "./routes/tags.js"; // ✅ NEW
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
 
 /** Normalize to "scheme://host[:port]" */
 function norm(u?: string | null) {
   if (!u) return "";
-  try { return new URL(u).origin; } catch { return String(u).replace(/\/+$/, ""); }
+  try {
+    return new URL(u).origin;
+  } catch {
+    return String(u).replace(/\/+$/, "");
+  }
 }
 
 /** Explicit allow-list from env (comma separated) */
 const envList = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
-  .map(s => norm(s.trim()))
+  .map((s) => norm(s.trim()))
   .filter(Boolean);
 
 /** Allow any Vercel preview, Onrender, and localhost */
@@ -30,9 +35,9 @@ function corsGuard(req: Request, res: Response, next: NextFunction) {
   const origin = norm(req.headers.origin as string | undefined);
 
   const allowed =
-    !origin ||                         // server-to-server / same-origin
-    envList.includes(origin) ||        // explicit allow-list
-    allowRegex.test(origin);           // preview domains + localhost
+    !origin || // server-to-server / same-origin
+    envList.includes(origin) || // explicit allow-list
+    allowRegex.test(origin); // preview domains + localhost
 
   if (allowed) {
     // Vary=Origin so caches don’t mix responses for different origins
@@ -41,7 +46,10 @@ function corsGuard(req: Request, res: Response, next: NextFunction) {
     else res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Credentials", "true");
     res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+    res.header(
+      "Access-Control-Allow-Methods",
+      "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+    );
 
     if (req.method === "OPTIONS") {
       // Always succeed preflight
@@ -70,6 +78,7 @@ app.use("/api/uploads", uploadsRouter);
 app.use("/api/numbers", numbersRouter);
 app.use("/api/workflows", workflowsRouter);
 app.use("/api/copilot", copilotRouter);
+app.use("/api/tags", tagsRouter); // ✅ NEW
 
 // ---------- Demo ----------
 app.get("/api/leads", (_req, res) => {
@@ -90,6 +99,7 @@ POST /api/auth/login
 POST /api/uploads
 GET  /api/leads
 GET  /api/workflows
+GET  /api/tags
 POST /api/copilot/draft`);
 });
 
