@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import "./dashboard-ios.css";
 import { getLeads, Lead, logout } from "../lib/api";
-import { NavLink } from "react-router-dom";
-import CopilotModal from "../components/CopilotModal"; // ✅ NEW
+import { NavLink, useNavigate } from "react-router-dom"; // ⬅️ add useNavigate
+import CopilotModal from "../components/CopilotModal";
 
 type Msg = { id: string; from: "lead" | "me"; text: string; at: string };
 
@@ -30,7 +30,6 @@ const OutlineIcon = ({
   </svg>
 );
 
-// tiny helper for right-panel copy buttons
 const CopyBtn = ({ value }: { value?: string | null }) => (
   <button
     className={`icon-chip ${value ? "" : "is-disabled"}`}
@@ -41,18 +40,19 @@ const CopyBtn = ({ value }: { value?: string | null }) => (
       navigator.clipboard?.writeText(String(value)).catch(() => {});
     }}
   >
-    {/* ✅ fixed the path (had an extra space + wrong arc values) */}
     <OutlineIcon d="M9 9V7a2 2 0 0 1 2-2h6M7 9h6a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z" />
   </button>
 );
 
 export default function Dashboard() {
+  const nav = useNavigate(); // ⬅️ navigation helper
+
   const [leads, setLeads] = useState<Lead[]>([]);
   const [selectedId, setSelectedId] = useState<string | number | null>(null);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [railOpen, setRailOpen] = useState(true);
-  const [copilotOpen, setCopilotOpen] = useState(false); // ✅ NEW
+  const [copilotOpen, setCopilotOpen] = useState(false);
 
   const [theme, setTheme] = useState<"light" | "dark">(
     (localStorage.getItem("gs_theme") as "light" | "dark") || "light"
@@ -205,17 +205,25 @@ export default function Dashboard() {
               {railOpen && <span>Phone numbers</span>}
             </NavLink>
 
-            {/* Tags (static) */}
-            <a className="rail-item" title="Tags">
+            {/* Tags → /tags */}
+            <NavLink
+              to="/tags"
+              className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`}
+              title="Tags"
+            >
               <OutlineIcon d="M20 12l-8 8-8-8 8-8 8 8z" />
               {railOpen && <span>Tags</span>}
-            </a>
+            </NavLink>
 
-            {/* Templates (static) */}
-            <a className="rail-item" title="Templates">
+            {/* Templates → /templates */}
+            <NavLink
+              to="/templates"
+              className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`}
+              title="Templates"
+            >
               <OutlineIcon d="M4 4h16v6H4zM4 14h10" />
               {railOpen && <span>Templates</span>}
-            </a>
+            </NavLink>
 
             {/* Uploads → /uploads */}
             <NavLink
@@ -230,7 +238,7 @@ export default function Dashboard() {
 
           <div className="rail-foot">
             <a className="rail-item" title="Settings">
-              <OutlineIcon d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.07a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06c.46-.46.6-1.14.33-1.73A1.65 1.65 0 0 0 3 13H3a2 2 0 1 1 0-4h.07c.67 0 1.28-.38 1.55-.97.27-.59.13-1.27-.33-1.73l-.06-.06z" />
+              <OutlineIcon d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.07a1.65 1.65 0 0 0-1 1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06c.46-.46.6-1.14.33-1.73A1.65 1.65 0 0 0 3 13H3a2 2 0 1 1 0-4h.07c.67 0 1.28-.38 1.55-.97.27-.59.13-1.27-.33-1.73l-.06-.06z" />
               {railOpen && <span>Settings</span>}
             </a>
           </div>
@@ -307,11 +315,17 @@ export default function Dashboard() {
               onChange={(e) => setDraft(e.target.value)}
               disabled
             />
-            <button className="btn-outline">Templates</button>
+            <button
+              className="btn-outline"
+              onClick={() => nav("/templates")} // ⬅️ go to Templates
+              title="Open templates"
+            >
+              Templates
+            </button>
             <button
               className="btn-copilot"
               title="AI Copilot"
-              onClick={() => setCopilotOpen(true)} // ✅ OPEN MODAL
+              onClick={() => setCopilotOpen(true)}
             >
               <span className="copilot-static" aria-hidden />
               <OutlineIcon d="M5 12l4 4L19 6" />
@@ -385,9 +399,28 @@ export default function Dashboard() {
           <div className="section">
             <div className="section-title">Tags</div>
             <div className="tag-row">
-              <span className="tag tag-blue">new</span>
-              <span className="tag tag-pink">follow-up</span>
-              <span className="tag tag-green">warm</span>
+              {/* ⬅️ make chips navigate to Tags page and highlight */}
+              <button
+                className="tag tag-blue"
+                onClick={() => nav(`/tags?highlight=${encodeURIComponent("new")}`)}
+                title="Open tag: new"
+              >
+                new
+              </button>
+              <button
+                className="tag tag-pink"
+                onClick={() => nav(`/tags?highlight=${encodeURIComponent("follow-up")}`)}
+                title="Open tag: follow-up"
+              >
+                follow-up
+              </button>
+              <button
+                className="tag tag-green"
+                onClick={() => nav(`/tags?highlight=${encodeURIComponent("warm")}`)}
+                title="Open tag: warm"
+              >
+                warm
+              </button>
             </div>
           </div>
 
@@ -409,7 +442,6 @@ export default function Dashboard() {
         </aside>
       </main>
 
-      {/* ✅ Copilot modal mounts once, controlled by state */}
       <CopilotModal open={copilotOpen} onClose={() => setCopilotOpen(false)} />
     </div>
   );
