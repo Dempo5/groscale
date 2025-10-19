@@ -330,27 +330,43 @@ export async function copilotDraft(
 }
 
 /* ---------------- tags ---------------- */
-// … keep existing types above …
+
+export type TagColor =
+  | "red"
+  | "orange"
+  | "amber"
+  | "green"
+  | "teal"
+  | "blue"
+  | "indigo"
+  | "violet"
+  | "pink"
+  | "gray";
 
 export type TagDTO = {
   id: string;
   name: string;
-  color?: string | null;          // already nullable — ok
+  color?: TagColor | null;
   workflowId?: string | null;
 };
 
+/** Server returns { ok, tags } */
 export async function getTags(): Promise<TagDTO[]> {
   const res = await http<{ ok: boolean; tags: TagDTO[] }>("/api/tags");
   return res.tags;
 }
 
-// allow null for color + workflowId
+/** Preferred name used by Tags.tsx */
+export async function listTags(): Promise<TagDTO[]> {
+  return getTags();
+}
+
+/** Create a tag (empty string is normalized to null) */
 export async function createTag(input: {
   name: string;
-  color?: string | null;
+  color?: TagColor | null;
   workflowId?: string | null;
 }): Promise<TagDTO> {
-  // normalize: empty string -> null
   const body = {
     ...input,
     color: input.color === "" ? null : input.color ?? null,
@@ -363,19 +379,20 @@ export async function createTag(input: {
   return res.tag;
 }
 
+/** Update a tag (undefined = leave as-is; "" = null) */
 export async function updateTag(
   id: string,
-  patch: Partial<{ name: string; color?: string | null; workflowId?: string | null }>
+  patch: Partial<{ name: string; color?: TagColor | null; workflowId?: string | null }>
 ): Promise<TagDTO> {
   const body = {
     ...patch,
     color:
-      patch.hasOwnProperty("color")
-        ? (patch.color === "" ? null : patch.color ?? null)
+      Object.prototype.hasOwnProperty.call(patch, "color")
+        ? (patch.color === "" ? null : (patch.color ?? null))
         : undefined,
     workflowId:
-      patch.hasOwnProperty("workflowId")
-        ? (patch.workflowId === "" ? null : patch.workflowId ?? null)
+      Object.prototype.hasOwnProperty.call(patch, "workflowId")
+        ? (patch.workflowId === "" ? null : (patch.workflowId ?? null))
         : undefined,
   };
   const res = await http<{ ok: boolean; tag: TagDTO }>(`/api/tags/${id}`, {
