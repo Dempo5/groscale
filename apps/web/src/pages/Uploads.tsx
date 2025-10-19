@@ -32,20 +32,22 @@ const SYN: Record<string,string[]> = {
   dob:["dob","date of birth","birthdate","birthday"],
 };
 
-const norm   = (s:string)=> s.replace(/\uFEFF/g,"").trim().toLowerCase().replace(/\s+/g," ");
-const nHeader= (s:string)=> H[norm(s)] || s.trim();
-const normKey= (s:string)=> s.toLowerCase().replace(/[^a-z0-9]/g,"");
+const norm = (s:string)=> s.replace(/\uFEFF/g,"").trim().toLowerCase().replace(/\s+/g," ");
+const nHeader = (s:string)=> H[norm(s)] || s.trim();
+const normKey = (s:string)=> s.toLowerCase().replace(/[^a-z0-9]/g,"");
 
 const guessDelim = (text:string)=>([",",";","\t","|"] as const).reduce((best,c)=>{
   const rows = text.split(/\r?\n/).slice(0,6);
   const cnts = rows.map(r => (r.match(new RegExp(`\\${c}`,"g"))||[]).length);
-  const avg  = cnts.reduce((a,b)=>a+b,0)/(cnts.length||1);
-  const varc = cnts.reduce((a,b)=>a+(b-avg)**2,0)/(cnts.length||1);
-  const score= avg - Math.sqrt(varc);
+  const avg = cnts.reduce((a,b)=>a+b,0)/(cnts.length||1);
+  const varc= cnts.reduce((a,b)=>a+(b-avg)**2,0)/(cnts.length||1);
+  const score = avg - Math.sqrt(varc);
   return score > best.score ? {ch:c, score} : best;
 },{ch:",",score:-1 as number}).ch;
 
-type Mapping = Partial<Record<"name"|"first"|"last"|"email"|"phone"|"tags"|"note"|"city"|"state"|"zip"|"address"|"dob", string>>;
+type Mapping = Partial<Record<
+  "name"|"first"|"last"|"email"|"phone"|"tags"|"note"|"city"|"state"|"zip"|"address"|"dob", string
+>>;
 type Row = { id:string; name:string; size:number; at:string; leads:number; duplicates:number; invalids:number; status:"success"|"partial"|"failed"; };
 
 export default function Uploads(){
@@ -187,26 +189,6 @@ export default function Uploads(){
     finally{ setBusy(false); }
   }
 
-  // ---------- Preview helpers: split into fixed-left + scrollable-right, sync scrolls ----------
-  const leftHeadRef  = useRef<HTMLDivElement|null>(null);
-  const rightHeadRef = useRef<HTMLDivElement|null>(null);
-  const leftBodyRef  = useRef<HTMLDivElement|null>(null);
-  const rightBodyRef = useRef<HTMLDivElement|null>(null);
-
-  const rightCols = headers.slice(1);
-
-  function onRightScroll(){
-    const rb = rightBodyRef.current, rh = rightHeadRef.current, lb = leftBodyRef.current;
-    if(!rb) return;
-    if (rh) rh.scrollLeft = rb.scrollLeft;
-    if (lb && lb.scrollTop !== rb.scrollTop) lb.scrollTop = rb.scrollTop;
-  }
-  function onLeftScroll(){
-    const lb = leftBodyRef.current, rb = rightBodyRef.current;
-    if(!lb || !rb) return;
-    if (rb.scrollTop !== lb.scrollTop) rb.scrollTop = lb.scrollTop;
-  }
-
   return (
     <div className="p-uploads">
       <div className="crumbs"><button className="link" onClick={()=>nav("/dashboard")}>← Dashboard</button><span>› Uploads</span></div>
@@ -251,46 +233,45 @@ export default function Uploads(){
             </div>
 
             <div className="grid">
-              {/* PREVIEW: split panes */}
+              {/* Preview — single scroll, sticky header + sticky first column */}
               <div className="col">
                 <div className="label">
                   Preview <span className="muted">({Math.min(samples.length, 8)} rows shown)</span>
                 </div>
 
-                <div className="pv">
-                  {/* headers */}
-                  <div className="pv-head">
-                    <div ref={leftHeadRef} className="pv-left pv-headRow">
-                      <div className="cell head">{headers[0] || ""}</div>
-                    </div>
-                    <div ref={rightHeadRef} className="pv-right pv-headRow pv-xscroll">
-                      <div className="row">
-                        {rightCols.map((h,i)=>(
-                          <div key={i} className="cell head">{h}</div>
+                <div className="previewWrap">
+                  <div className="previewScroll">
+                    <table className="previewTable">
+                      <colgroup>
+                        {headers.map((_, i) => (
+                          <col key={i} style={{ width: i === 0 ? "220px" : "180px" }} />
                         ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* bodies */}
-                  <div className="pv-body">
-                    <div ref={leftBodyRef} className="pv-left pv-yscroll" onScroll={onLeftScroll}>
-                      {samples.map((r,ri)=>(
-                        <div key={ri} className={`row ${ri%2?"odd":""}`}>
-                          <div className="cell">{r[0] ?? ""}</div>
-                        </div>
-                      ))}
-                    </div>
-
-                    <div ref={rightBodyRef} className="pv-right pv-xscroll pv-yscroll" onScroll={onRightScroll}>
-                      {samples.map((r,ri)=>(
-                        <div key={ri} className={`row ${ri%2?"odd":""}`}>
-                          {rightCols.map((_,ci)=>(
-                            <div key={ci} className="cell">{r[ci+1] ?? ""}</div>
+                      </colgroup>
+                      <thead>
+                        <tr>
+                          {headers.map((h,i)=>(
+                            <th
+                              key={i}
+                              className={i===0?"stickyCol headSticky":"headSticky"}
+                              title={h}
+                            >{h}</th>
                           ))}
-                        </div>
-                      ))}
-                    </div>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {samples.map((r,i)=>(
+                          <tr key={i} className={i%2?"odd":""}>
+                            {r.map((c,j)=>(
+                              <td
+                                key={j}
+                                className={j===0?"stickyCol":""}
+                                title={c}
+                              >{c}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>
@@ -393,7 +374,6 @@ export default function Uploads(){
         .w-title{font-weight:800}
         .icon{background:none;border:0;font-size:18px;cursor:pointer;opacity:.75}
 
-        /* Wider preview, tighter mapping column */
         .grid{display:grid;grid-template-columns: 1.55fr .65fr;gap:16px;padding:18px 22px 20px}
         .col{display:grid;gap:10px}
         .label{font-weight:700}
@@ -401,27 +381,39 @@ export default function Uploads(){
         .chip{margin-left:8px;font-size:12px;background:#ecfdf5;color:#065f46;padding:2px 8px;border-radius:999px}
         .muted{font-size:12px;color:#6b7280;margin-left:8px}
 
-        /* —— PREVIEW (split panes) —— */
-        .pv{border:1px solid #e5e7eb;border-radius:10px;background:#fff;overflow:hidden;}
-        .pv-head{display:grid;grid-template-columns: 220px 1fr;border-bottom:1px solid #e5e7eb;background:#f7f8fb}
-        .pv-body{display:grid;grid-template-columns: 220px 1fr;max-height:280px}
-        .pv-left{background:#fff}
-        .pv-right{background:#fff}
-        .pv-xscroll{overflow-x:auto}
-        .pv-yscroll{overflow-y:auto;max-height:280px}
-        .pv-headRow{height:40px}
-        .pv-head .cell.head{font-weight:700;color:#111827}
-        .pv .row{display:grid;grid-auto-flow:column;grid-auto-columns:180px;align-items:center;height:40px;border-bottom:1px solid #f3f4f6}
-        .pv .row.odd{background:#fbfbfd}
-        .pv .cell{padding:0 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-right:1px solid #f4f4f5}
-        .pv .cell:last-child{border-right:none}
-        .pv-left .row{grid-auto-columns:220px}        /* left pane single wide column */
-        .pv-left .cell{border-right:1px solid #e5e7eb}
-        .pv-head .row{height:40px}
-        .pv-head .cell{display:flex;align-items:center}
-        .pv-right::-webkit-scrollbar{height:10px}
-        .pv-right::-webkit-scrollbar-thumb{background:#e5e7eb;border-radius:8px}
-        .pv-right:hover::-webkit-scrollbar-thumb{background:#d1d5db}
+        /* —— PREVIEW: single scroll, sticky header + sticky first column —— */
+        .previewWrap{border:1px solid #e5e7eb;border-radius:10px;background:#fff;overflow:hidden}
+        .previewScroll{
+          max-height:280px; overflow:auto; position:relative; isolation:isolate;
+          scrollbar-gutter: stable both-edges;
+        }
+        .previewTable{border-collapse:separate;border-spacing:0;table-layout:fixed;width:max(100%, calc(var(--colW,180px) * var(--cols,5)))}
+        .previewTable thead th{
+          position:sticky; top:0; z-index:4;
+          background:#f4f6fb; color:#111827;
+          font-weight:700; border-bottom:1px solid #e3e5ea;
+        }
+        .previewTable th, .previewTable td{
+          min-width:140px; max-width:320px;
+          padding:12px 14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+          border-right:1px solid #f4f4f5; border-bottom:1px solid #f4f4f5; background:#fff;
+        }
+        .previewTable th:last-child, .previewTable td:last-child{ border-right:none; }
+        .previewTable tbody tr.odd td{ background:#fbfbfd; }
+        .previewTable tbody tr:hover td{ background:#f8fafc; }
+
+        /* Sticky first column for BOTH header and body cells, with explicit bg and z-index */
+        .previewTable .stickyCol{
+          position:sticky; left:0; z-index:3; background:#fff;
+          box-shadow: inset -0.5px 0 0 #ececec;
+        }
+        .previewTable .headSticky.stickyCol{
+          background:#f4f6fb; z-index:5;   /* higher than body sticky col */
+          box-shadow: inset -0.5px 0 0 #e3e5ea;
+        }
+
+        /* widen first column for dates */
+        .previewTable th:first-child, .previewTable td:first-child{ min-width:220px; }
 
         /* form polish */
         .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -442,6 +434,9 @@ export default function Uploads(){
         .chk.tip{ display:flex; align-items:center; gap:6px; }
         .q{ display:inline-grid; place-items:center; width:18px; height:18px; border-radius:50%; font-size:12px; line-height:1; color:#334155; background:#e5e7eb; cursor:help; }
       `}</style>
+
+      {/* Tell the preview table how many columns it has for width calc */}
+      <style>{`.previewTable{--cols:${Math.max(headers.length,1)}}`}</style>
     </div>
   );
 }
