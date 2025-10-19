@@ -244,7 +244,7 @@ export default function Uploads(){
                     <table className="previewTable">
                       <colgroup>
                         {headers.map((_, i) => (
-                          <col key={i} style={{ width: i === 0 ? "200px" : "180px" }} />
+                          <col key={i} style={{ width: i === 0 ? "220px" : "180px" }} />
                         ))}
                       </colgroup>
                       <thead>
@@ -376,17 +376,18 @@ export default function Uploads(){
 
         /* —— PREVIEW: real table, single scroller, sticky header + first column —— */
         .previewWrap{border:1px solid #e5e7eb;border-radius:10px;background:#fff;overflow:hidden;padding:6px 0}
-        .previewScroll{max-height:280px;overflow:auto}
+        .previewScroll{position:relative; max-height:280px; overflow:auto}          /* stacking context */
         .previewScroll::-webkit-scrollbar{height:10px}
         .previewScroll::-webkit-scrollbar-thumb{background:#e5e7eb;border-radius:8px}
         .previewScroll:hover::-webkit-scrollbar-thumb{background:#d1d5db}
 
         .previewTable{border-collapse:separate;border-spacing:0;table-layout:fixed;width:max(100%, calc(var(--colW,180px) * var(--cols,5)))}
         .previewTable thead th{
-          position:sticky; top:0; z-index:3;
-          background:#f4f6fb; color:#111827;
+          position:sticky; top:0; z-index:10;                                     /* header above all */
+          background:#f4f6fb; color:#111827; will-change: transform;
           font-weight:700; border-bottom:1px solid #e3e5ea;
         }
+        .previewTable thead .stickyCol{ left:0; z-index:15; }                      /* header first col top */
         .previewTable th, .previewTable td{
           min-width:140px; max-width:320px;
           padding:12px 14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
@@ -396,13 +397,13 @@ export default function Uploads(){
         .previewTable tbody tr.odd td{ background:#fbfbfd; }
         .previewTable tbody tr:hover td{ background:#f8fafc; }
 
-        /* Sticky first column */
+        /* Sticky first column cells (below header, above normal cells) */
         .previewTable .stickyCol{
-          position:sticky; left:0; z-index:2; background:inherit;
+          position:sticky; left:0; z-index:5; background:inherit;
           box-shadow: inset -0.5px 0 0 #ececec;
         }
         /* Widen first column for dates */
-        .previewTable th:first-child, .previewTable td:first-child{ min-width:200px; }
+        .previewTable th:first-child, .previewTable td:first-child{ min-width:220px; }
 
         /* form polish */
         .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
