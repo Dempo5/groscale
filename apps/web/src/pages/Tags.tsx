@@ -1,209 +1,193 @@
+// apps/web/src/pages/Tags.tsx
 import { useEffect, useMemo, useState } from "react";
 import {
   getTags,
-  listTags, // alias; harmless if you keep it
   createTag,
   updateTag,
   deleteTag,
   listWorkflows,
-  type Workflow,
   type TagDTO,
-  type TagColor,
+  type Workflow,
 } from "../lib/api";
 
-/* ---------- palette & helpers ---------- */
-const PALETTE: { id: TagColor; swatch: string }[] = [
-  { id: "red", swatch: "#ef4444" },
-  { id: "orange", swatch: "#f97316" },
-  { id: "amber", swatch: "#f59e0b" },
-  { id: "green", swatch: "#10b981" },
-  { id: "teal", swatch: "#14b8a6" },
-  { id: "blue", swatch: "#3b82f6" },
-  { id: "indigo", swatch: "#6366f1" },
-  { id: "violet", swatch: "#8b5cf6" },
-  { id: "pink", swatch: "#ec4899" },
-  { id: "gray", swatch: "#6b7280" },
+type BusyState = "idle" | "loading" | "saving" | "deleting";
+
+const PALETTE = [
+  "#ef4444", "#f97316", "#f59e0b", "#10b981",
+  "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899", "#6b7280",
 ];
 
-function pillStyle(color?: TagColor | null) {
-  const hex =
-    PALETTE.find((p) => p.id === color)?.swatch ??
-    "#cbd5e1"; // slate-300 fallback
-  return {
-    background: `${hex}20`, // 12.5% opacity bg
-    color: hex,
-    borderColor: `${hex}55`,
-  } as React.CSSProperties;
-}
-
-/* ---------- page ---------- */
 export default function Tags() {
-  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<BusyState>("loading");
   const [err, setErr] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
 
+  const [tags, setTags] = useState<TagDTO[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
-  const [rows, setRows] = useState<TagDTO[]>([]);
   const [q, setQ] = useState("");
-
-  // creator bar
-  const [newName, setNewName] = useState("");
-  const [newColor, setNewColor] = useState<TagColor | null>(null);
-
-  // editor panel
   const [sel, setSel] = useState<TagDTO | null>(null);
-  const [eName, setEName] = useState("");
-  const [eColor, setEColor] = useState<TagColor | null>(null);
-  const [eWorkflow, setEWorkflow] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
 
-  /* ----- load ----- */
+  // create form
+  const [newName, setNewName] = useState("");
+  const [newColor, setNewColor] = useState<string | null>(PALETTE[4]);
+
+  // editor form (mirrors sel)
+  const [name, setName] = useState("");
+  const [color, setColor] = useState<string | null>(null);
+  const [workflowId, setWorkflowId] = useState<string | null>(null);
+
   useEffect(() => {
     (async () => {
-      setLoading(true);
-      setErr(null);
       try {
-        const [ws, ts] = await Promise.all([listWorkflows(), getTags().catch(() => listTags())]);
-        setWorkflows(ws || []);
-        setRows(Array.isArray(ts) ? ts : []);
+        setBusy("loading");
+        const [t, wf] = await Promise.all([getTags(), listWorkflows()]);
+        setTags(t);
+        setWorkflows(wf);
+        setErr(null);
       } catch (e: any) {
-        setErr(String(e?.message || e || "Failed to load tags/workflows"));
+        setErr("Failed to load tags/workflows");
       } finally {
-        setLoading(false);
+        setBusy("idle");
       }
     })();
   }, []);
 
-  /* ----- filtered & grouped ----- */
-  const filtered = useMemo(() => {
-    const term = q.trim().toLowerCase();
-    let arr = rows;
-    if (term) {
-      arr = rows.filter(
-        (t) =>
-          t.name.toLowerCase().includes(term) ||
-          (t.workflowId ? t.workflowId.toLowerCase().includes(term) : false)
-      );
-    }
-    // sort by color then name
-    return [...arr].sort((a, b) => {
-      const ca = a.color || "";
-      const cb = b.color || "";
-      if (ca !== cb) return ca < cb ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-  }, [rows, q]);
-
-  /* ----- select sync ----- */
+  // sync editor with selection
   useEffect(() => {
-    if (!sel) return;
-    const fresh = rows.find((r) => r.id === sel.id) || null;
-    if (fresh) {
-      setSel(fresh);
-      setEName(fresh.name || "");
-      setEColor((fresh.color as TagColor) ?? null);
-      setEWorkflow(fresh.workflowId ?? null);
+    if (!sel) {
+      setName(""); setColor(null); setWorkflowId(null);
     } else {
-      setSel(null);
-      setEName("");
-      setEColor(null);
-      setEWorkflow(null);
+      setName(sel.name);
+      setColor(sel.color ?? null);
+      setWorkflowId(sel.workflowId ?? null);
     }
-  }, [rows]);
+  }, [sel?.id]);
 
-  /* ----- actions ----- */
+  const filtered = useMemo(() => {
+    const k = q.trim().toLowerCase();
+    if (!k) return tags;
+    return tags.filter((t) => t.name.toLowerCase().includes(k));
+  }, [q, tags]);
+
+  function bannerError(msg: string) {
+    setErr(msg); setOk(null);
+    setTimeout(() => setErr(null), 3500);
+  }
+  function bannerOk(msg: string) {
+    setOk(msg); setErr(null);
+    setTimeout(() => setOk(null), 2000);
+  }
+
   async function onCreate() {
-    if (!newName.trim()) return;
-    setErr(null);
-    setSaving(true);
+    const n = newName.trim();
+    if (!n) return;
     try {
-      const created = await createTag({
-        name: newName.trim(),
-        color: newColor ?? null,
-        workflowId: null,
-      });
-      setRows((r) => [created, ...r]);
+      setBusy("saving");
+      const tag = await createTag({ name: n, color: newColor ?? null, workflowId: null });
+      setTags((xs) => [tag, ...xs].sort((a, b) => a.name.localeCompare(b.name)));
       setNewName("");
-      setNewColor(null);
-    } catch (e: any) {
-      setErr("Failed to create tag");
+      bannerOk("Tag created");
+    } catch {
+      bannerError("Failed to create tag");
     } finally {
-      setSaving(false);
+      setBusy("idle");
     }
   }
 
   async function onSave() {
     if (!sel) return;
-    setSaving(true);
-    setErr(null);
     try {
-      const updated = await updateTag(sel.id, {
-        name: eName.trim() || sel.name,
-        color: eColor ?? null,
-        workflowId: eWorkflow ?? null,
-      });
-      setRows((r) => r.map((t) => (t.id === sel.id ? updated : t)));
-    } catch (e: any) {
-      setErr("Failed to save changes");
+      setBusy("saving");
+      const patch = {
+        name: name.trim(),
+        color: color ?? null,
+        workflowId: workflowId ?? null,
+      };
+      const updated = await updateTag(sel.id, patch);
+      setTags((xs) =>
+        xs.map((t) => (t.id === updated.id ? updated : t)).sort((a, b) => a.name.localeCompare(b.name))
+      );
+      setSel(updated);
+      bannerOk("Saved");
+    } catch {
+      bannerError("Failed to save");
     } finally {
-      setSaving(false);
+      setBusy("idle");
     }
   }
 
-  async function onDelete(id: string) {
-    if (!confirm("Delete this tag?")) return;
-    setErr(null);
+  async function onDelete() {
+    if (!sel) return;
+    if (!confirm(`Delete "${sel.name}"?`)) return;
     try {
-      await deleteTag(id);
-      setRows((r) => r.filter((t) => t.id !== id));
-      if (sel?.id === id) {
-        setSel(null);
-        setEName("");
-        setEColor(null);
-        setEWorkflow(null);
-      }
-    } catch (e: any) {
-      setErr("Failed to delete tag");
+      setBusy("deleting");
+      await deleteTag(sel.id);
+      setTags((xs) => xs.filter((t) => t.id !== sel.id));
+      setSel(null);
+      bannerOk("Deleted");
+    } catch {
+      bannerError("Failed to delete");
+    } finally {
+      setBusy("idle");
     }
   }
 
-  /* ----- UI ----- */
   return (
     <div className="p-tags">
-      <header className="page-h">
-        <div className="title">Tags</div>
-        <div className="sub">Organize contacts and auto-start workflows per tag.</div>
-      </header>
+      <div className="page-h">
+        <div>
+          <div className="title">Tags</div>
+          <div className="sub">Organize contacts and auto-start workflows per tag.</div>
+        </div>
+        <div />
+      </div>
 
-      {!!err && <div className="alert error">⚠️ {err}</div>}
+      {err && <div className="banner error">⚠️ {err}</div>}
+      {ok && <div className="banner ok">✅ {ok}</div>}
 
-      {/* Creator bar */}
-      <div className="creator">
+      {/* Create bar */}
+      <div className="create">
         <input
           className="name"
-          placeholder="New tag name…"
+          placeholder="New tag…"
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && onCreate()}
         />
-        <div className="colors">
-          {PALETTE.map((p) => (
+
+        {/* quick palette */}
+        <div className="chips" role="radiogroup" aria-label="Tag color">
+          {PALETTE.map((c) => (
             <button
-              key={p.id}
-              className={`dot ${newColor === p.id ? "on" : ""}`}
-              style={{ background: p.swatch }}
-              aria-label={p.id}
-              onClick={() => setNewColor((c) => (c === p.id ? null : p.id))}
+              key={c}
+              className={`chip ${newColor === c ? "sel" : ""}`}
+              style={{ background: c }}
+              aria-checked={newColor === c}
+              role="radio"
+              onClick={() => setNewColor(c)}
+              title={c}
             />
           ))}
+
+          {/* color wheel (native) */}
+          <label className="wheel" title="Custom color">
+            <input
+              type="color"
+              value={newColor ?? "#888888"}
+              onChange={(e) => setNewColor(e.target.value)}
+              aria-label="Custom color"
+            />
+          </label>
         </div>
-        <button className="btn" disabled={!newName.trim() || saving} onClick={onCreate}>
+
+        <button className="btn" onClick={onCreate} disabled={!newName.trim() || busy !== "idle"}>
           Add
         </button>
       </div>
 
       <div className="grid">
-        {/* LEFT: search + list */}
-        <aside className="left">
+        {/* LEFT: list */}
+        <aside className="list">
           <div className="search">
             <input
               placeholder="Search tags…"
@@ -211,155 +195,148 @@ export default function Tags() {
               onChange={(e) => setQ(e.target.value)}
             />
           </div>
-
-          <div className="list">
-            {loading && <div className="hint">Loading…</div>}
-            {!loading && !filtered.length && (
-              <div className="hint">No tags</div>
-            )}
-
+          <ul>
             {filtered.map((t) => (
-              <button
+              <li
                 key={t.id}
                 className={`row ${sel?.id === t.id ? "active" : ""}`}
                 onClick={() => setSel(t)}
-                title={t.name}
               >
-                <span className="pill" style={pillStyle(t.color)}>
-                  {t.name}
-                </span>
-                {t.workflowId && <span className="wf">WF</span>}
-              </button>
+                <span className="dot" style={{ background: t.color ?? "#e5e7eb" }} />
+                <span className="name">{t.name}</span>
+              </li>
             ))}
-          </div>
+            {!filtered.length && <li className="empty">No tags</li>}
+          </ul>
         </aside>
 
         {/* RIGHT: editor */}
         <section className="editor">
-          {!sel && (
-            <div className="editor-empty">
-              Select a tag to edit its name, color, or attached workflow.
-            </div>
-          )}
-
-          {sel && (
+          {!sel ? (
+            <div className="hint">Select a tag to edit its name, color, or attached workflow.</div>
+          ) : (
             <div className="card">
               <div className="card-h">
-                <div className="preview">
-                  <span className="pill big" style={pillStyle(eColor)}>
-                    {eName.trim() || sel.name}
-                  </span>
+                <div className="h">Edit tag</div>
+                <div className="actions">
+                  <button className="btn ghost" onClick={onDelete} disabled={busy !== "idle"}>
+                    Delete
+                  </button>
+                  <button className="btn" onClick={onSave} disabled={busy !== "idle" || !name.trim()}>
+                    Save
+                  </button>
                 </div>
-                <button className="trash" onClick={() => onDelete(sel.id)} title="Delete">
-                  🗑
-                </button>
               </div>
 
               <div className="form">
-                <label>Name</label>
-                <input
-                  value={eName}
-                  onChange={(e) => setEName(e.target.value)}
-                  placeholder="Tag name"
-                />
+                <label className="row">
+                  <span className="lab">Name</span>
+                  <input value={name} onChange={(e) => setName(e.target.value)} />
+                </label>
 
-                <label>Color</label>
-                <div className="colors lg">
-                  {PALETTE.map((p) => (
-                    <button
-                      key={p.id}
-                      className={`dot ${eColor === p.id ? "on" : ""}`}
-                      style={{ background: p.swatch }}
-                      aria-label={p.id}
-                      onClick={() => setEColor((c) => (c === p.id ? null : p.id))}
-                    />
-                  ))}
-                </div>
+                <label className="row">
+                  <span className="lab">Color</span>
+                  <div className="colorPicker">
+                    <div className="chips" role="radiogroup" aria-label="Tag color">
+                      {PALETTE.map((c) => (
+                        <button
+                          key={c}
+                          className={`chip ${color === c ? "sel" : ""}`}
+                          style={{ background: c }}
+                          aria-checked={color === c}
+                          role="radio"
+                          onClick={() => setColor(c)}
+                          title={c}
+                        />
+                      ))}
+                      <label className="wheel" title="Custom color">
+                        <input
+                          type="color"
+                          value={color ?? "#888888"}
+                          onChange={(e) => setColor(e.target.value)}
+                          aria-label="Custom color"
+                        />
+                      </label>
+                      <button className="chip none" onClick={() => setColor(null)} title="No color">
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                </label>
 
-                <label>Attached workflow</label>
-                <select
-                  value={eWorkflow ?? ""}
-                  onChange={(e) =>
-                    setEWorkflow(e.currentTarget.value ? e.currentTarget.value : null)
-                  }
-                >
-                  <option value="">(none)</option>
-                  {workflows.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name}
-                    </option>
-                  ))}
-                </select>
-
-                <div className="actions">
-                  <button
-                    className="btn primary"
-                    disabled={saving}
-                    onClick={onSave}
+                <label className="row">
+                  <span className="lab">Workflow</span>
+                  <select
+                    value={workflowId ?? ""}
+                    onChange={(e) => setWorkflowId(e.target.value || null)}
                   >
-                    {saving ? "Saving…" : "Save changes"}
-                  </button>
-                </div>
+                    <option value="">(none)</option>
+                    {workflows.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
             </div>
           )}
         </section>
       </div>
 
-      {/* scoped styles */}
-      <style>{`
-        .p-tags { padding: 16px 18px 28px; }
-        .page-h { margin-bottom: 10px; }
-        .page-h .title { font-weight: 800; font-size: 18px; }
-        .page-h .sub { color:#6b7280; font-size:12px; }
-
-        .alert.error { background:#fef2f2; border:1px solid #fee2e2; color:#991b1b; padding:8px 10px; border-radius:10px; margin:10px 0; }
-
-        .creator {
-          display:grid; grid-template-columns: 1fr auto auto; gap:10px;
-          align-items:center; background:#fff; border:1px solid #e5e7eb;
-          border-radius:12px; padding:10px 12px; margin:6px 0 14px;
-        }
-        .creator .name{ height:36px; border:1px solid #e5e7eb; border-radius:10px; padding:0 10px; }
-        .colors{ display:flex; gap:8px; align-items:center; }
-        .colors .dot{ width:20px; height:20px; border-radius:50%; border:2px solid #fff; box-shadow:0 0 0 1px rgba(0,0,0,.08); cursor:pointer; }
-        .colors .dot.on{ outline:3px solid rgba(16,185,129,.25); }
-
-        .btn{ background:#111827; color:#fff; border:0; height:36px; padding:0 12px; border-radius:10px; cursor:pointer; }
-        .btn:disabled{ opacity:.5; cursor:not-allowed; }
-        .btn.primary{ background:var(--accent,#10b981); }
-
-        .grid{ display:grid; grid-template-columns: 260px 1fr; gap:16px; min-height:540px; }
-        .left{ background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:10px; display:flex; flex-direction:column; }
-        .left .search input{ width:100%; height:34px; border:1px solid #e5e7eb; border-radius:8px; padding:0 10px; }
-        .left .list{ margin-top:8px; overflow:auto; display:grid; gap:8px; }
-        .left .hint{ color:#6b7280; font-size:12px; padding:8px; text-align:center; }
-
-        .row{ display:flex; align-items:center; justify-content:space-between; gap:8px; background:#fff; border:1px solid #eef2f7; padding:6px 8px; border-radius:10px; cursor:pointer; }
-        .row:hover{ border-color:#dbe3ee; }
-        .row.active{ background:#f0fdf4; border-color:#bbf7d0; }
-        .row .wf{ font-size:10px; color:#6b7280; }
-
-        .pill{ display:inline-flex; align-items:center; gap:8px; padding:4px 10px; border-radius:999px; border:1px solid transparent; font-weight:600; line-height:1; }
-        .pill.big{ font-size:14px; padding:6px 12px; }
-
-        .editor{ background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:0; min-height:480px; }
-        .editor-empty{ color:#6b7280; font-size:13px; display:grid; place-items:center; height:100%; }
-
-        .card{ display:grid; grid-template-rows:auto 1fr; height:100%; }
-        .card-h{ display:flex; justify-content:space-between; align-items:center; padding:12px 14px; border-bottom:1px solid #eef2f7; }
-        .trash{ background:none; border:0; font-size:18px; cursor:pointer; opacity:.8; }
-        .trash:hover{ opacity:1; }
-
-        .form{ display:grid; gap:10px; padding:14px; }
-        .form label{ font-size:12px; color:#6b7280; }
-        .form input, .form select{
-          height:36px; border:1px solid #e5e7eb; border-radius:10px; padding:0 10px; background:#fff;
-        }
-        .colors.lg .dot{ width:22px; height:22px; }
-
-        .actions{ display:flex; justify-content:flex-end; margin-top:6px; }
-      `}</style>
+      <style>{CSS}</style>
     </div>
   );
 }
+
+/* ---------------- styles ---------------- */
+const CSS = `
+.p-tags{padding:16px}
+.page-h{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:8px}
+.title{font-weight:800;font-size:20px}
+.sub{color:#6b7280;font-size:12px;margin-top:2px}
+
+.banner{padding:10px 12px;border-radius:10px;margin:10px 0;font-weight:600}
+.banner.error{background:#fef2f2;color:#991b1b;border:1px solid #fee2e2}
+.banner.ok{background:#ecfdf5;color:#065f46;border:1px solid #d1fae5}
+
+.create{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;
+  background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:10px}
+.create .name{height:36px;border:1px solid #e5e7eb;border-radius:8px;padding:0 10px}
+.chips{display:flex;gap:8px;align-items:center}
+.chip{width:22px;height:22px;border-radius:999px;border:2px solid #fff;box-shadow:0 0 0 1px #e5e7eb;cursor:pointer}
+.chip.sel{box-shadow:0 0 0 2px #10b981}
+.chip.none{display:grid;place-items:center;background:#f3f4f6;color:#111;border:1px dashed #d1d5db;font-weight:700}
+
+.wheel{position:relative;display:inline-grid;place-items:center;width:26px;height:26px;border-radius:999px;overflow:hidden;
+  box-shadow:0 0 0 1px #e5e7eb}
+.wheel input{appearance:none;-webkit-appearance:none;border:none;padding:0;margin:0;width:26px;height:26px;background:conic-gradient(
+  #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);}
+.wheel input::-webkit-color-swatch-wrapper{padding:0}
+.wheel input::-webkit-color-swatch{border:none}
+
+.btn{background:#10b981;color:#fff;border:0;border-radius:10px;padding:8px 12px;height:36px;cursor:pointer}
+.btn.ghost{background:#fff;color:#374151;border:1px solid #e5e7eb}
+
+.grid{display:grid;grid-template-columns:280px 1fr;gap:16px;margin-top:12px}
+.list{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:10px}
+.search input{width:100%;height:34px;border:1px solid #e5e7eb;border-radius:8px;padding:0 10px}
+.list ul{list-style:none;margin:8px 0 0;padding:0;max-height:520px;overflow:auto}
+.row{display:flex;align-items:center;gap:10px;padding:8px;border-radius:8px;cursor:pointer}
+.row:hover{background:#f8fafc}
+.row.active{background:#ecfdf5;box-shadow:inset 0 0 0 1px #bbf7d0}
+.dot{width:12px;height:12px;border-radius:999px;background:#e5e7eb;border:1px solid #e5e7eb}
+.name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.empty{color:#6b7280;padding:10px}
+
+.editor .hint{display:grid;place-items:center;height:360px;color:#6b7280;border:1px dashed #e5e7eb;border-radius:12px}
+.card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden}
+.card-h{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid #e5e7eb}
+.h{font-weight:700}
+.actions{display:flex;gap:8px}
+.form{display:grid;gap:12px;padding:12px}
+.row{display:grid;grid-template-columns:120px 1fr;align-items:center}
+.lab{color:#374151;font-weight:600}
+.form input,.form select{height:36px;border:1px solid #e5e7eb;border-radius:8px;padding:0 10px}
+.colorPicker{display:flex;align-items:center}
+`;
