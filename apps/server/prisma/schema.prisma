@@ -30,6 +30,18 @@ enum MessageStatus {
   RECEIVED
 }
 
+// ---------- Workflows MVP ----------
+enum WorkflowStatus {
+  ACTIVE
+  PAUSED
+  DRAFT
+}
+
+enum StepType {
+  SEND_TEXT
+  WAIT
+}
+
 // ---------------- Core auth ----------------
 model User {
   id             String   @id @default(cuid())
@@ -151,57 +163,7 @@ model Message {
   @@index([threadId, createdAt])
 }
 
-// ---------------- Tags & Templates ----------------
-model Tag {
-  id        String   @id @default(cuid())
-
-  ownerId   String
-  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-
-  name      String
-  color     String?  // e.g. #10B981 or token name
-
-  leads     LeadTag[]
-
-  createdAt DateTime @default(now())
-  @@unique([ownerId, name])
-}
-
-model LeadTag {
-  leadId  String
-  lead    Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
-
-  tagId   String
-  tag     Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
-
-  @@id([leadId, tagId])
-}
-
-model Template {
-  id        String   @id @default(cuid())
-
-  ownerId   String
-  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-
-  name      String
-  body      String   // message content ({{placeholders}} later)
-  createdAt DateTime @default(now())
-
-  @@unique([ownerId, name])
-}
-
-// ---------- Workflows MVP ----------
-enum WorkflowStatus {
-  ACTIVE
-  PAUSED
-  DRAFT
-}
-
-enum StepType {
-  SEND_TEXT
-  WAIT
-}
-
+// ---------------- Workflows ----------------
 model Workflow {
   id        String          @id @default(cuid())
   ownerId   String?         // link to User later
@@ -231,20 +193,45 @@ model WorkflowStep {
   @@index([workflowId, order])
 }
 
-// schema.prisma — add inside model Tag
+// ---------------- Tags & Templates ----------------
 model Tag {
+  id         String    @id @default(cuid())
+
+  ownerId    String
+  owner      User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  name       String
+  color      String?           // optional hex or token
+  workflowId String?           // when set, applying this tag can start a workflow
+  workflow   Workflow? @relation(fields: [workflowId], references: [id])
+
+  leads      LeadTag[]
+
+  createdAt  DateTime  @default(now())
+
+  @@unique([ownerId, name])
+  @@index([workflowId])
+}
+
+model LeadTag {
+  leadId  String
+  lead    Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  tagId   String
+  tag     Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([leadId, tagId])
+}
+
+model Template {
   id        String   @id @default(cuid())
 
   ownerId   String
   owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   name      String
-  color     String?           // optional hex
-  workflowId String?          // <— NEW: when set, applying this tag can start a workflow
-  workflow  Workflow? @relation(fields: [workflowId], references: [id])
-
-  leads     LeadTag[]
-
+  body      String   // message content ({{placeholders}} later)
   createdAt DateTime @default(now())
+
   @@unique([ownerId, name])
 }
