@@ -1,124 +1,140 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+// apps/webapp/src/pages/Templates.tsx
+import { useEffect, useState } from "react";
 
-type Tpl = { id: string; name: string; body: string; createdAt: string };
+type Template = { id: string; name: string; body: string };
 
-export default function TemplatesPage() {
-  const nav = useNavigate();
-  const [q, setQ] = useState("");
-  const [list, setList] = useState<Tpl[]>([]);
-  const [editing, setEditing] = useState<Tpl | null>(null);
+export default function Templates() {
+  const [items, setItems] = useState<Template[]>([]);
+  const [draft, setDraft] = useState<Template | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  async function load() {
-    const res = await fetch(`/api/templates?q=${encodeURIComponent(q)}`, { credentials: "include" });
-    if (res.ok) setList(await res.json());
-  }
-  useEffect(() => { load(); }, [q]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/templates", { credentials: "include" });
+        if (res.ok) setItems(await res.json());
+      } catch {
+        setErr("Failed to load templates");
+      }
+    })();
+  }, []);
 
-  const onSave = async () => {
-    if (!editing) return;
-    setBusy(true); setErr(null);
+  async function save() {
+    if (!draft) return;
+    setBusy(true);
+    setErr(null);
     try {
-      const method = editing.id ? "PATCH" : "POST";
-      const url = editing.id ? `/api/templates/${editing.id}` : `/api/templates`;
+      const method = draft.id ? "PATCH" : "POST";
+      const url = draft.id ? `/api/templates/${draft.id}` : "/api/templates";
       const res = await fetch(url, {
         method,
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: editing.name, body: editing.body }),
+        body: JSON.stringify({ name: draft.name, body: draft.body }),
       });
       if (!res.ok) throw new Error(await res.text());
-      setEditing(null);
-      await load();
-    } catch (e: any) { setErr(e?.message || "Save failed"); }
-    finally { setBusy(false); }
-  };
+      const saved = await res.json();
+      setItems(s =>
+        s.some(t => t.id === saved.id)
+          ? s.map(t => (t.id === saved.id ? saved : t))
+          : [saved, ...s]
+      );
+      setDraft(saved);
+    } catch (e: any) {
+      setErr(e.message || "Failed to save");
+    } finally {
+      setBusy(false);
+    }
+  }
 
-  const onDelete = async (id: string) => {
+  async function del(id: string) {
     if (!confirm("Delete this template?")) return;
-    await fetch(`/api/templates/${id}`, { method: "DELETE", credentials: "include" });
-    if (editing?.id === id) setEditing(null);
-    await load();
-  };
-
-  const sorted = useMemo(() => list.slice().sort((a,b)=>a.name.localeCompare(b.name)), [list]);
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/templates/${id}`, { method: "DELETE", credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      setItems(s => s.filter(t => t.id !== id));
+      setDraft(null);
+    } catch (e: any) {
+      setErr(e.message || "Failed to delete");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
-    <div className="p">
-      <div className="crumbs"><button className="link" onClick={()=>nav("/dashboard")}>← Dashboard</button><span>› Templates</span></div>
+    <div className="page templates">
+      <div className="header">
+        <h1>Templates</h1>
+        <div className="spacer" />
+        <button className="btn" onClick={() => setDraft({ id: "", name: "New template", body: "" })}>
+          + New template
+        </button>
+      </div>
+
+      {err && <div className="err">{err}</div>}
+
       <div className="grid">
-        <aside className="pane">
-          <div className="pane-h">
-            <input className="inp" placeholder="Search templates…" value={q} onChange={e=>setQ(e.target.value)} />
-            <button className="btn" onClick={()=>setEditing({ id:"", name:"", body:"", createdAt:new Date().toISOString() })}>+ New</button>
-          </div>
-          <div className="list">
-            {sorted.map(t => (
-              <button key={t.id} className={`row ${editing?.id===t.id?"sel":""}`} onClick={()=>setEditing(t)}>
-                <span className="name">{t.name}</span>
-                <span className="meta">{new Date(t.createdAt).toLocaleDateString()}</span>
-              </button>
-            ))}
-            {!sorted.length && <div className="empty">No templates.</div>}
-          </div>
+        <aside className="list">
+          {items.map(t => (
+            <button key={t.id} className={`row ${draft?.id === t.id ? "sel" : ""}`} onClick={() => setDraft(t)}>
+              {t.name}
+            </button>
+          ))}
+          {!items.length && <div className="empty">No templates yet</div>}
         </aside>
 
         <section className="editor">
-          {!editing ? (
-            <div className="placeholder">Select or create a template.</div>
+          {!draft ? (
+            <div className="hint">Select or create a template</div>
           ) : (
-            <div className="card">
-              <div className="card-h">Template</div>
-              <div className="form">
-                <label>Name<input className="inp" value={editing.name} onChange={e=>setEditing({...editing, name:e.target.value})}/></label>
-                <label>Body
-                  <textarea className="ta" rows={12} value={editing.body} onChange={e=>setEditing({...editing, body:e.target.value})}
-                    placeholder="Hi {{first_name}}, …"/>
-                </label>
-                <div className="hint">Supports liquid variables: <code>{`{{first_name}}`}</code>, <code>{`{{last_name}}`}</code>, etc.</div>
-                {err && <div className="err">{err}</div>}
-                <div className="actions">
-                  {editing.id && <button className="btn ghost" onClick={()=>onDelete(editing.id!)}>Delete</button>}
-                  <div style={{flex:1}}/>
-                  <button className="btn ghost" onClick={()=>setEditing(null)} disabled={busy}>Cancel</button>
-                  <button className="btn" onClick={onSave} disabled={!editing.name.trim() || !editing.body.trim() || busy}>
-                    {busy ? "Saving…" : "Save"}
+            <div className="editor-inner">
+              <input
+                className="input name"
+                value={draft.name}
+                onChange={e => setDraft({ ...draft, name: e.target.value })}
+              />
+              <textarea
+                className="input body"
+                value={draft.body}
+                onChange={e => setDraft({ ...draft, body: e.target.value })}
+                placeholder="Hi {{first_name}}, …"
+              />
+              <div className="actions">
+                {draft.id && (
+                  <button className="btn danger" onClick={() => del(draft.id)} disabled={busy}>
+                    Delete
                   </button>
-                </div>
+                )}
+                <div className="spacer" />
+                <button className="btn" onClick={save} disabled={busy}>
+                  Save
+                </button>
               </div>
             </div>
           )}
         </section>
       </div>
 
-      <style>{css}</style>
+      <style>{`
+        .page.templates { padding:16px }
+        .header { display:flex; align-items:center; gap:12px }
+        .spacer { flex:1 }
+        .btn { background: var(--accent,#10b981); color:#fff; border:0; border-radius:10px; padding:8px 12px; cursor:pointer }
+        .btn.danger { background:#ef4444 }
+        .grid { display:grid; grid-template-columns: 300px 1fr; gap:16px; margin-top:12px }
+        .list { border:1px solid #e5e7eb; border-radius:12px; background:#fff; padding:6px }
+        .row { width:100%; text-align:left; border:0; background:#fff; padding:10px; border-radius:8px; cursor:pointer }
+        .row.sel, .row:hover { background:#f9fafb }
+        .editor { border:1px solid #e5e7eb; border-radius:12px; background:#fff; padding:12px }
+        .editor-inner { display:grid; gap:10px }
+        .input { width:100%; border:1px solid #e5e7eb; border-radius:8px; padding:8px 10px }
+        .name { height:36px }
+        .body { min-height:260px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace }
+        .actions { display:flex; align-items:center; gap:8px }
+        .err { background:#fef2f2; border:1px solid #fee2e2; color:#991b1b; padding:8px 10px; border-radius:8px; margin-top:10px }
+      `}</style>
     </div>
   );
 }
-
-const css = `
-.p{padding:14px}
-.link{background:none;border:0;color:var(--accent,#10b981);cursor:pointer}
-.grid{display:grid;grid-template-columns:320px 1fr;gap:14px}
-.pane{border:1px solid #e5e7eb;border-radius:12px;display:grid;grid-template-rows:auto 1fr;overflow:hidden}
-.pane-h{display:flex;gap:8px;padding:10px;border-bottom:1px solid #e5e7eb}
-.inp{border:1px solid #e5e7eb;border-radius:8px;height:36px;padding:0 10px;width:100%}
-.ta{border:1px solid #e5e7eb;border-radius:8px;padding:10px;width:100%;font-family:inherit}
-.btn{background:var(--accent,#10b981);color:#fff;border:0;border-radius:10px;padding:8px 12px;cursor:pointer}
-.btn.ghost{background:#fff;color:#374151;border:1px solid #e5e7eb}
-.list{overflow:auto}
-.row{display:flex;gap:8px;align-items:center;width:100%;text-align:left;border:0;background:#fff;padding:10px;border-bottom:1px solid #f3f4f6;cursor:pointer}
-.row.sel{background:#f0fdf4}
-.name{flex:1}
-.meta{color:#6b7280;font-size:12px}
-.editor{min-height:420px}
-.placeholder{display:grid;place-items:center;height:100%;color:#6b7280}
-.card{border:1px solid #e5e7eb;border-radius:12px;overflow:hidden}
-.card-h{padding:10px;border-bottom:1px solid #e5e7eb;font-weight:700}
-.form{display:grid;gap:10px;padding:12px}
-.hint{font-size:12px;color:#6b7280}
-.err{background:#fef2f2;border:1px solid #fee2e2;color:#991b1b;padding:8px 10px;border-radius:8px}
-.actions{display:flex;gap:8px;margin-top:4px}
-`;
