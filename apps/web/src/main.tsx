@@ -10,7 +10,10 @@ import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import Uploads from "./pages/Uploads";
 import PhoneNumbers from "./pages/PhoneNumbers";
-import Workflows from "./pages/Workflows"; // ✅ added
+import Workflows from "./pages/Workflows";
+import Tags from "./pages/Tags";           // ✅ NEW
+import Templates from "./pages/Templates"; // ✅ NEW
+
 import ProtectedRoute from "./components/auth-gates/ProtectedRoute";
 import { isAuthed } from "./lib/api";
 
@@ -64,6 +67,26 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             element={
               <ProtectedRoute>
                 <Workflows />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ✅ NEW: Tags */}
+          <Route
+            path="/tags"
+            element={
+              <ProtectedRoute>
+                <Tags />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ✅ NEW: Templates */}
+          <Route
+            path="/templates"
+            element={
+              <ProtectedRoute>
+                <Templates />
               </ProtectedRoute>
             }
           />
