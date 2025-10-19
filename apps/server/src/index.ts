@@ -1,3 +1,5 @@
+/// <reference path="./types/express.d.ts" />
+
 // apps/server/src/index.ts
 import express, { Request, Response, NextFunction } from "express";
 
