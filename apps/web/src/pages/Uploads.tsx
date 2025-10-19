@@ -189,6 +189,12 @@ export default function Uploads(){
     finally{ setBusy(false); }
   }
 
+  // grid column template for the preview
+  const colTemplate = useMemo(() => {
+    if (!headers.length) return "1fr";
+    return headers.map((_,i)=> i===0 ? "220px" : "180px").join(" ");
+  }, [headers]);
+
   return (
     <div className="p-uploads">
       <div className="crumbs"><button className="link" onClick={()=>nav("/dashboard")}>← Dashboard</button><span>› Uploads</span></div>
@@ -233,37 +239,51 @@ export default function Uploads(){
             </div>
 
             <div className="grid">
-              {/* Preview: single scroller, real table (sticky header + sticky first column) */}
+              {/* PREVIEW — CSS Grid with sticky header + sticky first column */}
               <div className="col">
                 <div className="label">
                   Preview <span className="muted">({Math.min(samples.length, 8)} rows shown)</span>
                 </div>
 
                 <div className="previewWrap">
-                  <div className="previewScroll">
-                    <table className="previewTable">
-                      <colgroup>
-                        {headers.map((_, i) => (
-                          <col key={i} style={{ width: i === 0 ? "240px" : "180px" }} />
-                        ))}
-                      </colgroup>
-                      <thead>
-                        <tr>
-                          {headers.map((h,i)=>(
-                            <th key={i} className={i===0?"stickyCol":""} title={h}>{h}</th>
+                  <div className="previewScroll" role="region" aria-label="Preview">
+                    {/* Header */}
+                    <div className="gpRow gpHeader" style={{ gridTemplateColumns: colTemplate }}>
+                      {headers.map((h,i)=>(
+                        <div
+                          key={i}
+                          className={`gpCell ${i===0 ? "stickyLeft" : ""}`}
+                          title={h}
+                          aria-colindex={i+1}
+                        >
+                          {h}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Body */}
+                    <div className="gpBody">
+                      {samples.map((r,ri)=>(
+                        <div
+                          key={ri}
+                          className={`gpRow ${ri%2?"odd":""}`}
+                          style={{ gridTemplateColumns: colTemplate }}
+                          role="row"
+                          aria-rowindex={ri+1}
+                        >
+                          {r.map((c,ci)=>(
+                            <div
+                              key={ci}
+                              className={`gpCell ${ci===0 ? "stickyLeft" : ""}`}
+                              title={c}
+                              aria-colindex={ci+1}
+                            >
+                              {c}
+                            </div>
                           ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {samples.map((r,i)=>(
-                          <tr key={i} className={i%2?"odd":""}>
-                            {r.map((c,j)=>(
-                              <td key={j} className={j===0?"stickyCol":""} title={c}>{c}</td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -282,7 +302,7 @@ export default function Uploads(){
                   <Picker label="Phone" value={mapping.phone||""} onChange={v=>setMapping(m=>({...m,phone:v}))} options={headers}/>
                 </div>
 
-                {/* Dynamic optional fields — only if present in CSV */}
+                {/* Dynamic optional fields — only if present in file */}
                 {(() => {
                   const extra = [] as Array<{key: keyof Mapping, label: string}>;
                   const add = (canon: string, key: keyof Mapping, label: string) => { if (presentCanon.has(canon)) extra.push({ key, label }); };
@@ -350,8 +370,8 @@ export default function Uploads(){
         .drop-center{display:grid;place-items:center;text-align:center;gap:6px}
         .h1{font-weight:700}
         .sub{color:#6b7280;font-size:12px}
-        .card{border:1px solid #e5e7eb;border-radius:12px;overflow:hidden}
-        .card-h{padding:10px;border-bottom:1px solid #e5e7eb;font-weight:700}
+        .card{border:1px solid var(--line,#e5e7eb);border-radius:12px;overflow:hidden}
+        .card-h{padding:10px;border-bottom:1px solid var(--line,#e5e7eb);font-weight:700}
         .table{overflow:auto}
         table{width:100%;border-collapse:collapse}
         th,td{padding:10px;border-top:1px solid #e5e7eb}
@@ -366,7 +386,7 @@ export default function Uploads(){
         .w-title{font-weight:800}
         .icon{background:none;border:0;font-size:18px;cursor:pointer;opacity:.75}
 
-        /* Layout split */
+        /* Wider preview, tighter mapping column */
         .grid{display:grid;grid-template-columns: 1.55fr .65fr;gap:16px;padding:18px 22px 20px}
         .col{display:grid;gap:10px}
         .label{font-weight:700}
@@ -374,64 +394,23 @@ export default function Uploads(){
         .chip{margin-left:8px;font-size:12px;background:#ecfdf5;color:#065f46;padding:2px 8px;border-radius:999px}
         .muted{font-size:12px;color:#6b7280;margin-left:8px}
 
-        /* —— PREVIEW: single scroller, sticky header + sticky first column —— */
-        .previewWrap{
-          border:1px solid #e5e7eb;border-radius:10px;background:#fff;overflow:hidden;padding:6px 0;
-          -webkit-transform:translateZ(0); transform:translateZ(0);
-        }
-        .previewScroll{
-          position:relative;              /* stacking context */
-          max-height:300px;
-          overflow:auto;
-          contain: layout paint;          /* isolate paints to prevent bleed */
-        }
+        /* —— PREVIEW (CSS Grid) —— */
+        .previewWrap{border:1px solid #e5e7eb;border-radius:10px;background:#fff;overflow:hidden}
+        .previewScroll{max-height:280px;overflow:auto;position:relative}
         .previewScroll::-webkit-scrollbar{height:10px}
         .previewScroll::-webkit-scrollbar-thumb{background:#e5e7eb;border-radius:8px}
         .previewScroll:hover::-webkit-scrollbar-thumb{background:#d1d5db}
 
-        .previewTable{
-          border-collapse:separate;border-spacing:0;table-layout:fixed;
-          width:max(100%, calc(var(--colW,180px) * var(--cols,5)));
-          background:#fff;
-        }
+        .gpRow{display:grid;align-items:center;min-width:max-content}
+        .gpHeader{position:sticky;top:0;z-index:3;background:#f4f6fb;border-bottom:1px solid #e3e5ea}
+        .gpBody .gpRow{border-bottom:1px solid #f4f4f5}
+        .gpBody .gpRow.odd{background:#fbfbfd}
+        .gpCell{padding:12px 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-right:1px solid #f4f4f5}
+        .gpRow .gpCell:last-child{border-right:none}
 
-        /* Header is above everything in scroller */
-        .previewTable thead th{
-          position:sticky; top:0; z-index:20;
-          background:#f4f6fb; color:#111827;
-          font-weight:700; border-bottom:1px solid #e3e5ea;
-          background-clip: padding-box;
-          backface-visibility: hidden;
-          transform: translateZ(0);
-        }
-        /* Header's first (sticky) cell sits on top */
-        .previewTable thead .stickyCol{ left:0; z-index:30; }
-
-        /* Base cell styles */
-        .previewTable th, .previewTable td{
-          min-width:140px; max-width:320px;
-          padding:12px 14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-          border-right:1px solid #f4f4f5; border-bottom:1px solid #f4f4f5;
-        }
-        .previewTable th:last-child, .previewTable td:last-child{ border-right:none; }
-
-        /* Row background variables so sticky first col matches zebra/hover */
-        .previewTable tbody tr{ --row-bg:#fff; }
-        .previewTable tbody tr.odd{ --row-bg:#fbfbfd; }
-        .previewTable tbody tr:hover{ --row-bg:#f8fafc; }
-        .previewTable tbody td{ background:var(--row-bg); }
-
-        /* Sticky first column for body cells: below header, above normal cells */
-        .previewTable .stickyCol{
-          position:sticky; left:0; z-index:10;
-          background:var(--row-bg);
-          box-shadow: inset -0.5px 0 0 #ececec;
-          backface-visibility: hidden;
-          transform: translateZ(0);
-        }
-
-        /* Widen first column for timestamps */
-        .previewTable th:first-child, .previewTable td:first-child{ min-width:240px; }
+        /* Sticky first column (header + body) */
+        .stickyLeft{position:sticky;left:0;z-index:2;background:inherit}
+        .gpHeader .stickyLeft{z-index:4}
 
         /* form polish */
         .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -452,9 +431,6 @@ export default function Uploads(){
         .chk.tip{ display:flex; align-items:center; gap:6px; }
         .q{ display:inline-grid; place-items:center; width:18px; height:18px; border-radius:50%; font-size:12px; line-height:1; color:#334155; background:#e5e7eb; cursor:help; }
       `}</style>
-
-      {/* Tell the preview table how many columns it has for width calc */}
-      <style>{`.previewTable{--cols:${Math.max(headers.length,1)}}`}</style>
     </div>
   );
 }
