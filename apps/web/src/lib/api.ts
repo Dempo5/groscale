@@ -125,10 +125,10 @@ export async function uploadLeads(file: File): Promise<UploadSummary> {
     data?.stats?.validRows ??
     data?.stats?.totalRows ??
     (typeof data?.inserted === "number" &&
-    typeof data?.duplicates === "number" &&
-    typeof data?.invalids === "number"
-      ? data.inserted + data.duplicates + data.invalids
-      : undefined);
+      typeof data?.duplicates === "number" &&
+      typeof data?.invalids === "number"
+        ? data.inserted + data.duplicates + data.invalids
+        : undefined);
 
   return {
     ok: !!data?.ok,
@@ -331,36 +331,22 @@ export async function copilotDraft(
 
 /* ---------------- tags ---------------- */
 
-export type TagColor =
-  | "red"
-  | "orange"
-  | "amber"
-  | "green"
-  | "teal"
-  | "blue"
-  | "indigo"
-  | "violet"
-  | "pink"
-  | "gray";
-
-/** Allows UI to pass "" but we normalize it away */
-type TagColorInput = TagColor | "" | null | undefined;
-
+// DTO aligned with server: color/workflowId are nullable
 export type TagDTO = {
   id: string;
   name: string;
-  color?: TagColor | null;
+  color?: string | null;
   workflowId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
-/* Helpers: normalize optional inputs without "" comparisons */
-const normColor = (v: TagColorInput): TagColor | null =>
-  typeof v === "string" && v.trim() !== "" ? (v as TagColor) : null;
-
-const normId = (v: string | "" | null | undefined): string | null =>
-  typeof v === "string" && v.trim() !== "" ? v : null;
-
-/* ---- API ---- */
+// Input/patch shape we accept from UI
+export type TagInput = {
+  name: string;
+  color?: string | null;
+  workflowId?: string | null;
+};
 
 export async function getTags(): Promise<TagDTO[]> {
   const res = await http<{ ok: boolean; tags: TagDTO[] }>("/api/tags");
@@ -371,16 +357,14 @@ export async function listTags(): Promise<TagDTO[]> {
   return getTags();
 }
 
-export async function createTag(input: {
-  name: string;
-  color?: TagColorInput;
-  workflowId?: string | "" | null;
-}): Promise<TagDTO> {
-  const body = {
-    name: input.name,
-    color: normColor(input.color),
-    workflowId: normId(input.workflowId),
+export async function createTag(input: TagInput): Promise<TagDTO> {
+  // normalize empty strings -> null
+  const body: TagInput = {
+    name: (input.name ?? "").trim(),
+    color: input.color === "" ? null : (input.color ?? null),
+    workflowId: input.workflowId === "" ? null : (input.workflowId ?? null),
   };
+
   const res = await http<{ ok: boolean; tag: TagDTO }>("/api/tags", {
     method: "POST",
     body: JSON.stringify(body),
@@ -390,18 +374,14 @@ export async function createTag(input: {
 
 export async function updateTag(
   id: string,
-  patch: Partial<{
-    name: string;
-    color: TagColorInput;
-    workflowId: string | "" | null;
-  }>
+  patch: Partial<TagInput>
 ): Promise<TagDTO> {
-  const body: any = {};
-  if (Object.prototype.hasOwnProperty.call(patch, "name")) body.name = patch.name;
-  if (Object.prototype.hasOwnProperty.call(patch, "color"))
-    body.color = normColor(patch.color as TagColorInput);
-  if (Object.prototype.hasOwnProperty.call(patch, "workflowId"))
-    body.workflowId = normId(patch.workflowId as string | "" | null);
+  const body: Partial<TagInput> = {};
+  if ("name" in patch) body.name = (patch.name ?? "").trim();
+  if ("color" in patch)
+    body.color = patch.color === "" ? null : (patch.color ?? null);
+  if ("workflowId" in patch)
+    body.workflowId = patch.workflowId === "" ? null : (patch.workflowId ?? null);
 
   const res = await http<{ ok: boolean; tag: TagDTO }>(`/api/tags/${id}`, {
     method: "PATCH",
