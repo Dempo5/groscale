@@ -1,7 +1,7 @@
 // apps/server/src/routes/tags.ts
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { prisma } from "../../prisma";
+import { prisma } from "../../prisma.js";
 
 const router = Router();
 
