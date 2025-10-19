@@ -1,6 +1,6 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { prisma } from "../db.js";
+import { prisma } from "../../prisma.js";                 // unified prisma import
 import { signToken, requireAuth, AuthedRequest } from "../middleware/auth.js";
 import { Prisma } from "@prisma/client";
 
@@ -13,8 +13,8 @@ router.post("/register", async (req, res) => {
 
     const hashed = await bcrypt.hash(password, 12);
     const user = await prisma.user.create({
-      data: { email, name, hashedPassword: hashed },        // <<<<
-      select: { id: true, email: true, name: true },        // never return hash
+      data: { email, name, hashedPassword: hashed },
+      select: { id: true, email: true, name: true },
     });
 
     const token = signToken(user.id);
@@ -35,11 +35,11 @@ router.post("/login", async (req, res) => {
 
     const u = await prisma.user.findUnique({
       where: { email },
-      select: { id: true, email: true, name: true, hashedPassword: true },   // <<<<
+      select: { id: true, email: true, name: true, hashedPassword: true },
     });
     if (!u?.hashedPassword) return res.status(401).json({ error: "Invalid credentials" });
 
-    const ok = await bcrypt.compare(password, u.hashedPassword);             // <<<<
+    const ok = await bcrypt.compare(password, u.hashedPassword);
     if (!ok) return res.status(401).json({ error: "Invalid credentials" });
 
     const token = signToken(u.id);
