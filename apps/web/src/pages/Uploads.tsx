@@ -234,23 +234,30 @@ export default function Uploads(){
             </div>
 
             <div className="grid">
-              {/* Preview (single scroll, sticky header + first column) */}
+              {/* Preview: single scroller, real table (sticky header + first column) */}
               <div className="col">
                 <div className="label">Preview <span className="muted">({Math.min(samples.length, 8)} rows shown)</span></div>
-                <div className="previewTable">
-                  <div className="tableScroll">
-                    <div className="row head">
-                      {headers.map((h, i) => (
-                        <div key={i} className={`cell head ${i===0?"sticky":""}`} title={h}>{h}</div>
-                      ))}
-                    </div>
-                    {samples.map((r, i) => (
-                      <div className={`row ${i%2?"odd":""}`} key={i}>
-                        {r.map((c, j) => (
-                          <div key={j} className={`cell ${j===0?"sticky":""}`} title={c}>{c}</div>
+
+                <div className="previewWrap">
+                  <div className="previewScroll">
+                    <table className="previewTable">
+                      <thead>
+                        <tr>
+                          {headers.map((h,i)=>(
+                            <th key={i} className={i===0?"stickyCol":""} title={h}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {samples.map((r,i)=>(
+                          <tr key={i} className={i%2?"odd":""}>
+                            {r.map((c,j)=>(
+                              <td key={j} className={j===0?"stickyCol":""} title={c}>{c}</td>
+                            ))}
+                          </tr>
                         ))}
-                      </div>
-                    ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>
@@ -270,15 +277,21 @@ export default function Uploads(){
                 </div>
 
                 {/* Dynamic optional fields — only if present in CSV */}
-                {optionalFields.length > 0 && (
-                  <>
-                    <div className="label sm">Additional fields</div>
-                    {optionalFields.map(f => (
-                      <Picker key={f.key} label={f.label} value={(mapping[f.key] as string)||""}
-                              onChange={v=>setMapping(m=>({...m, [f.key]: v}))} options={headers}/>
-                    ))}
-                  </>
-                )}
+                {(() => {
+                  const extra = [] as Array<{key: keyof Mapping, label: string}>;
+                  const add = (canon: string, key: keyof Mapping, label: string) => { if (presentCanon.has(canon)) extra.push({ key, label }); };
+                  add("city","city","City"); add("state","state","State"); add("zip","zip","ZIP");
+                  add("address","address","Address"); add("dob","dob","DOB");
+                  return extra.length ? (
+                    <>
+                      <div className="label sm">Additional fields</div>
+                      {extra.map(f => (
+                        <Picker key={f.key} label={f.label} value={(mapping[f.key] as string)||""}
+                                onChange={v=>setMapping(m=>({...m, [f.key]: v}))} options={headers}/>
+                      ))}
+                    </>
+                  ) : null;
+                })()}
 
                 <div className="two">
                   <Picker label="Tags (per row)" value={mapping.tags||""} onChange={v=>setMapping(m=>({...m,tags:v}))} options={headers} placeholder="(none)"/>
@@ -331,7 +344,7 @@ export default function Uploads(){
         .drop-center{display:grid;place-items:center;text-align:center;gap:6px}
         .h1{font-weight:700}
         .sub{color:#6b7280;font-size:12px}
-        .card{border:1px solid var(--line,#e5e7eb);border-radius:12px;overflow:hidden}
+        .card{border:1px solid #e5e7eb;border-radius:12px;overflow:hidden}
         .card-h{padding:10px;border-bottom:1px solid #e5e7eb;font-weight:700}
         .table{overflow:auto}
         table{width:100%;border-collapse:collapse}
@@ -347,29 +360,46 @@ export default function Uploads(){
         .w-title{font-weight:800}
         .icon{background:none;border:0;font-size:18px;cursor:pointer;opacity:.75}
 
-        .grid{display:grid;grid-template-columns: 1.25fr .75fr;gap:16px;padding:16px 18px}
+        .grid{display:grid;grid-template-columns: 1.25fr .75fr;gap:16px;padding:18px 22px 20px}
         .col{display:grid;gap:10px}
         .label{font-weight:700}
         .label.sm{font-weight:600;font-size:12px;color:#6b7280}
-        .chip{margin-left:8px;font-size:12px;background:#eef2ff;color:#3730a3;padding:2px 8px;border-radius:999px}
+        .chip{margin-left:8px;font-size:12px;background:#ecfdf5;color:#065f46;padding:2px 8px;border-radius:999px}
         .muted{font-size:12px;color:#6b7280;margin-left:8px}
 
-        /* —— PREVIEW (synced scroll, sticky header + first column) —— */
-        .previewTable{border:1px solid #e5e7eb;border-radius:10px;background:#fff;overflow:hidden}
-        .tableScroll{max-height:280px;overflow:auto}
-        .row{display:grid;grid-template-columns: var(--template, repeat(1, minmax(140px,1fr)));border-bottom:1px solid #f3f4f6}
-        .row.head{position:sticky;top:0;z-index:3;background:#f9fafb;border-bottom:1px solid #e5e7eb;box-shadow:0 2px 0 #f3f4f6}
-        .row.odd{background:#fcfcfd}
-        .cell{padding:10px 12px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:140px;max-width:320px;box-sizing:border-box;border-right:1px solid #f3f4f6}
-        .row .cell:last-child{border-right:none}
-        .cell.head{font-weight:700;color:#374151}
-        .cell.sticky{position:sticky;left:0;z-index:2;background:inherit;box-shadow:inset -1px 0 0 #e5e7eb}
-        .tableScroll .row:not(.head):hover .cell{background:#f8fafc}
+        /* —— PREVIEW: real table, single scroller, sticky header + first column —— */
+        .previewWrap{border:1px solid #e5e7eb;border-radius:10px;background:#fff;overflow:hidden}
+        .previewScroll{max-height:280px;overflow:auto}
+        .previewScroll::-webkit-scrollbar{height:10px}
+        .previewScroll::-webkit-scrollbar-thumb{background:#e5e7eb;border-radius:8px}
+        .previewScroll:hover::-webkit-scrollbar-thumb{background:#d1d5db}
 
+        .previewTable{border-collapse:separate;border-spacing:0;table-layout:fixed;width:var(--previewW, max-content)}
+        .previewTable thead th{
+          position:sticky; top:0; z-index:3;
+          background:#f6f7fb; color:#1f2937;
+          font-weight:700; border-bottom:1px solid #e3e5ea;
+        }
+        .previewTable th, .previewTable td{
+          min-width:140px; max-width:320px;
+          padding:12px 14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+          border-right:1px solid #f4f4f5; border-bottom:1px solid #f4f4f5; background:#fff;
+        }
+        .previewTable th:last-child, .previewTable td:last-child{ border-right:none; }
+        .previewTable tbody tr.odd td{ background:#fbfbfd; }
+        .previewTable tbody tr:hover td{ background:#f8fafc; }
+
+        /* sticky first column */
+        .previewTable .stickyCol{
+          position:sticky; left:0; z-index:2; background:inherit;
+          box-shadow: inset -1px 0 0 #ececec;
+        }
+
+        /* form polish */
         .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
         .stack{display:grid;gap:6px}
         .sublabel{font-size:12px;color:#6b7280}
-        .select,.text{width:100%;border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;background:#fff}
+        .select,.text{width:100%;border:1px solid #e5e7eb;border-radius:8px;padding:0 10px;background:#fff;height:36px;line-height:36px}
         .select.mapped,.text.mapped{background:#f0fdf4;border-color:#bbf7d0}
         .warn{background:#fffbeb;border:1px solid #fef3c7;color:#92400e;padding:8px 10px;border-radius:8px}
         .err{background:#fef2f2;border:1px solid #fee2e2;color:#991b1b;padding:8px 10px;border-radius:8px}
@@ -381,11 +411,12 @@ export default function Uploads(){
         .mt{margin-top:8px}
 
         .chk.tip{ display:flex; align-items:center; gap:6px; }
-        .q{ display:inline-grid; place-items:center; width:16px; height:16px; border-radius:50%; font-size:11px; line-height:1; color:#334155; background:#e5e7eb; cursor:help; }
+        .q{ display:inline-grid; place-items:center; width:18px; height:18px; border-radius:50%; font-size:12px; line-height:1; color:#334155; background:#e5e7eb; cursor:help; }
       `}</style>
 
-      {/* dynamic CSS template so header/rows always align */}
-      <style>{`.tableScroll{--template: repeat(${Math.max(headers.length,1)}, minmax(140px, 1fr));}`}</style>
+      {/* Fixed table width = (# of columns * base width). Keeps columns stable while panning. */}
+      <style>{`.previewTable{--colW: 160px} .previewTable{--cols:${Math.max(headers.length,1)}}
+               .previewTable{width: calc(var(--colW) * var(--cols))}`}</style>
     </div>
   );
 }
