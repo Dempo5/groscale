@@ -166,14 +166,18 @@ model Message {
 // ---------------- Workflows ----------------
 model Workflow {
   id        String          @id @default(cuid())
-  ownerId   String?         // link to User later
+  ownerId   String?
   name      String
   status    WorkflowStatus  @default(DRAFT)
   createdAt DateTime        @default(now())
   updatedAt DateTime        @updatedAt
 
   steps     WorkflowStep[]
+
+  // 👇 add this line
+  tags      Tag[]
 }
+
 
 model WorkflowStep {
   id          String     @id @default(cuid())
