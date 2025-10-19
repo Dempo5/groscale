@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { prisma } from "../../prisma";
-const router = Router();
+import { prisma } from "../../prisma.js"; // ESM extension
 
+const router = Router();
 const ownerFrom = (req: any) => (req.user?.id ?? "system");
 
 // list
@@ -20,7 +20,9 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   const ownerId = ownerFrom(req);
   const { name, body } = req.body || {};
-  if (!name?.trim() || !body?.trim()) return res.status(400).json({ ok: false, error: "name & body required" });
+  if (!name?.trim() || !body?.trim()) {
+    return res.status(400).json({ ok: false, error: "name & body required" });
+  }
   const t = await prisma.template.create({
     data: { ownerId, name: String(name).trim(), body: String(body) },
     select: { id: true, name: true, body: true, createdAt: true },
