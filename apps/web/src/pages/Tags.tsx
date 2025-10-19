@@ -1,231 +1,187 @@
-// apps/webapp/src/pages/Tags.tsx
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { getTags, createTag, updateTag, deleteTag, TagDTO } from "../lib/api";
 
-type Tag = { id: string; name: string; color?: string | null; workflowId?: string | null };
-type Workflow = { id: string; name: string };
+type WF = { id: string; name: string };
+const COLORS = ["#ef4444","#f97316","#f59e0b","#10b981","#14b8a6","#3b82f6","#8b5cf6","#ec4899","#6b7280"];
 
 export default function Tags() {
-  const [params] = useSearchParams();
-  const highlightId = params.get("highlight");
-
-  const [tags, setTags] = useState<Tag[]>([]);
-  const [workflows, setWorkflows] = useState<Workflow[]>([]);
-  const [filter, setFilter] = useState("");
-  const [editing, setEditing] = useState<Tag | null>(null);
+  const [tags, setTags] = useState<TagDTO[]>([]);
+  const [query, setQuery] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [sel, setSel] = useState<TagDTO | null>(null);
+
+  // optional workflows list (if you’ve exposed /api/workflows)
+  const [workflows, setWorkflows] = useState<WF[]>([]);
 
   useEffect(() => {
     (async () => {
       try {
-        const [tRes, wRes] = await Promise.all([
-          fetch("/api/tags", { credentials: "include" }),
-          fetch("/api/workflows", { credentials: "include" }),
+        setError(null);
+        const [t] = await Promise.all([
+          getTags(),
+          // quietly fetch workflows; ignore if 404
+          fetch("/api/workflows", { credentials: "include" })
+            .then(r => r.ok ? r.json() : { ok: false, workflows: [] })
+            .then(j => setWorkflows((j?.workflows || []).map((w: any) => ({ id: w.id, name: w.name })) ))
+            .catch(() => setWorkflows([])),
         ]);
-        if (tRes.ok) setTags(await tRes.json());
-        if (wRes.ok) setWorkflows(await wRes.json());
-      } catch (e) {
-        setErr("Failed to load tags/workflows");
+        setTags(t);
+        setSel(t[0] || null);
+      } catch (e: any) {
+        setError(e?.message || "Failed to load tags/workflows");
       }
     })();
   }, []);
 
-  useEffect(() => {
-    if (!highlightId) return;
-    const t = tags.find(x => x.id === highlightId);
-    if (t) setEditing(t);
-  }, [highlightId, tags]);
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return tags;
+    return tags.filter(t => t.name.toLowerCase().includes(q));
+  }, [tags, query]);
 
-  const shown = useMemo(() => {
-    const f = filter.trim().toLowerCase();
-    if (!f) return tags;
-    return tags.filter(t => t.name.toLowerCase().includes(f));
-  }, [tags, filter]);
-
-  async function createTag() {
-    const name = prompt("New tag name?");
+  async function addTag() {
+    const name = prompt("New tag name?")?.trim();
     if (!name) return;
     setBusy(true);
     try {
-      const res = await fetch("/api/tags", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+      const tag = await createTag({ name, color: COLORS[8] });
+      setTags(t => {
+        const next = [...t, tag].sort((a,b)=>a.name.localeCompare(b.name));
+        if (!sel) setSel(tag);
+        return next;
       });
-      if (!res.ok) throw new Error(await res.text());
-      const t = await res.json();
-      setTags(s => [t, ...s]);
-      setEditing(t);
     } catch (e: any) {
-      setErr(e.message || "Failed to create tag");
-    } finally {
-      setBusy(false);
-    }
+      setError(e?.message || "Failed to create tag");
+    } finally { setBusy(false); }
   }
 
-  async function saveTag(next: Tag) {
+  async function savePatch(patch: Partial<TagDTO>) {
+    if (!sel) return;
     setBusy(true);
-    setErr(null);
     try {
-      const res = await fetch(`/api/tags/${encodeURIComponent(next.id)}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: next.name, color: next.color, workflowId: next.workflowId || null }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      setTags(s => s.map(t => (t.id === next.id ? next : t)));
-      setEditing(next);
+      const updated = await updateTag(sel.id, patch);
+      setTags(ts => ts.map(t => (t.id === updated.id ? updated : t)));
+      setSel(updated);
     } catch (e: any) {
-      setErr(e.message || "Failed to save tag");
-    } finally {
-      setBusy(false);
-    }
+      setError(e?.message || "Failed to update tag");
+    } finally { setBusy(false); }
   }
 
-  async function deleteTag(id: string) {
-    if (!confirm("Delete this tag?")) return;
+  async function removeTag(id: string) {
+    if (!confirm("Delete this tag? This detaches it from all leads.")) return;
     setBusy(true);
     try {
-      const res = await fetch(`/api/tags/${encodeURIComponent(id)}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error(await res.text());
-      setTags(s => s.filter(t => t.id !== id));
-      setEditing(null);
+      await deleteTag(id);
+      setTags(ts => ts.filter(t => t.id !== id));
+      setSel(s => (s?.id === id ? null : s));
     } catch (e: any) {
-      setErr(e.message || "Failed to delete tag");
-    } finally {
-      setBusy(false);
-    }
+      setError(e?.message || "Failed to delete tag");
+    } finally { setBusy(false); }
   }
 
   return (
-    <div className="page tags">
-      <div className="header">
+    <div className="page px">
+      <div className="bar">
         <h1>Tags</h1>
-        <div className="spacer" />
-        <button className="btn" onClick={createTag} disabled={busy}>+ New tag</button>
+        <button className="btn" onClick={addTag} disabled={busy}>+ New tag</button>
       </div>
 
-      {err && <div className="err">{err}</div>}
+      {error && <div className="err">{error}</div>}
 
       <div className="grid">
-        <aside className="list">
-          <div className="toolbar">
-            <input
-              className="search"
-              placeholder="Search tags…"
-              value={filter}
-              onChange={e => setFilter(e.target.value)}
-            />
+        <div className="left">
+          <div className="search">
+            <input placeholder="Search tags…" value={query} onChange={e=>setQuery(e.target.value)} />
           </div>
 
-          <div className="rows">
-            {shown.map(t => (
-              <button
-                key={t.id}
-                className={`row ${editing?.id === t.id ? "sel" : ""} ${t.id === highlightId ? "hl" : ""}`}
-                onClick={() => setEditing(t)}
-              >
-                <span className="dot" style={{ background: t.color || "#d1d5db" }} />
+          <ul className="list">
+            {filtered.length === 0 && <li className="empty">No tags</li>}
+            {filtered.map(t => (
+              <li key={t.id}
+                  className={`row ${t.id===sel?.id?"sel":""}`}
+                  onClick={()=>setSel(t)}>
+                <span className="dot" style={{ background: t.color || "#6b7280" }} />
                 <span className="name">{t.name}</span>
-                {t.workflowId && <span className="chip">wf</span>}
-              </button>
+                <span className="spacer" />
+                <button className="icon" title="Delete" onClick={(e)=>{e.stopPropagation(); removeTag(t.id);}}>🗑️</button>
+              </li>
             ))}
-            {!shown.length && <div className="empty">No tags</div>}
-          </div>
-        </aside>
+          </ul>
+        </div>
 
-        <section className="editor">
-          {!editing ? (
-            <div className="hint">Select a tag to edit its name, color, or attached workflow.</div>
-          ) : (
-            <TagEditor tag={editing} workflows={workflows} onChange={saveTag} onDelete={deleteTag} busy={busy} />
+        <div className="right">
+          {!sel && <div className="placeholder">Select a tag to edit its name, color, or attached workflow.</div>}
+          {sel && (
+            <div className="card">
+              <div className="rowf">
+                <label>Name</label>
+                <input
+                  value={sel.name}
+                  onChange={e=>setSel({ ...sel, name: e.target.value })}
+                  onBlur={()=> sel && sel.name.trim() && savePatch({ name: sel.name.trim() })}
+                />
+              </div>
+
+              <div className="rowf">
+                <label>Color</label>
+                <div className="swatches">
+                  {COLORS.map(c=>(
+                    <button key={c}
+                      className={`sw ${sel.color===c?"on":""}`}
+                      style={{ background:c }}
+                      onClick={()=>savePatch({ color: c })} />
+                  ))}
+                </div>
+              </div>
+
+              <div className="rowf">
+                <label>Workflow (optional)</label>
+                <select
+                  value={sel.workflowId || ""}
+                  onChange={e=>savePatch({ workflowId: e.target.value || null })}
+                >
+                  <option value="">(none)</option>
+                  {workflows.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}
+                </select>
+                <div className="hint">Leads tagged with <b>{sel.name}</b> can automatically start this workflow.</div>
+              </div>
+            </div>
           )}
-        </section>
+        </div>
       </div>
 
       <style>{`
-        .page.tags { padding: 16px; }
-        .header { display:flex; align-items:center; gap:12px; }
-        .spacer { flex:1 }
-        .btn { background: var(--accent,#10b981); color:#fff; border:0; border-radius:10px; padding:8px 12px; cursor:pointer }
-        .grid { display:grid; grid-template-columns: 320px 1fr; gap:16px; margin-top:12px }
-        .list { border:1px solid #e5e7eb; border-radius:12px; background:#fff; overflow:hidden }
-        .toolbar { padding:10px; border-bottom:1px solid #e5e7eb }
-        .search { width:100%; height:36px; border:1px solid #e5e7eb; border-radius:8px; padding:0 10px }
-        .rows { max-height:60vh; overflow:auto }
-        .row { width:100%; display:flex; align-items:center; gap:8px; padding:10px; background:#fff; border:0; text-align:left; cursor:pointer; border-bottom:1px solid #f3f4f6 }
-        .row.sel { background:#f9fafb }
-        .row.hl { outline:2px solid #10b981; background:#ecfdf5 }
-        .dot { width:10px; height:10px; border-radius:50% }
-        .chip { margin-left:auto; font-size:11px; padding:2px 6px; border-radius:999px; background:#eef2ff; color:#3730a3 }
-        .editor { border:1px solid #e5e7eb; border-radius:12px; background:#fff; padding:12px }
-        .err { background:#fef2f2; border:1px solid #fee2e2; color:#991b1b; padding:8px 10px; border-radius:8px; margin-top:10px }
-      `}</style>
-    </div>
-  );
-}
+        .page.px{padding:14px}
+        .bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+        h1{font-weight:800;margin:0}
+        .btn{background:var(--accent,#10b981);color:#fff;border:0;border-radius:10px;padding:8px 12px;cursor:pointer}
+        .err{background:#fee2e2;border:1px solid #fecaca;color:#991b1b;padding:8px 10px;border-radius:8px;margin-bottom:10px}
 
-function TagEditor({
-  tag, workflows, onChange, onDelete, busy
-}: {
-  tag: Tag; workflows: Workflow[];
-  onChange: (t: Tag) => void; onDelete: (id: string) => void; busy: boolean;
-}) {
-  const [draft, setDraft] = useState<Tag>(tag);
-  useEffect(() => setDraft(tag), [tag]);
+        .grid{display:grid;grid-template-columns: 320px 1fr; gap:14px}
+        .left{border:1px solid #e5e7eb;border-radius:12px;background:#fff;display:grid;grid-template-rows:auto 1fr}
+        .search{padding:8px;border-bottom:1px solid #e5e7eb}
+        .search input{width:100%;height:36px;border:1px solid #e5e7eb;border-radius:8px;padding:0 10px}
+        .list{list-style:none;margin:0;padding:6px;overflow:auto;max-height:64vh}
+        .row{display:flex;align-items:center;gap:10px;padding:8px;border-radius:8px;cursor:pointer}
+        .row:hover{background:#f9fafb}
+        .row.sel{background:#f0fdf4}
+        .dot{width:10px;height:10px;border-radius:999px;display:inline-block}
+        .name{font-weight:600}
+        .spacer{flex:1}
+        .icon{background:none;border:0;opacity:.7;cursor:pointer}
+        .icon:hover{opacity:1}
+        .empty{padding:10px;color:#6b7280}
 
-  return (
-    <div className="editor-inner">
-      <div className="row">
-        <label>Name</label>
-        <input
-          className="input"
-          value={draft.name}
-          onChange={e => setDraft({ ...draft, name: e.target.value })}
-        />
-      </div>
-      <div className="row">
-        <label>Color</label>
-        <input
-          className="input"
-          type="color"
-          value={draft.color || "#10b981"}
-          onChange={e => setDraft({ ...draft, color: e.target.value })}
-        />
-      </div>
-      <div className="row">
-        <label>Workflow</label>
-        <select
-          className="input"
-          value={draft.workflowId || ""}
-          onChange={e => setDraft({ ...draft, workflowId: e.target.value || null })}
-        >
-          <option value="">(none)</option>
-          {workflows.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-        </select>
-      </div>
-
-      <div className="actions">
-        <button className="btn danger" onClick={() => onDelete(tag.id)} disabled={busy}>Delete</button>
-        <div className="spacer" />
-        <button className="btn ghost" onClick={() => setDraft(tag)} disabled={busy}>Reset</button>
-        <button className="btn" onClick={() => onChange(draft)} disabled={busy}>Save</button>
-      </div>
-
-      <style>{`
-        .editor-inner { display:grid; gap:10px }
-        .row { display:grid; grid-template-columns: 120px 1fr; align-items:center; gap:10px }
-        .input { height:36px; border:1px solid #e5e7eb; border-radius:8px; padding:0 10px }
-        .actions { display:flex; align-items:center; gap:8px; margin-top:8px }
-        .btn { background: var(--accent,#10b981); color:#fff; border:0; border-radius:10px; padding:8px 12px; cursor:pointer }
-        .btn.ghost { background:#fff; color:#374151; border:1px solid #e5e7eb }
-        .btn.danger { background:#ef4444 }
+        .right{min-height:280px;border:1px solid #e5e7eb;border-radius:12px;background:#fff;padding:12px}
+        .placeholder{color:#6b7280;padding:10px}
+        .card{display:grid;gap:12px}
+        .rowf{display:grid;gap:6px}
+        .rowf input, .rowf select{height:36px;border:1px solid #e5e7eb;border-radius:8px;padding:0 10px}
+        .swatches{display:flex;flex-wrap:wrap;gap:8px}
+        .sw{width:26px;height:26px;border-radius:999px;border:2px solid #fff;box-shadow:0 0 0 1px #e5e7eb inset;cursor:pointer}
+        .sw.on{box-shadow:0 0 0 2px #10b981}
+        .hint{font-size:12px;color:#6b7280}
       `}</style>
     </div>
   );
