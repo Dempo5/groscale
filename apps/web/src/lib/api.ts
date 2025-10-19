@@ -17,8 +17,7 @@ export type UploadSummary = {
   duplicates?: number;
   invalids?: number;
   errors?: string[];
-  // NEW: what the UI should show in the "LEADS" column
-  // (we derive this from server stats so it's the real count from the CSV)
+  // number UI should show in the "LEADS" column
   leads?: number;
 };
 
@@ -32,19 +31,30 @@ const TOKEN_KEY = "jwt";
 
 // ---- Base URL: empty = same-origin. In prod set VITE_API_URL (e.g. https://groscale.onrender.com)
 const BASE =
-  (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/+$/, "") || "";
+  (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/+$/, "") ||
+  "";
 
 /* ---------------- token helpers ---------------- */
 export function getToken(): string | null {
-  try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
 }
 export function setToken(token: string) {
-  try { localStorage.setItem(TOKEN_KEY, token); } catch {}
+  try {
+    localStorage.setItem(TOKEN_KEY, token);
+  } catch {}
 }
 export function clearToken() {
-  try { localStorage.removeItem(TOKEN_KEY); } catch {}
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {}
 }
-export function isAuthed(): boolean { return !!getToken(); }
+export function isAuthed(): boolean {
+  return !!getToken();
+}
 
 /* ---------------- fetch helper ---------------- */
 async function http<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
@@ -89,8 +99,11 @@ export async function login(p: AuthPayload): Promise<AuthResponse> {
 }
 
 export async function logout(): Promise<void> {
-  try { await http("/api/auth/logout", { method: "POST" }); }
-  finally { clearToken(); }
+  try {
+    await http("/api/auth/logout", { method: "POST" });
+  } finally {
+    clearToken();
+  }
 }
 
 /* ---------------- leads (demo) ---------------- */
@@ -103,34 +116,60 @@ export async function uploadLeads(file: File): Promise<UploadSummary> {
   const form = new FormData();
   form.append("file", file);
 
-  // Get the rich server response
   const data = await http<any>("/api/uploads/import", {
     method: "POST",
-    body: form, // let browser set multipart boundary
+    body: form,
   });
 
-  // Derive the number your UI should show in the LEADS column:
-  // Prefer validRows (rows with name + email|phone), fall back to totalRows,
-  // and lastly derive from buckets if needed.
   const leads =
     data?.stats?.validRows ??
     data?.stats?.totalRows ??
     (typeof data?.inserted === "number" &&
-     typeof data?.duplicates === "number" &&
-     typeof data?.invalids === "number"
-       ? data.inserted + data.duplicates + data.invalids
-       : undefined);
+    typeof data?.duplicates === "number" &&
+    typeof data?.invalids === "number"
+      ? data.inserted + data.duplicates + data.invalids
+      : undefined);
 
   return {
     ok: !!data?.ok,
     inserted: data?.inserted ?? 0,
     skipped: data?.skipped ?? 0,
-    // Server "duplicates" should be DB dupes (already uploaded)
     duplicates: data?.duplicates ?? 0,
     invalids: data?.invalids ?? 0,
     errors: data?.errors ?? [],
-    leads, // <- real count from CSV parsing
+    leads,
   };
+}
+
+/* ---- mapped upload (wizard) ---- */
+export type CsvMapping = {
+  name?: string;
+  first?: string;
+  last?: string;
+  email?: string;
+  phone?: string;
+  tags?: string;
+  note?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  address?: string;
+  dob?: string;
+};
+
+export async function uploadLeadsMapped(
+  file: File,
+  mapping: CsvMapping,
+  opts?: { ignoreDuplicates?: boolean; tags?: string[]; workflowId?: string }
+): Promise<UploadSummary & { meta?: any; stats?: any; confidence?: any }> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("mapping", JSON.stringify(mapping || {}));
+  form.append("options", JSON.stringify(opts || {}));
+  return http<UploadSummary & { meta?: any; stats?: any; confidence?: any }>(
+    "/api/uploads/import",
+    { method: "POST", body: form }
+  );
 }
 
 /* ---------------- phone numbers ---------------- */
@@ -193,32 +232,76 @@ export type Workflow = {
 
 const WF_LS_KEY = "gs_workflows";
 function lsRead(): Workflow[] {
-  try { const raw = localStorage.getItem(WF_LS_KEY); return raw ? JSON.parse(raw) : []; }
-  catch { return []; }
+  try {
+    const raw = localStorage.getItem(WF_LS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
 }
-function lsWrite(rows: Workflow[]) { try { localStorage.setItem(WF_LS_KEY, JSON.stringify(rows)); } catch {} }
+function lsWrite(rows: Workflow[]) {
+  try {
+    localStorage.setItem(WF_LS_KEY, JSON.stringify(rows));
+  } catch {}
+}
 function lsCreate(input: { name: string }): Workflow {
   const now = new Date().toISOString();
-  const row: Workflow = { id: `wf_${Date.now()}`, name: input.name || "Untitled workflow", status: "draft", createdAt: now, updatedAt: now };
-  const cur = lsRead(); lsWrite([row, ...cur]); return row;
+  const row: Workflow = {
+    id: `wf_${Date.now()}`,
+    name: input.name || "Untitled workflow",
+    status: "draft",
+    createdAt: now,
+    updatedAt: now,
+  };
+  const cur = lsRead();
+  lsWrite([row, ...cur]);
+  return row;
 }
 function lsUpdate(id: string, patch: Partial<Workflow>): Workflow {
   const cur = lsRead();
   const idx = cur.findIndex((w) => w.id === id);
   if (idx === -1) return lsCreate({ name: patch.name || "Untitled workflow" });
-  const updated: Workflow = { ...cur[idx], ...patch, updatedAt: new Date().toISOString() };
-  const next = [...cur]; next[idx] = updated; lsWrite(next); return updated;
+  const updated: Workflow = {
+    ...cur[idx],
+    ...patch,
+    updatedAt: new Date().toISOString(),
+  };
+  const next = [...cur];
+  next[idx] = updated;
+  lsWrite(next);
+  return updated;
 }
 export async function listWorkflows(): Promise<Workflow[]> {
-  try { return await http<Workflow[]>("/api/workflows"); } catch { return lsRead(); }
+  try {
+    return await http<Workflow[]>("/api/workflows");
+  } catch {
+    return lsRead();
+  }
 }
-export async function createWorkflow(input: { name: string }): Promise<Workflow> {
-  try { return await http<Workflow>("/api/workflows", { method: "POST", body: JSON.stringify(input) }); }
-  catch { return lsCreate(input); }
+export async function createWorkflow(input: {
+  name: string;
+}): Promise<Workflow> {
+  try {
+    return await http<Workflow>("/api/workflows", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  } catch {
+    return lsCreate(input);
+  }
 }
-export async function updateWorkflow(id: string, patch: Partial<Workflow>): Promise<Workflow> {
-  try { return await http<Workflow>(`/api/workflows/${id}`, { method: "PATCH", body: JSON.stringify(patch) }); }
-  catch { return lsUpdate(id, patch); }
+export async function updateWorkflow(
+  id: string,
+  patch: Partial<Workflow>
+): Promise<Workflow> {
+  try {
+    return await http<Workflow>(`/api/workflows/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  } catch {
+    return lsUpdate(id, patch);
+  }
 }
 
 /* ---------------- copilot (draft assistant) ---------------- */
@@ -230,8 +313,8 @@ export type CopilotDraftRequest = {
 
 export type CopilotDraftResponse = {
   ok: boolean;
-  draft?: string;          // optional when ok === false
-  error?: string;          // surface backend error reason when present
+  draft?: string;
+  error?: string;
   meta?: Record<string, any>;
 };
 
@@ -246,32 +329,42 @@ export async function copilotDraft(
   });
 }
 
-// ADD at bottom of file:
-
-export type CsvMapping = {
-  name?: string;
-  first?: string;
-  last?: string;
-  email?: string;
-  phone?: string;
-  tags?: string;
-  note?: string;
+/* ---------------- tags ---------------- */
+export type TagDTO = {
+  id: string;
+  name: string;
+  color?: string | null;
+  workflowId?: string | null;
 };
 
-export async function uploadLeadsMapped(
-  file: File,
-  mapping: CsvMapping,
-  opts?: {
-    ignoreDuplicates?: boolean;
-    tags?: string[];
-  }
-): Promise<UploadSummary & { meta?: any; stats?: any; confidence?: any }> {
-  const form = new FormData();
-  form.append("file", file);
-  form.append("mapping", JSON.stringify(mapping || {}));
-  form.append("options", JSON.stringify(opts || {}));
-  return http<UploadSummary & { meta?: any; stats?: any; confidence?: any }>(
-    "/api/uploads/import",
-    { method: "POST", body: form }
-  );
+export async function getTags(): Promise<TagDTO[]> {
+  const res = await http<{ ok: boolean; tags: TagDTO[] }>("/api/tags");
+  return res.tags;
+}
+
+export async function createTag(input: {
+  name: string;
+  color?: string;
+  workflowId?: string;
+}): Promise<TagDTO> {
+  const res = await http<{ ok: boolean; tag: TagDTO }>("/api/tags", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return res.tag;
+}
+
+export async function updateTag(
+  id: string,
+  patch: Partial<{ name: string; color?: string; workflowId?: string | null }>
+): Promise<TagDTO> {
+  const res = await http<{ ok: boolean; tag: TagDTO }>(`/api/tags/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+  return res.tag;
+}
+
+export async function deleteTag(id: string): Promise<void> {
+  await http<{ ok: boolean }>(`/api/tags/${id}`, { method: "DELETE" });
 }
