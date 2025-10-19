@@ -230,3 +230,21 @@ model WorkflowStep {
 
   @@index([workflowId, order])
 }
+
+// schema.prisma — add inside model Tag
+model Tag {
+  id        String   @id @default(cuid())
+
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  name      String
+  color     String?           // optional hex
+  workflowId String?          // <— NEW: when set, applying this tag can start a workflow
+  workflow  Workflow? @relation(fields: [workflowId], references: [id])
+
+  leads     LeadTag[]
+
+  createdAt DateTime @default(now())
+  @@unique([ownerId, name])
+}
