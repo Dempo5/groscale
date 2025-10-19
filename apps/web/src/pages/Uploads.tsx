@@ -234,17 +234,21 @@ export default function Uploads(){
             </div>
 
             <div className="grid">
-              {/* Preview */}
+              {/* Preview (single scroll, sticky header + first column) */}
               <div className="col">
                 <div className="label">Preview <span className="muted">({Math.min(samples.length, 8)} rows shown)</span></div>
                 <div className="previewTable">
-                  <div className="thead">
-                    {headers.map((h,i)=><div key={i} className="cell head" title={h}>{h}</div>)}
-                  </div>
-                  <div className="tbody">
-                    {samples.map((r,i)=>(
+                  <div className="tableScroll">
+                    <div className="row head">
+                      {headers.map((h, i) => (
+                        <div key={i} className={`cell head ${i===0?"sticky":""}`} title={h}>{h}</div>
+                      ))}
+                    </div>
+                    {samples.map((r, i) => (
                       <div className={`row ${i%2?"odd":""}`} key={i}>
-                        {r.map((c,j)=><div key={j} className="cell" title={c}>{c}</div>)}
+                        {r.map((c, j) => (
+                          <div key={j} className={`cell ${j===0?"sticky":""}`} title={c}>{c}</div>
+                        ))}
                       </div>
                     ))}
                   </div>
@@ -278,12 +282,16 @@ export default function Uploads(){
 
                 <div className="two">
                   <Picker label="Tags (per row)" value={mapping.tags||""} onChange={v=>setMapping(m=>({...m,tags:v}))} options={headers} placeholder="(none)"/>
-                  <Picker label="Note" value={mapping.note||""} onChange={v=>setMapping(m=>({...m,note:v}))} options={headers} placeholder="(none)"/>
+                  <Picker label="Note" value={mapping.note||""} onChange={v=>setMapping(m=>({...m, note:v}))} options={headers} placeholder="(none)"/>
                 </div>
 
                 <div className="label mt">Configure</div>
-                <label className="chk">
-                  <input type="checkbox" checked={opts.ignoreDuplicates} onChange={e=>setOpts(o=>({...o,ignoreDuplicates:e.target.checked}))}/> Ignore duplicates within file
+                <label className="chk tip">
+                  <input type="checkbox" checked={opts.ignoreDuplicates}
+                         onChange={e=>setOpts(o=>({...o,ignoreDuplicates:e.target.checked}))}/>
+                  Ignore duplicates within file
+                  <span className="q" aria-label="File vs DB duplicates"
+                        title="Ignores repeated rows in this file only. Existing contacts in your database are still detected and skipped.">?</span>
                 </label>
                 <div className="two">
                   <div className="stack">
@@ -315,6 +323,7 @@ export default function Uploads(){
         </div>
       )}
 
+      {/* styles */}
       <style>{`
         .p-uploads{padding:14px}
         .link{background:none;border:0;color:var(--accent,#10b981);cursor:pointer}
@@ -338,21 +347,24 @@ export default function Uploads(){
         .w-title{font-weight:800}
         .icon{background:none;border:0;font-size:18px;cursor:pointer;opacity:.75}
 
-        .grid{display:grid;grid-template-columns: 1.25fr .75fr;gap:16px;padding:14px}
+        .grid{display:grid;grid-template-columns: 1.25fr .75fr;gap:16px;padding:16px 18px}
         .col{display:grid;gap:10px}
         .label{font-weight:700}
         .label.sm{font-weight:600;font-size:12px;color:#6b7280}
         .chip{margin-left:8px;font-size:12px;background:#eef2ff;color:#3730a3;padding:2px 8px;border-radius:999px}
         .muted{font-size:12px;color:#6b7280;margin-left:8px}
 
-        /* —— PREVIEW TABLE —— */
-        .previewTable{border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;background:#fff}
-        .thead{display:grid;grid-template-columns:repeat(var(--cols, 1), minmax(120px, 1fr));background:#f9fafb;border-bottom:1px solid #e5e7eb;position:sticky;top:0;z-index:1}
-        .tbody{max-height:280px;overflow:auto}
-        .row{display:grid;grid-template-columns:repeat(var(--cols, 1), minmax(120px, 1fr));border-bottom:1px solid #f3f4f6}
+        /* —— PREVIEW (synced scroll, sticky header + first column) —— */
+        .previewTable{border:1px solid #e5e7eb;border-radius:10px;background:#fff;overflow:hidden}
+        .tableScroll{max-height:280px;overflow:auto}
+        .row{display:grid;grid-template-columns: var(--template, repeat(1, minmax(140px,1fr)));border-bottom:1px solid #f3f4f6}
+        .row.head{position:sticky;top:0;z-index:3;background:#f9fafb;border-bottom:1px solid #e5e7eb;box-shadow:0 2px 0 #f3f4f6}
         .row.odd{background:#fcfcfd}
-        .cell{padding:8px 10px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:120px;max-width:260px}
-        .head{font-weight:700}
+        .cell{padding:10px 12px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:140px;max-width:320px;box-sizing:border-box;border-right:1px solid #f3f4f6}
+        .row .cell:last-child{border-right:none}
+        .cell.head{font-weight:700;color:#374151}
+        .cell.sticky{position:sticky;left:0;z-index:2;background:inherit;box-shadow:inset -1px 0 0 #e5e7eb}
+        .tableScroll .row:not(.head):hover .cell{background:#f8fafc}
 
         .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
         .stack{display:grid;gap:6px}
@@ -367,10 +379,13 @@ export default function Uploads(){
         .btn{background:var(--accent,#10b981);color:#fff;border:0;border-radius:10px;padding:8px 12px;cursor:pointer}
         .btn.ghost{background:#fff;color:#374151;border:1px solid #e5e7eb}
         .mt{margin-top:8px}
+
+        .chk.tip{ display:flex; align-items:center; gap:6px; }
+        .q{ display:inline-grid; place-items:center; width:16px; height:16px; border-radius:50%; font-size:11px; line-height:1; color:#334155; background:#e5e7eb; cursor:help; }
       `}</style>
 
-      {/* dynamic CSS var for preview columns */}
-      <style>{`.previewTable{--cols:${Math.max(headers.length,1)};}`}</style>
+      {/* dynamic CSS template so header/rows always align */}
+      <style>{`.tableScroll{--template: repeat(${Math.max(headers.length,1)}, minmax(140px, 1fr));}`}</style>
     </div>
   );
 }
