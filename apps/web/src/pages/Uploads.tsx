@@ -73,7 +73,7 @@ export default function Uploads(){
     try{
       const res = await fetch("/api/workflows", { credentials:"include" });
       if(res.ok){ const data = await res.json(); setWorkflows((data||[]).map((w:any)=>({id:w.id,name:w.name}))); }
-    }catch{}
+    }catch{/* silent */}
   })(); },[]);
 
   const readText = (f:File)=>new Promise<string>((res,rej)=>{ const fr=new FileReader(); fr.onerror=()=>rej(fr.error); fr.onload=()=>res(String(fr.result||"")); fr.readAsText(f); });
@@ -166,34 +166,32 @@ export default function Uploads(){
     return arr;
   }, [presentCanon]);
 
-  // —— Smart column widths: inspect headers + first 8 sample rows
-  const colWidths = useMemo(()=>{
-    const base = headers.map(h=>{
-      const hL = h.length;
-      // seed widths by header intent
-      if (/date|added/i.test(h)) return 180;
-      if (/email/i.test(h)) return 220;
-      if (/phone|mobile|tel/i.test(h)) return 200;
-      if (/address/i.test(h)) return 240;
-      if (/first|last|name/i.test(h)) return 160;
-      return Math.min(Math.max(hL * 9 + 60, 140), 260);
-    });
-    // expand by longest visible sample per column
-    samples.slice(0,8).forEach(row=>{
-      row.forEach((val, i)=>{
-        const len = (val||"").length;
-        const guess = Math.min(Math.max(len * 8 + 52, 120), 320);
-        base[i] = Math.max(base[i], guess);
-      });
-    });
-    return base;
-  }, [headers, samples]);
+  /** —— Import action (ensures TS can see it) —— */
+  const importNow = async () => {
+    if(!file) return;
+    setBusy(true); setErr(null);
+    const form = new FormData();
+    form.append("file", file);
+    form.append("mapping", JSON.stringify(mapping));
+    form.append("options", JSON.stringify(opts));
+    try{
+      const res = await fetch("/api/uploads/import",{ method:"POST", body:form, credentials:"include" });
+      if(!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      const inserted = Number(data?.inserted||0), dups = Number(data?.duplicates||0), invalids = Number(data?.invalids||0);
+      setRows(r=>[{
+        id:crypto.randomUUID(), name:file.name, size:file.size, at:new Date().toISOString(),
+        leads:inserted, duplicates:dups, invalids,
+        status: inserted>0 && (dups>0 || invalids>0) ? "partial" : inserted>0 ? "success" : "failed"
+      },...r]);
+      setOpen(false);
+    }catch(e:any){ setErr(String(e?.message||"Import failed")); }
+    finally{ setBusy(false); }
+  };
 
   return (
     <div className="p-uploads">
-      <div className="crumbs">
-        <button className="link" onClick={()=>nav("/dashboard")}>← Dashboard</button><span>› Uploads</span>
-      </div>
+      <div className="crumbs"><button className="link" onClick={()=>nav("/dashboard")}>← Dashboard</button><span>› Uploads</span></div>
 
       <label className="drop" onKeyDown={e=>{ if(e.key==="Enter"||e.key===" ") inputRef.current?.click(); }} tabIndex={0}>
         <input ref={inputRef} type="file" accept=".csv,.json,text/csv,application/json" style={{display:"none"}}
@@ -237,7 +235,7 @@ export default function Uploads(){
             <div className="grid">
               {/* Preview: ONE scroll area (x & y), sticky header ONLY */}
               <div className="col">
-                <div className="label compact">
+                <div className="label">
                   Preview <span className="muted">({Math.min(samples.length, 8)} rows shown)</span>
                 </div>
 
@@ -245,7 +243,9 @@ export default function Uploads(){
                   <div className="previewScroll">
                     <table className="previewTable">
                       <colgroup>
-                        {colWidths.map((w, i) => <col key={i} style={{ width: `${w}px` }} />)}
+                        {headers.map((_, i) => (
+                          <col key={i} style={{ width: i === 0 ? "220px" : "180px" }} />
+                        ))}
                       </colgroup>
                       <thead>
                         <tr>
@@ -292,15 +292,8 @@ export default function Uploads(){
                   <Picker label="Tags (per row)" value={mapping.tags||""} onChange={v=>setMapping(m=>({...m,tags:v}))} options={headers} placeholder="(none)"/>
                   <Picker label="Note" value={mapping.note||""} onChange={v=>setMapping(m=>({...m, note:v}))} options={headers} placeholder="(none)"/>
                 </div>
-              </div>
-            </div>
 
-            {/* Sticky action bar */}
-            <div className="sheet-footer">
-              {!validMap && <div className="warn">Map either <b>Name</b> or <b>First+Last</b>, and at least one of <b>Email</b> or <b>Phone</b>.</div>}
-              {err && <div className="err">{err}</div>}
-
-              <div className="footer-grid">
+                <div className="label mt">Configure</div>
                 <label className="chk tip">
                   <input type="checkbox" checked={opts.ignoreDuplicates}
                          onChange={e=>setOpts(o=>({...o,ignoreDuplicates:e.target.checked}))}/>
@@ -308,7 +301,6 @@ export default function Uploads(){
                   <span className="q" aria-label="File vs DB duplicates"
                         title="Ignores repeated rows in this file only. Existing contacts in your database are still detected and skipped.">?</span>
                 </label>
-
                 <div className="two">
                   <div className="stack">
                     <div className="sublabel">Apply tags to all leads</div>
@@ -324,11 +316,16 @@ export default function Uploads(){
                   </div>
                 </div>
 
+                {!validMap && <div className="warn">Map either <b>Name</b> or <b>First+Last</b>, and at least one of <b>Email</b> or <b>Phone</b>.</div>}
+                {err && <div className="err">{err}</div>}
+
                 <div className="actions">
                   <span className="hint">Invalid emails/phones will be skipped automatically.</span>
                   <div className="spacer" />
                   <button className="btn ghost" onClick={()=>setOpen(false)} disabled={busy}>Cancel</button>
-                  <button className="btn" onClick={importNow} disabled={!validMap || busy}>{busy?"Importing…":"Import"}</button>
+                  <button className="btn" onClick={() => void importNow()} disabled={!validMap || busy}>
+                    {busy ? "Importing…" : "Import"}
+                  </button>
                 </div>
               </div>
             </div>
@@ -340,7 +337,7 @@ export default function Uploads(){
       <style>{`
         .p-uploads{padding:14px}
         .link{background:none;border:0;color:var(--accent,#10b981);cursor:pointer}
-        .drop{display:grid;place-items:center;border:1px dashed var(--line,#e5e7eb);border-radius:12px;padding:24px;margin:8px 0;background:rgba(16,185,129,.03)}
+        .drop{display:grid;place-items:center;border:1px dashed var(--line,#e5e7eb);border-radius:12px;padding:28px;margin:8px 0;background:rgba(16,185,129,.03)}
         .drop-center{display:grid;place-items:center;text-align:center;gap:6px}
         .h1{font-weight:700}
         .sub{color:#6b7280;font-size:12px}
@@ -355,23 +352,22 @@ export default function Uploads(){
         .pill.success{background:#d1fae5;color:#065f46}.pill.partial{background:#fef3c7;color:#92400e}.pill.failed{background:#fee2e2;color:#991b1b}
 
         .modal{position:fixed;inset:0;background:rgba(0,0,0,.35);display:grid;place-items:center;z-index:50}
-        .sheet{width:min(1120px,95vw);max-height:92vh;display:flex;flex-direction:column;background:#fff;border-radius:14px;border:1px solid #e5e7eb;box-shadow:0 20px 60px rgba(0,0,0,.2)}
-        .sheet-h{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid #e5e7eb}
+        .sheet{width:min(1100px,95vw);background:#fff;border-radius:14px;border:1px solid #e5e7eb;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+        .sheet-h{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #e5e7eb}
         .w-title{font-weight:800}
         .icon{background:none;border:0;font-size:18px;cursor:pointer;opacity:.75}
 
         /* Layout: wider preview, compact mapping column */
-        .grid{display:grid;grid-template-columns: 1.6fr .65fr;gap:18px;padding:14px 18px 8px}
+        .grid{display:grid;grid-template-columns: 1.55fr .65fr;gap:16px;padding:18px 22px 20px}
         .col{display:grid;gap:10px}
         .label{font-weight:700}
-        .label.compact{margin-top:-6px}
-        .label.sm{font-weight:600;font-size:12px;color:#6b7280;margin-top:4px}
-        .chip{margin-left:8px;font-size:12px;background:#F5FFF8;color:#065f46;padding:2px 8px;border:1px solid #D8F7E3;border-radius:999px}
+        .label.sm{font-weight:600;font-size:12px;color:#6b7280}
+        .chip{margin-left:8px;font-size:12px;background:#ecfdf5;color:#065f46;padding:2px 8px;border-radius:999px}
         .muted{font-size:12px;color:#6b7280;margin-left:8px}
 
-        /* —— PREVIEW: ONE scroller, sticky header only —— */
+        /* —— PREVIEW: single scroller, sticky header only —— */
         .previewWrap{border:1px solid #e5e7eb;border-radius:10px;background:#fff;overflow:hidden}
-        .previewScroll{max-height:300px;overflow:auto}
+        .previewScroll{max-height:280px;overflow:auto}
         .previewScroll::-webkit-scrollbar{height:10px}
         .previewScroll::-webkit-scrollbar-thumb{background:#e5e7eb;border-radius:8px}
         .previewScroll:hover::-webkit-scrollbar-thumb{background:#d1d5db}
@@ -379,15 +375,15 @@ export default function Uploads(){
         .previewTable{border-collapse:separate;border-spacing:0;table-layout:fixed;width:max(100%, calc(var(--colW,180px) * var(--cols,5)))}
         .previewTable thead th{
           position:sticky; top:0; z-index:3;
-          background:#f7f9ff; color:#111827;
+          background:#f4f6fb; color:#111827;
           font-weight:700; border-bottom:1px solid #e3e5ea;
-          box-shadow: 0 1px 0 #e3e5ea;
         }
         .previewTable th, .previewTable td{
-          padding:10px 12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-          border-right:1px solid #f6f6f7; border-bottom:1px solid #f4f4f5; background:#fff;
-          height:40px; /* denser */
+          min-width:140px; max-width:320px;
+          padding:12px 14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+          border-right:1px solid #f4f4f5; border-bottom:1px solid #f4f4f5; background:#fff;
         }
+        .previewTable th:first-child, .previewTable td:first-child{ min-width:220px; }
         .previewTable th:last-child, .previewTable td:last-child{ border-right:none; }
         .previewTable tbody tr.odd td{ background:#fbfbfd; }
         .previewTable tbody tr:hover td{ background:#f8fafc; }
@@ -395,29 +391,20 @@ export default function Uploads(){
         /* form polish */
         .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
         .stack{display:grid;gap:6px}
-        .sublabel{font-size:12px;color:#6b7280;margin-top:2px}
-        .select,.text{width:100%;border:1px solid #e5e7eb;border-radius:10px;padding:0 10px;background:#fff;height:36px;line-height:36px}
-        .select.mapped,.text.mapped{background:#f5fff8;border-color:#d8f7e3}
-        .select:focus{outline:0;box-shadow:0 0 0 3px rgba(16,185,129,.22);border-color:#10b981}
-        .warn{background:#fffbeb;border:1px solid #fef3c7;color:#92400e;padding:8px 10px;border-radius:10px}
-        .err{background:#fef2f2;border:1px solid #fee2e2;color:#991b1b;padding:8px 10px;border-radius:10px}
+        .sublabel{font-size:12px;color:#6b7280}
+        .select,.text{width:100%;border:1px solid #e5e7eb;border-radius:8px;padding:0 10px;background:#fff;height:36px;line-height:36px}
+        .select.mapped,.text.mapped{background:#f0fdf4;border-color:#bbf7d0}
+        .select:focus{outline:0;box-shadow:0 0 0 3px rgba(16,185,129,.25);border-color:#10b981}
+        .warn{background:#fffbeb;border:1px solid #fef3c7;color:#92400e;padding:8px 10px;border-radius:8px}
+        .err{background:#fef2f2;border:1px solid #fee2e2;color:#991b1b;padding:8px 10px;border-radius:8px}
+        .actions{display:flex;align-items:center;gap:12px;margin-top:8px}
         .hint{font-size:12px;color:#6b7280}
-        .btn{background:var(--accent,#10b981);color:#fff;border:0;border-radius:10px;padding:8px 14px;cursor:pointer}
-        .btn.ghost{background:#fff;color:#374151;border:1px solid #e5e7eb}
         .spacer{flex:1}
+        .btn{background:var(--accent,#10b981);color:#fff;border:0;border-radius:10px;padding:8px 12px;cursor:pointer}
+        .btn.ghost{background:#fff;color:#374151;border:1px solid #e5e7eb}
+        .mt{margin-top:8px}
 
-        /* Sticky footer inside sheet */
-        .sheet-footer{
-          margin-top:auto;
-          border-top:1px solid #eef0f3;
-          background:#fff;
-          position:sticky; bottom:0;
-        }
-        .footer-grid{
-          display:grid; grid-template-columns: 1fr; gap:10px; padding:10px 18px 14px;
-        }
-        .actions{display:flex;align-items:center;gap:12px}
-        .chk.tip{ display:flex; align-items:center; gap:8px; }
+        .chk.tip{ display:flex; align-items:center; gap:6px; }
         .q{ display:inline-grid; place-items:center; width:18px; height:18px; border-radius:50%; font-size:12px; line-height:1; color:#334155; background:#e5e7eb; cursor:help; }
       `}</style>
 
