@@ -1,8 +1,10 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { prisma } from "../../prisma.js";                 // unified prisma import
+import { PrismaClient } from "@prisma/client";
 import { signToken, requireAuth, AuthedRequest } from "../middleware/auth.js";
 import { Prisma } from "@prisma/client";
+const prisma = new PrismaClient();
+                 // unified prisma import
 
 const router = Router();
 
