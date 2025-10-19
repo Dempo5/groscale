@@ -1,104 +1,98 @@
+// CRUD for Tags (name-only today; owner-scoped).
+// If your Tag model also has `color` or `workflowId`, this will pass them through when present.
 import { Router } from "express";
 import { prisma } from "../../prisma";
 
 const router = Router();
 
-// helper to get owner
-const ownerFrom = (req: any) => (req.user?.id ?? "system");
+// auth helper — adapt if your auth attaches user differently
+function getOwnerId(req: any) {
+  return req?.user?.id ?? "system";
+}
 
-// ---- List
+// GET /api/tags  -> [{id,name,(color?),(workflowId?)}]
 router.get("/", async (req, res) => {
-  const ownerId = ownerFrom(req);
-  const q = String(req.query.q || "").trim();
-  const data = await prisma.tag.findMany({
-    where: { ownerId, ...(q ? { name: { contains: q, mode: "insensitive" } } : {}) },
-    orderBy: [{ name: "asc" }],
-    select: { id: true, name: true, color: true, workflowId: true },
-  });
-  res.json(data);
-});
-
-// ---- Create
-router.post("/", async (req, res) => {
-  const ownerId = ownerFrom(req);
-  const { name, color, workflowId } = req.body || {};
-  if (!name?.trim()) return res.status(400).json({ ok: false, error: "name required" });
-
-  const tag = await prisma.tag.create({
-    data: { ownerId, name: String(name).trim(), color: color || null, workflowId: workflowId || null },
-    select: { id: true, name: true, color: true, workflowId: true },
-  });
-  res.json(tag);
-});
-
-// ---- Update
-router.patch("/:id", async (req, res) => {
-  const ownerId = ownerFrom(req);
-  const { id } = req.params;
-  const { name, color, workflowId } = req.body || {};
-  const tag = await prisma.tag.update({
-    where: { id },
-    data: {
-      ...(name !== undefined ? { name: String(name).trim() } : {}),
-      ...(color !== undefined ? { color: color || null } : {}),
-      ...(workflowId !== undefined ? { workflowId: workflowId || null } : {}),
-    },
-    select: { id: true, name: true, color: true, workflowId: true },
-  });
-  // Ensure tag belongs to owner
-  const ok = await prisma.tag.findFirst({ where: { id, ownerId }, select: { id: true } });
-  if (!ok) return res.status(403).json({ ok: false, error: "forbidden" });
-  res.json(tag);
-});
-
-// ---- Delete
-router.delete("/:id", async (req, res) => {
-  const ownerId = ownerFrom(req);
-  const { id } = req.params;
-  const tag = await prisma.tag.findFirst({ where: { id, ownerId }, select: { id: true } });
-  if (!tag) return res.status(404).json({ ok: false, error: "not found" });
-  await prisma.tag.delete({ where: { id } });
-  res.json({ ok: true });
-});
-
-// ---- Bulk apply a tag to many leads (and enqueue workflow if the tag has one)
-router.post("/:id/apply", async (req, res) => {
-  const ownerId = ownerFrom(req);
-  const { id } = req.params;
-  const { leadIds = [] } = req.body || {};
-  if (!Array.isArray(leadIds) || !leadIds.length) {
-    return res.status(400).json({ ok: false, error: "leadIds required" });
-  }
-
-  const tag = await prisma.tag.findFirst({
-    where: { id, ownerId },
-    select: { id: true, workflowId: true },
-  });
-  if (!tag) return res.status(404).json({ ok: false, error: "tag not found" });
-
-  // create LeadTag links (skip existing)
-  await prisma.$transaction(async (tx) => {
-    for (const leadId of leadIds) {
-      await tx.leadTag.upsert({
-        where: { leadId_tagId: { leadId, tagId: tag.id } },
-        create: { leadId, tagId: tag.id },
-        update: {},
-      });
-    }
-  });
-
-  // enqueue workflow job (if configured)
-  if (tag.workflowId) {
-    await prisma.job.create({
-      data: {
-        ownerId,
-        type: "START_WORKFLOW",
-        payload: { workflowId: tag.workflowId, leadIds },
-      },
+  try {
+    const ownerId = getOwnerId(req);
+    const tags = await prisma.tag.findMany({
+      where: { ownerId },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, ...(("color" in (prisma.tag as any).fields) ? { color: true } : {}), ...(("workflowId" in (prisma.tag as any).fields) ? { workflowId: true } : {}) } as any
     });
+    res.json({ ok: true, tags });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message || "Failed to load tags" });
   }
+});
 
-  res.json({ ok: true, applied: leadIds.length, workflowQueued: !!tag.workflowId });
+// POST /api/tags { name, color?, workflowId? }
+router.post("/", async (req, res) => {
+  try {
+    const ownerId = getOwnerId(req);
+    const { name, color, workflowId } = req.body || {};
+    if (!name || String(name).trim().length === 0) {
+      return res.status(400).json({ ok: false, error: "name required" });
+    }
+
+    // allow idempotent create by (ownerId,name)
+    const tag = await prisma.tag.upsert({
+      where: { ownerId_name: { ownerId, name: String(name).trim() } },
+      create: { ownerId, name: String(name).trim(), ...(color ? { color } : {}), ...(workflowId ? { workflowId } : {}) } as any,
+      update: { ...(color ? { color } : {}), ...(workflowId ? { workflowId } : {}) } as any,
+      select: { id: true, name: true, ...(("color" in (prisma.tag as any).fields) ? { color: true } : {}), ...(("workflowId" in (prisma.tag as any).fields) ? { workflowId: true } : {}) } as any
+    });
+
+    res.json({ ok: true, tag });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message || "Failed to create tag" });
+  }
+});
+
+// PATCH /api/tags/:id { name?, color?, workflowId? }
+router.patch("/:id", async (req, res) => {
+  try {
+    const ownerId = getOwnerId(req);
+    const id = String(req.params.id);
+    const { name, color, workflowId } = req.body || {};
+
+    // enforce ownership
+    const exists = await prisma.tag.findFirst({ where: { id, ownerId }, select: { id: true } });
+    if (!exists) return res.status(404).json({ ok: false, error: "tag not found" });
+
+    const tag = await prisma.tag.update({
+      where: { id },
+      data: {
+        ...(name ? { name: String(name).trim() } : {}),
+        ...(color !== undefined ? { color } : {}),
+        ...(workflowId !== undefined ? { workflowId } : {})
+      } as any,
+      select: { id: true, name: true, ...(("color" in (prisma.tag as any).fields) ? { color: true } : {}), ...(("workflowId" in (prisma.tag as any).fields) ? { workflowId: true } : {}) } as any
+    });
+
+    res.json({ ok: true, tag });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message || "Failed to update tag" });
+  }
+});
+
+// DELETE /api/tags/:id
+router.delete("/:id", async (req, res) => {
+  try {
+    const ownerId = getOwnerId(req);
+    const id = String(req.params.id);
+
+    // enforce ownership
+    const exists = await prisma.tag.findFirst({ where: { id, ownerId }, select: { id: true } });
+    if (!exists) return res.status(404).json({ ok: false, error: "tag not found" });
+
+    // remove lead links first (if you have join table)
+    await prisma.leadTag.deleteMany({ where: { tagId: id } }).catch(() => {});
+
+    await prisma.tag.delete({ where: { id } });
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message || "Failed to delete tag" });
+  }
 });
 
 export default router;
