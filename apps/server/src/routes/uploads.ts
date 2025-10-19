@@ -186,9 +186,7 @@ router.post("/import", upload.single("file"), async (req, res) => {
     });
     if (exists) { dbDup++; continue; }
 
-    const data: any = {
-      ownerId, name: nm, email, phone,
-    };
+    const data: any = { ownerId, name: nm, email, phone };
 
     // Optional demographics if your schema supports them
     const city     = asStr(pick(r,"city"));
