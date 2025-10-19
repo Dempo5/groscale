@@ -1,187 +1,250 @@
 import { useEffect, useMemo, useState } from "react";
-import { getTags, createTag, updateTag, deleteTag, TagDTO } from "../lib/api";
+import { listWorkflows } from "../lib/api";
+import {
+  createTag,
+  deleteTag,
+  getTags,
+  TagDTO,
+  updateTag,
+} from "../lib/api";
 
-type WF = { id: string; name: string };
-const COLORS = ["#ef4444","#f97316","#f59e0b","#10b981","#14b8a6","#3b82f6","#8b5cf6","#ec4899","#6b7280"];
+const COLORS = [
+  "#ef4444","#f97316","#f59e0b","#10b981","#06b6d4","#3b82f6","#8b5cf6","#ec4899","#6b7280","#111827",
+];
 
 export default function Tags() {
   const [tags, setTags] = useState<TagDTO[]>([]);
-  const [query, setQuery] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [q, setQ] = useState("");
   const [sel, setSel] = useState<TagDTO | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  // optional workflows list (if you’ve exposed /api/workflows)
-  const [workflows, setWorkflows] = useState<WF[]>([]);
+  const [wf, setWf] = useState<{id:string; name:string}[]>([]);
+
+  // right editor inputs (decoupled from sel for safe editing)
+  const [name, setName] = useState("");
+  const [color, setColor] = useState<string | null>(null);
+  const [workflowId, setWorkflowId] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
-        setError(null);
-        const [t] = await Promise.all([
+        const [rows, wfs] = await Promise.all([
           getTags(),
-          // quietly fetch workflows; ignore if 404
-          fetch("/api/workflows", { credentials: "include" })
-            .then(r => r.ok ? r.json() : { ok: false, workflows: [] })
-            .then(j => setWorkflows((j?.workflows || []).map((w: any) => ({ id: w.id, name: w.name })) ))
-            .catch(() => setWorkflows([])),
+          listWorkflows().catch(() => []),
         ]);
-        setTags(t);
-        setSel(t[0] || null);
+        setTags(rows);
+        setWf(wfs.map((w) => ({ id: w.id, name: w.name })));
+        if (rows.length && !sel) select(rows[0]);
       } catch (e: any) {
-        setError(e?.message || "Failed to load tags/workflows");
+        setErr(e?.message || "Failed to load tags/workflows");
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return tags;
-    return tags.filter(t => t.name.toLowerCase().includes(q));
-  }, [tags, query]);
+    const qq = q.trim().toLowerCase();
+    if (!qq) return tags;
+    return tags.filter((t) => t.name.toLowerCase().includes(qq));
+  }, [tags, q]);
 
-  async function addTag() {
-    const name = prompt("New tag name?")?.trim();
-    if (!name) return;
-    setBusy(true);
-    try {
-      const tag = await createTag({ name, color: COLORS[8] });
-      setTags(t => {
-        const next = [...t, tag].sort((a,b)=>a.name.localeCompare(b.name));
-        if (!sel) setSel(tag);
-        return next;
-      });
-    } catch (e: any) {
-      setError(e?.message || "Failed to create tag");
-    } finally { setBusy(false); }
+  function select(t: TagDTO) {
+    setSel(t);
+    setName(t.name);
+    setColor(t.color ?? null);
+    setWorkflowId(t.workflowId ?? null);
   }
 
-  async function savePatch(patch: Partial<TagDTO>) {
+  async function handleCreate() {
+    const nm = prompt("New tag name?")?.trim();
+    if (!nm) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const t = await createTag({ name: nm, color: null, workflowId: null });
+      setTags((cur) => [t, ...cur].sort((a, b) => a.name.localeCompare(b.name)));
+      select(t);
+    } catch (e: any) {
+      setErr(e?.message || "Failed to create tag");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSave() {
     if (!sel) return;
-    setBusy(true);
+    if (!name.trim()) return setErr("Name is required.");
+    setBusy(true); setErr(null);
     try {
-      const updated = await updateTag(sel.id, patch);
-      setTags(ts => ts.map(t => (t.id === updated.id ? updated : t)));
-      setSel(updated);
+      const t = await updateTag(sel.id, { name: name.trim(), color, workflowId });
+      setTags((cur) => cur.map((x) => (x.id === t.id ? t : x)).sort((a,b)=>a.name.localeCompare(b.name)));
+      select(t);
     } catch (e: any) {
-      setError(e?.message || "Failed to update tag");
-    } finally { setBusy(false); }
+      setErr(e?.message || "Failed to save changes");
+    } finally {
+      setBusy(false);
+    }
   }
 
-  async function removeTag(id: string) {
-    if (!confirm("Delete this tag? This detaches it from all leads.")) return;
-    setBusy(true);
+  async function handleDelete() {
+    if (!sel) return;
+    if (!confirm(`Delete tag “${sel.name}”?`)) return;
+    setBusy(true); setErr(null);
     try {
-      await deleteTag(id);
-      setTags(ts => ts.filter(t => t.id !== id));
-      setSel(s => (s?.id === id ? null : s));
+      await deleteTag(sel.id);
+      setTags((cur) => cur.filter((x) => x.id !== sel.id));
+      const next = filtered[0] || tags[0] || null;
+      next ? select(next) : setSel(null);
     } catch (e: any) {
-      setError(e?.message || "Failed to delete tag");
-    } finally { setBusy(false); }
+      setErr(e?.message || "Failed to delete tag");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
-    <div className="page px">
-      <div className="bar">
-        <h1>Tags</h1>
-        <button className="btn" onClick={addTag} disabled={busy}>+ New tag</button>
+    <div className="tags-page">
+      <div className="head">
+        <div className="title">Tags</div>
+        <button className="btn" disabled={busy} onClick={handleCreate}>+ New tag</button>
       </div>
 
-      {error && <div className="err">{error}</div>}
+      {err && <div className="inline-err">⚠️ {err}</div>}
 
       <div className="grid">
-        <div className="left">
+        {/* LIST */}
+        <aside className="list">
           <div className="search">
-            <input placeholder="Search tags…" value={query} onChange={e=>setQuery(e.target.value)} />
+            <input
+              placeholder="Search tags…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
           </div>
-
-          <ul className="list">
-            {filtered.length === 0 && <li className="empty">No tags</li>}
-            {filtered.map(t => (
-              <li key={t.id}
-                  className={`row ${t.id===sel?.id?"sel":""}`}
-                  onClick={()=>setSel(t)}>
-                <span className="dot" style={{ background: t.color || "#6b7280" }} />
+          <ul className="rows">
+            {!filtered.length && <li className="empty">No tags</li>}
+            {filtered.map((t) => (
+              <li
+                key={t.id}
+                className={`row ${sel?.id === t.id ? "selected" : ""}`}
+                onClick={() => select(t)}
+              >
+                <span className="dot" style={{ background: t.color || "#e5e7eb" }} />
                 <span className="name">{t.name}</span>
-                <span className="spacer" />
-                <button className="icon" title="Delete" onClick={(e)=>{e.stopPropagation(); removeTag(t.id);}}>🗑️</button>
               </li>
             ))}
           </ul>
-        </div>
+        </aside>
 
-        <div className="right">
-          {!sel && <div className="placeholder">Select a tag to edit its name, color, or attached workflow.</div>}
-          {sel && (
-            <div className="card">
-              <div className="rowf">
-                <label>Name</label>
+        {/* EDITOR */}
+        <section className="editor">
+          {!sel ? (
+            <div className="emptystate">Select a tag to edit its name, color, or attached workflow.</div>
+          ) : (
+            <>
+              <div className="card">
+                <div className="label">Name</div>
                 <input
-                  value={sel.name}
-                  onChange={e=>setSel({ ...sel, name: e.target.value })}
-                  onBlur={()=> sel && sel.name.trim() && savePatch({ name: sel.name.trim() })}
+                  className="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Tag name"
                 />
               </div>
 
-              <div className="rowf">
-                <label>Color</label>
-                <div className="swatches">
-                  {COLORS.map(c=>(
-                    <button key={c}
-                      className={`sw ${sel.color===c?"on":""}`}
-                      style={{ background:c }}
-                      onClick={()=>savePatch({ color: c })} />
+              <div className="card">
+                <div className="label">Color</div>
+                <div className="palette">
+                  {COLORS.map((c) => (
+                    <button
+                      key={c}
+                      className={`swatch ${color === c ? "on" : ""}`}
+                      style={{ background: c }}
+                      onClick={() => setColor(c)}
+                      title={c}
+                    />
                   ))}
+                  <button
+                    className={`swatch none ${color == null ? "on" : ""}`}
+                    onClick={() => setColor(null)}
+                    title="No color"
+                  >
+                    <span className="slash" />
+                  </button>
+                </div>
+                <div className="preview">
+                  <span className="pill" style={{ background: color || "#e5e7eb", color: color ? "#fff" : "#374151" }}>
+                    {name || "Tag Preview"}
+                  </span>
                 </div>
               </div>
 
-              <div className="rowf">
-                <label>Workflow (optional)</label>
+              <div className="card">
+                <div className="label">Workflow (optional)</div>
                 <select
-                  value={sel.workflowId || ""}
-                  onChange={e=>savePatch({ workflowId: e.target.value || null })}
+                  className="select"
+                  value={workflowId || ""}
+                  onChange={(e) => setWorkflowId(e.target.value || null)}
                 >
                   <option value="">(none)</option>
-                  {workflows.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}
+                  {wf.map((w) => (
+                    <option key={w.id} value={w.id}>{w.name}</option>
+                  ))}
                 </select>
-                <div className="hint">Leads tagged with <b>{sel.name}</b> can automatically start this workflow.</div>
+                <div className="hint">
+                  When attached, any lead tagged with <b>{name || "this tag"}</b> can auto-start the selected workflow.
+                </div>
               </div>
-            </div>
+
+              <div className="actions">
+                <button className="btn ghost" disabled={busy} onClick={handleDelete}>Delete</button>
+                <div className="spacer" />
+                <button className="btn" disabled={busy} onClick={handleSave}>
+                  {busy ? "Saving…" : "Save changes"}
+                </button>
+              </div>
+            </>
           )}
-        </div>
+        </section>
       </div>
 
+      {/* styles */}
       <style>{`
-        .page.px{padding:14px}
-        .bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
-        h1{font-weight:800;margin:0}
+        .tags-page{padding:16px;}
+        .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+        .title{font-weight:800}
         .btn{background:var(--accent,#10b981);color:#fff;border:0;border-radius:10px;padding:8px 12px;cursor:pointer}
-        .err{background:#fee2e2;border:1px solid #fecaca;color:#991b1b;padding:8px 10px;border-radius:8px;margin-bottom:10px}
+        .btn.ghost{background:#fff;color:#374151;border:1px solid #e5e7eb}
+        .inline-err{margin:8px 0;padding:10px 12px;border:1px solid #fecaca;background:#fef2f2;color:#991b1b;border-radius:10px}
 
-        .grid{display:grid;grid-template-columns: 320px 1fr; gap:14px}
-        .left{border:1px solid #e5e7eb;border-radius:12px;background:#fff;display:grid;grid-template-rows:auto 1fr}
-        .search{padding:8px;border-bottom:1px solid #e5e7eb}
+        .grid{display:grid;grid-template-columns: 300px 1fr; gap:16px;}
+        .list{border:1px solid #e5e7eb;border-radius:12px;background:#fff;display:flex;flex-direction:column;height:540px;overflow:hidden}
+        .search{padding:10px;border-bottom:1px solid #e5e7eb}
         .search input{width:100%;height:36px;border:1px solid #e5e7eb;border-radius:8px;padding:0 10px}
-        .list{list-style:none;margin:0;padding:6px;overflow:auto;max-height:64vh}
-        .row{display:flex;align-items:center;gap:10px;padding:8px;border-radius:8px;cursor:pointer}
+        .rows{list-style:none;margin:0;padding:0;overflow:auto}
+        .row{display:flex;align-items:center;gap:8px;padding:10px 12px;border-top:1px solid #f3f4f6;cursor:pointer}
         .row:hover{background:#f9fafb}
-        .row.sel{background:#f0fdf4}
-        .dot{width:10px;height:10px;border-radius:999px;display:inline-block}
-        .name{font-weight:600}
-        .spacer{flex:1}
-        .icon{background:none;border:0;opacity:.7;cursor:pointer}
-        .icon:hover{opacity:1}
-        .empty{padding:10px;color:#6b7280}
+        .row.selected{background:#f0fdf4}
+        .row .dot{width:10px;height:10px;border-radius:999px;display:inline-block;border:1px solid #e5e7eb}
+        .row .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .empty{padding:16px;color:#6b7280}
 
-        .right{min-height:280px;border:1px solid #e5e7eb;border-radius:12px;background:#fff;padding:12px}
-        .placeholder{color:#6b7280;padding:10px}
-        .card{display:grid;gap:12px}
-        .rowf{display:grid;gap:6px}
-        .rowf input, .rowf select{height:36px;border:1px solid #e5e7eb;border-radius:8px;padding:0 10px}
-        .swatches{display:flex;flex-wrap:wrap;gap:8px}
-        .sw{width:26px;height:26px;border-radius:999px;border:2px solid #fff;box-shadow:0 0 0 1px #e5e7eb inset;cursor:pointer}
-        .sw.on{box-shadow:0 0 0 2px #10b981}
-        .hint{font-size:12px;color:#6b7280}
+        .editor{display:grid;gap:12px;min-height:540px}
+        .emptystate{border:1px dashed #e5e7eb;border-radius:12px;padding:18px;color:#6b7280;display:grid;place-items:center}
+        .card{border:1px solid #e5e7eb;border-radius:12px;background:#fff;padding:12px}
+        .label{font-weight:700;margin-bottom:8px}
+        .text,.select{width:100%;height:36px;border:1px solid #e5e7eb;border-radius:8px;padding:0 10px}
+        .palette{display:flex;gap:8px;flex-wrap:wrap}
+        .swatch{width:28px;height:28px;border-radius:999px;border:2px solid transparent;cursor:pointer}
+        .swatch.on{box-shadow:0 0 0 2px #fff, 0 0 0 4px rgba(16,185,129,.6)}
+        .swatch.none{background:#fff;border:1px dashed #d1d5db;position:relative}
+        .slash{position:absolute;inset:0;display:block;background:linear-gradient(45deg, transparent 47%, #d1d5db 47%, #d1d5db 53%, transparent 53%)}
+        .preview{margin-top:10px}
+        .pill{display:inline-block;padding:6px 10px;border-radius:999px;font-size:12px}
+        .hint{font-size:12px;color:#6b7280;margin-top:6px}
+        .actions{display:flex;align-items:center;gap:12px;margin-top:8px}
+        .spacer{flex:1}
       `}</style>
     </div>
   );
