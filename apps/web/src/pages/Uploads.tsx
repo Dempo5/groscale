@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useMemo, UIEvent } from "react";
+import { useRef, useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 
 /** —— Canonical + synonyms —— */
@@ -32,22 +32,20 @@ const SYN: Record<string,string[]> = {
   dob:["dob","date of birth","birthdate","birthday"],
 };
 
-const norm = (s:string)=> s.replace(/\uFEFF/g,"").trim().toLowerCase().replace(/\s+/g," ");
-const nHeader = (s:string)=> H[norm(s)] || s.trim();
-const normKey = (s:string)=> s.toLowerCase().replace(/[^a-z0-9]/g,"");
+const norm   = (s:string)=> s.replace(/\uFEFF/g,"").trim().toLowerCase().replace(/\s+/g," ");
+const nHeader= (s:string)=> H[norm(s)] || s.trim();
+const normKey= (s:string)=> s.toLowerCase().replace(/[^a-z0-9]/g,"");
 
 const guessDelim = (text:string)=>([",",";","\t","|"] as const).reduce((best,c)=>{
   const rows = text.split(/\r?\n/).slice(0,6);
   const cnts = rows.map(r => (r.match(new RegExp(`\\${c}`,"g"))||[]).length);
-  const avg = cnts.reduce((a,b)=>a+b,0)/(cnts.length||1);
-  const varc= cnts.reduce((a,b)=>a+(b-avg)**2,0)/(cnts.length||1);
-  const score = avg - Math.sqrt(varc);
+  const avg  = cnts.reduce((a,b)=>a+b,0)/(cnts.length||1);
+  const varc = cnts.reduce((a,b)=>a+(b-avg)**2,0)/(cnts.length||1);
+  const score= avg - Math.sqrt(varc);
   return score > best.score ? {ch:c, score} : best;
 },{ch:",",score:-1 as number}).ch;
 
-type Mapping = Partial<Record<
-  "name"|"first"|"last"|"email"|"phone"|"tags"|"note"|"city"|"state"|"zip"|"address"|"dob", string
->>;
+type Mapping = Partial<Record<"name"|"first"|"last"|"email"|"phone"|"tags"|"note"|"city"|"state"|"zip"|"address"|"dob", string>>;
 type Row = { id:string; name:string; size:number; at:string; leads:number; duplicates:number; invalids:number; status:"success"|"partial"|"failed"; };
 
 export default function Uploads(){
@@ -154,10 +152,11 @@ export default function Uploads(){
     Object.values(mapping).filter(Boolean).length
   ), [mapping]);
 
-  // Optional fields rendered only if present
   const optionalFields: Array<{key: keyof Mapping, label: string}> = useMemo(()=>{
     const arr: Array<{key: keyof Mapping, label: string}> = [];
-    const add = (canon: string, key: keyof Mapping, label: string) => { if (presentCanon.has(canon)) arr.push({ key, label }); };
+    const add = (canon: string, key: keyof Mapping, label: string) => {
+      if (presentCanon.has(canon)) arr.push({ key, label });
+    };
     add("city","city","City");
     add("state","state","State");
     add("zip","zip","ZIP");
@@ -188,26 +187,25 @@ export default function Uploads(){
     finally{ setBusy(false); }
   }
 
-  /** ----- Split-table preview (pinned first column) ----- */
-  const firstColWidth = 220; // px
-  const leftRef = useRef<HTMLDivElement|null>(null);
-  const rightRef = useRef<HTMLDivElement|null>(null);
-  const syncing = useRef<0|1|2>(0); // 1=from right, 2=from left
+  // ---------- Preview helpers: split into fixed-left + scrollable-right, sync scrolls ----------
+  const leftHeadRef  = useRef<HTMLDivElement|null>(null);
+  const rightHeadRef = useRef<HTMLDivElement|null>(null);
+  const leftBodyRef  = useRef<HTMLDivElement|null>(null);
+  const rightBodyRef = useRef<HTMLDivElement|null>(null);
 
-  const onRightScroll = (e: UIEvent<HTMLDivElement>) => {
-    if (syncing.current === 2) { syncing.current = 0; return; }
-    syncing.current = 1;
-    if (leftRef.current) leftRef.current.scrollTop = (e.target as HTMLDivElement).scrollTop;
-    syncing.current = 0;
-  };
-  const onLeftScroll = (e: UIEvent<HTMLDivElement>) => {
-    if (syncing.current === 1) { syncing.current = 0; return; }
-    syncing.current = 2;
-    if (rightRef.current) rightRef.current.scrollTop = (e.target as HTMLDivElement).scrollTop;
-    syncing.current = 0;
-  };
+  const rightCols = headers.slice(1);
 
-  const rightHeaders = headers.slice(1);
+  function onRightScroll(){
+    const rb = rightBodyRef.current, rh = rightHeadRef.current, lb = leftBodyRef.current;
+    if(!rb) return;
+    if (rh) rh.scrollLeft = rb.scrollLeft;
+    if (lb && lb.scrollTop !== rb.scrollTop) lb.scrollTop = rb.scrollTop;
+  }
+  function onLeftScroll(){
+    const lb = leftBodyRef.current, rb = rightBodyRef.current;
+    if(!lb || !rb) return;
+    if (rb.scrollTop !== lb.scrollTop) rb.scrollTop = lb.scrollTop;
+  }
 
   return (
     <div className="p-uploads">
@@ -253,49 +251,45 @@ export default function Uploads(){
             </div>
 
             <div className="grid">
-              {/* Preview: split table */}
+              {/* PREVIEW: split panes */}
               <div className="col">
                 <div className="label">
                   Preview <span className="muted">({Math.min(samples.length, 8)} rows shown)</span>
                 </div>
 
-                <div className="previewWrap">
-                  <div className="previewGrid" style={{"--firstW": `${firstColWidth}px`} as React.CSSProperties}>
-                    {/* Left: pinned first column */}
-                    <div className="pinCol" ref={leftRef} onScroll={onLeftScroll}>
-                      <table className="pTable">
-                        <thead>
-                          <tr><th style={{width:firstColWidth}}>{headers[0] || ""}</th></tr>
-                        </thead>
-                        <tbody>
-                          {samples.map((r,i)=>(
-                            <tr key={i} className={i%2?"odd":""}>
-                              <td style={{width:firstColWidth}} title={(r[0]??"")}>{r[0]??""}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                <div className="pv">
+                  {/* headers */}
+                  <div className="pv-head">
+                    <div ref={leftHeadRef} className="pv-left pv-headRow">
+                      <div className="cell head">{headers[0] || ""}</div>
+                    </div>
+                    <div ref={rightHeadRef} className="pv-right pv-headRow pv-xscroll">
+                      <div className="row">
+                        {rightCols.map((h,i)=>(
+                          <div key={i} className="cell head">{h}</div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* bodies */}
+                  <div className="pv-body">
+                    <div ref={leftBodyRef} className="pv-left pv-yscroll" onScroll={onLeftScroll}>
+                      {samples.map((r,ri)=>(
+                        <div key={ri} className={`row ${ri%2?"odd":""}`}>
+                          <div className="cell">{r[0] ?? ""}</div>
+                        </div>
+                      ))}
                     </div>
 
-                    {/* Right: horizontally scrollable rest of columns */}
-                    <div className="scrollBody" ref={rightRef} onScroll={onRightScroll}>
-                      <table className="pTable">
-                        <colgroup>
-                          {rightHeaders.map((_,i)=>(<col key={i} style={{width:"180px"}} />))}
-                        </colgroup>
-                        <thead>
-                          <tr>
-                            {rightHeaders.map((h,i)=>(<th key={i} title={h}>{h}</th>))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {samples.map((r,i)=>(
-                            <tr key={i} className={i%2?"odd":""}>
-                              {r.slice(1).map((c,j)=>(<td key={j} title={c}>{c}</td>))}
-                            </tr>
+                    <div ref={rightBodyRef} className="pv-right pv-xscroll pv-yscroll" onScroll={onRightScroll}>
+                      {samples.map((r,ri)=>(
+                        <div key={ri} className={`row ${ri%2?"odd":""}`}>
+                          {rightCols.map((_,ci)=>(
+                            <div key={ci} className="cell">{r[ci+1] ?? ""}</div>
                           ))}
-                        </tbody>
-                      </table>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>
@@ -315,6 +309,7 @@ export default function Uploads(){
                   <Picker label="Phone" value={mapping.phone||""} onChange={v=>setMapping(m=>({...m,phone:v}))} options={headers}/>
                 </div>
 
+                {/* Dynamic optional fields — only if present in CSV */}
                 {(() => {
                   const extra = [] as Array<{key: keyof Mapping, label: string}>;
                   const add = (canon: string, key: keyof Mapping, label: string) => { if (presentCanon.has(canon)) extra.push({ key, label }); };
@@ -406,29 +401,27 @@ export default function Uploads(){
         .chip{margin-left:8px;font-size:12px;background:#ecfdf5;color:#065f46;padding:2px 8px;border-radius:999px}
         .muted{font-size:12px;color:#6b7280;margin-left:8px}
 
-        /* —— PREVIEW: split-table layout —— */
-        .previewWrap{border:1px solid #e5e7eb;border-radius:10px;background:#fff;overflow:hidden;padding:6px}
-        .previewGrid{display:grid;grid-template-columns: var(--firstW,220px) 1fr; gap:0}
-
-        .pinCol, .scrollBody{max-height:280px; overflow:auto}
-        .pinCol{overflow-x:hidden; border-right:1px solid #eef0f4}
-        .scrollBody{overflow: auto}
-
-        .pTable{border-collapse:separate;border-spacing:0;table-layout:fixed;width:max-content;min-width:100%}
-        .pTable thead th{
-          position:sticky; top:0; z-index:2;
-          background:#f4f6fb; color:#111827; font-weight:700;
-          border-bottom:1px solid #e3e5ea;
-        }
-        .pTable th, .pTable td{
-          width:180px;
-          padding:12px 14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-          border-right:1px solid #f4f4f5; border-bottom:1px solid #f4f4f5; background:#fff;
-        }
-        .pinCol .pTable th, .pinCol .pTable td{ width: var(--firstW,220px); }
-        .pTable th:last-child, .pTable td:last-child{ border-right:none; }
-        .pTable tbody tr.odd td{ background:#fbfbfd; }
-        .pTable tbody tr:hover td{ background:#f8fafc; }
+        /* —— PREVIEW (split panes) —— */
+        .pv{border:1px solid #e5e7eb;border-radius:10px;background:#fff;overflow:hidden;}
+        .pv-head{display:grid;grid-template-columns: 220px 1fr;border-bottom:1px solid #e5e7eb;background:#f7f8fb}
+        .pv-body{display:grid;grid-template-columns: 220px 1fr;max-height:280px}
+        .pv-left{background:#fff}
+        .pv-right{background:#fff}
+        .pv-xscroll{overflow-x:auto}
+        .pv-yscroll{overflow-y:auto;max-height:280px}
+        .pv-headRow{height:40px}
+        .pv-head .cell.head{font-weight:700;color:#111827}
+        .pv .row{display:grid;grid-auto-flow:column;grid-auto-columns:180px;align-items:center;height:40px;border-bottom:1px solid #f3f4f6}
+        .pv .row.odd{background:#fbfbfd}
+        .pv .cell{padding:0 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-right:1px solid #f4f4f5}
+        .pv .cell:last-child{border-right:none}
+        .pv-left .row{grid-auto-columns:220px}        /* left pane single wide column */
+        .pv-left .cell{border-right:1px solid #e5e7eb}
+        .pv-head .row{height:40px}
+        .pv-head .cell{display:flex;align-items:center}
+        .pv-right::-webkit-scrollbar{height:10px}
+        .pv-right::-webkit-scrollbar-thumb{background:#e5e7eb;border-radius:8px}
+        .pv-right:hover::-webkit-scrollbar-thumb{background:#d1d5db}
 
         /* form polish */
         .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
