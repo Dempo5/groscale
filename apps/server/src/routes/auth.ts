@@ -1,16 +1,17 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { signToken, requireAuth, AuthedRequest } from "../middleware/auth.js";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client"; // <-- import Prisma as well
 
 const prisma = new PrismaClient();
 const router = Router();
 
-
 router.post("/register", async (req, res) => {
   try {
     const { email, password, name } = req.body ?? {};
-    if (!email || !password) return res.status(400).json({ error: "Email & password required" });
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email & password required" });
+    }
 
     const hashed = await bcrypt.hash(password, 12);
     const user = await prisma.user.create({
@@ -21,6 +22,7 @@ router.post("/register", async (req, res) => {
     const token = signToken(user.id);
     res.json({ token, user });
   } catch (e: any) {
+    // unique constraint (email) guard
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
       return res.status(409).json({ error: "Email already in use" });
     }
@@ -32,7 +34,9 @@ router.post("/register", async (req, res) => {
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body ?? {};
-    if (!email || !password) return res.status(400).json({ error: "Email & password required" });
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email & password required" });
+    }
 
     const u = await prisma.user.findUnique({
       where: { email },
