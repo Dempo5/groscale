@@ -146,7 +146,7 @@ export default function Uploads(){
 
   const validMap = useMemo(()=> {
     const hasName = !!(mapping.name || (mapping.first && mapping.last));
-    const hasKey = !!(mapping.email || mapping.phone);
+    const hasKey  = !!(mapping.email || mapping.phone);
     return hasName && hasKey;
   }, [mapping]);
 
@@ -154,7 +154,6 @@ export default function Uploads(){
     Object.values(mapping).filter(Boolean).length
   ), [mapping]);
 
-  // Which optional fields to show (only if detected in headers)
   const optionalFields: Array<{key: keyof Mapping, label: string}> = useMemo(()=>{
     const arr: Array<{key: keyof Mapping, label: string}> = [];
     const add = (canon: string, key: keyof Mapping, label: string) => {
@@ -234,13 +233,20 @@ export default function Uploads(){
             </div>
 
             <div className="grid">
-              {/* Preview: single scroller, real table (sticky header + first column) */}
+              {/* Preview: single scroller, real table (sticky header + sticky first column) */}
               <div className="col">
-                <div className="label">Preview <span className="muted">({Math.min(samples.length, 8)} rows shown)</span></div>
+                <div className="label">
+                  Preview <span className="muted">({Math.min(samples.length, 8)} rows shown)</span>
+                </div>
 
                 <div className="previewWrap">
                   <div className="previewScroll">
                     <table className="previewTable">
+                      <colgroup>
+                        {headers.map((_, i) => (
+                          <col key={i} style={{ width: i === 0 ? "200px" : "180px" }} />
+                        ))}
+                      </colgroup>
                       <thead>
                         <tr>
                           {headers.map((h,i)=>(
@@ -360,7 +366,8 @@ export default function Uploads(){
         .w-title{font-weight:800}
         .icon{background:none;border:0;font-size:18px;cursor:pointer;opacity:.75}
 
-        .grid{display:grid;grid-template-columns: 1.25fr .75fr;gap:16px;padding:18px 22px 20px}
+        /* Wider preview, tighter mapping column */
+        .grid{display:grid;grid-template-columns: 1.55fr .65fr;gap:16px;padding:18px 22px 20px}
         .col{display:grid;gap:10px}
         .label{font-weight:700}
         .label.sm{font-weight:600;font-size:12px;color:#6b7280}
@@ -368,16 +375,16 @@ export default function Uploads(){
         .muted{font-size:12px;color:#6b7280;margin-left:8px}
 
         /* —— PREVIEW: real table, single scroller, sticky header + first column —— */
-        .previewWrap{border:1px solid #e5e7eb;border-radius:10px;background:#fff;overflow:hidden}
+        .previewWrap{border:1px solid #e5e7eb;border-radius:10px;background:#fff;overflow:hidden;padding:6px 0}
         .previewScroll{max-height:280px;overflow:auto}
         .previewScroll::-webkit-scrollbar{height:10px}
         .previewScroll::-webkit-scrollbar-thumb{background:#e5e7eb;border-radius:8px}
         .previewScroll:hover::-webkit-scrollbar-thumb{background:#d1d5db}
 
-        .previewTable{border-collapse:separate;border-spacing:0;table-layout:fixed;width:var(--previewW, max-content)}
+        .previewTable{border-collapse:separate;border-spacing:0;table-layout:fixed;width:max(100%, calc(var(--colW,180px) * var(--cols,5)))}
         .previewTable thead th{
           position:sticky; top:0; z-index:3;
-          background:#f6f7fb; color:#1f2937;
+          background:#f4f6fb; color:#111827;
           font-weight:700; border-bottom:1px solid #e3e5ea;
         }
         .previewTable th, .previewTable td{
@@ -389,11 +396,13 @@ export default function Uploads(){
         .previewTable tbody tr.odd td{ background:#fbfbfd; }
         .previewTable tbody tr:hover td{ background:#f8fafc; }
 
-        /* sticky first column */
+        /* Sticky first column */
         .previewTable .stickyCol{
           position:sticky; left:0; z-index:2; background:inherit;
-          box-shadow: inset -1px 0 0 #ececec;
+          box-shadow: inset -0.5px 0 0 #ececec;
         }
+        /* Widen first column for dates */
+        .previewTable th:first-child, .previewTable td:first-child{ min-width:200px; }
 
         /* form polish */
         .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -401,9 +410,10 @@ export default function Uploads(){
         .sublabel{font-size:12px;color:#6b7280}
         .select,.text{width:100%;border:1px solid #e5e7eb;border-radius:8px;padding:0 10px;background:#fff;height:36px;line-height:36px}
         .select.mapped,.text.mapped{background:#f0fdf4;border-color:#bbf7d0}
+        .select:focus{outline:0;box-shadow:0 0 0 3px rgba(16,185,129,.25);border-color:#10b981}
         .warn{background:#fffbeb;border:1px solid #fef3c7;color:#92400e;padding:8px 10px;border-radius:8px}
         .err{background:#fef2f2;border:1px solid #fee2e2;color:#991b1b;padding:8px 10px;border-radius:8px}
-        .actions{display:flex;align-items:center;gap:8px;margin-top:8px}
+        .actions{display:flex;align-items:center;gap:12px;margin-top:8px}
         .hint{font-size:12px;color:#6b7280}
         .spacer{flex:1}
         .btn{background:var(--accent,#10b981);color:#fff;border:0;border-radius:10px;padding:8px 12px;cursor:pointer}
@@ -414,9 +424,8 @@ export default function Uploads(){
         .q{ display:inline-grid; place-items:center; width:18px; height:18px; border-radius:50%; font-size:12px; line-height:1; color:#334155; background:#e5e7eb; cursor:help; }
       `}</style>
 
-      {/* Fixed table width = (# of columns * base width). Keeps columns stable while panning. */}
-      <style>{`.previewTable{--colW: 160px} .previewTable{--cols:${Math.max(headers.length,1)}}
-               .previewTable{width: calc(var(--colW) * var(--cols))}`}</style>
+      {/* Tell the preview table how many columns it has for width calc */}
+      <style>{`.previewTable{--cols:${Math.max(headers.length,1)}}`}</style>
     </div>
   );
 }
@@ -425,7 +434,7 @@ function Picker({ label, value, onChange, options, placeholder }:{
   label:string; value:string; onChange:(v:string)=>void; options:string[]; placeholder?:string;
 }){
   return (
-    <div className="stack">
+    <div className="stack" aria-label={label}>
       <div className="sublabel">{label}</div>
       <select className={`select ${value ? "mapped" : ""}`} value={value} onChange={e=>onChange(e.target.value)}>
         <option value="">{placeholder || "(none)"}</option>
