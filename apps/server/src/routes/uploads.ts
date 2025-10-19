@@ -1,7 +1,9 @@
 import { Router } from "express";
 import multer from "multer";
 import { parse as csvParse } from "csv-parse/sync";
-import { prisma } from "../../prisma.js"; // ESM extension
+import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
