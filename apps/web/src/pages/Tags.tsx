@@ -1,7 +1,7 @@
-// apps/web/src/pages/Tags.tsx
 import { useEffect, useMemo, useState } from "react";
 import {
-  listTags,
+  getTags,
+  listTags, // alias; harmless if you keep it
   createTag,
   updateTag,
   deleteTag,
@@ -11,353 +11,355 @@ import {
   type TagColor,
 } from "../lib/api";
 
-type SaveState = "idle" | "saving" | "saved" | "error";
-
-const COLORS: TagColor[] = [
-  "red",
-  "orange",
-  "amber",
-  "green",
-  "teal",
-  "blue",
-  "indigo",
-  "violet",
-  "pink",
-  "gray",
+/* ---------- palette & helpers ---------- */
+const PALETTE: { id: TagColor; swatch: string }[] = [
+  { id: "red", swatch: "#ef4444" },
+  { id: "orange", swatch: "#f97316" },
+  { id: "amber", swatch: "#f59e0b" },
+  { id: "green", swatch: "#10b981" },
+  { id: "teal", swatch: "#14b8a6" },
+  { id: "blue", swatch: "#3b82f6" },
+  { id: "indigo", swatch: "#6366f1" },
+  { id: "violet", swatch: "#8b5cf6" },
+  { id: "pink", swatch: "#ec4899" },
+  { id: "gray", swatch: "#6b7280" },
 ];
 
-const HEX: Record<TagColor, string> = {
-  red: "#ef4444",
-  orange: "#f97316",
-  amber: "#f59e0b",
-  green: "#10b981",
-  teal: "#14b8a6",
-  blue: "#3b82f6",
-  indigo: "#6366f1",
-  violet: "#8b5cf6",
-  pink: "#ec4899",
-  gray: "#6b7280",
-};
+function pillStyle(color?: TagColor | null) {
+  const hex =
+    PALETTE.find((p) => p.id === color)?.swatch ??
+    "#cbd5e1"; // slate-300 fallback
+  return {
+    background: `${hex}20`, // 12.5% opacity bg
+    color: hex,
+    borderColor: `${hex}55`,
+  } as React.CSSProperties;
+}
 
+/* ---------- page ---------- */
 export default function Tags() {
-  const [rows, setRows] = useState<TagDTO[]>([]);
-  const [workflows, setWorkflows] = useState<Workflow[]>([]);
-  const [selectedId, setSelectedId] = useState<string>("");
-  const [query, setQuery] = useState("");
-  const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
 
-  // new tag bar
-  const [addOpen, setAddOpen] = useState(false);
-  const [addName, setAddName] = useState("");
-  const [addColor, setAddColor] = useState<TagColor>("blue");
-  const [adding, setAdding] = useState(false);
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [rows, setRows] = useState<TagDTO[]>([]);
+  const [q, setQ] = useState("");
 
-  // editor state
-  const selected = rows.find((t) => t.id === selectedId) || null;
-  const [name, setName] = useState("");
-  const [color, setColor] = useState<TagColor>("blue");
-  const [workflowId, setWorkflowId] = useState<string>("");
-  const [save, setSave] = useState<SaveState>("idle");
+  // creator bar
+  const [newName, setNewName] = useState("");
+  const [newColor, setNewColor] = useState<TagColor | null>(null);
 
+  // editor panel
+  const [sel, setSel] = useState<TagDTO | null>(null);
+  const [eName, setEName] = useState("");
+  const [eColor, setEColor] = useState<TagColor | null>(null);
+  const [eWorkflow, setEWorkflow] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  /* ----- load ----- */
   useEffect(() => {
     (async () => {
       setLoading(true);
       setErr(null);
       try {
-        const [ts, wfs] = await Promise.all([listTags(), listWorkflows()]);
-        setRows(ts);
-        setWorkflows(wfs);
-        if (ts.length) setSelectedId(ts[0].id);
+        const [ws, ts] = await Promise.all([listWorkflows(), getTags().catch(() => listTags())]);
+        setWorkflows(ws || []);
+        setRows(Array.isArray(ts) ? ts : []);
       } catch (e: any) {
-        setErr(`Failed to load tags/workflows`);
+        setErr(String(e?.message || e || "Failed to load tags/workflows"));
       } finally {
         setLoading(false);
       }
     })();
   }, []);
 
-  // whenever selection changes, hydrate the editor
-  useEffect(() => {
-    if (!selected) return;
-    setName(selected.name || "");
-    setColor((selected.color as TagColor) || "blue");
-    setWorkflowId(selected.workflowId || "");
-    setSave("idle");
-  }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
-
+  /* ----- filtered & grouped ----- */
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((t) => t.name.toLowerCase().includes(q));
-  }, [rows, query]);
+    const term = q.trim().toLowerCase();
+    let arr = rows;
+    if (term) {
+      arr = rows.filter(
+        (t) =>
+          t.name.toLowerCase().includes(term) ||
+          (t.workflowId ? t.workflowId.toLowerCase().includes(term) : false)
+      );
+    }
+    // sort by color then name
+    return [...arr].sort((a, b) => {
+      const ca = a.color || "";
+      const cb = b.color || "";
+      if (ca !== cb) return ca < cb ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+  }, [rows, q]);
 
+  /* ----- select sync ----- */
+  useEffect(() => {
+    if (!sel) return;
+    const fresh = rows.find((r) => r.id === sel.id) || null;
+    if (fresh) {
+      setSel(fresh);
+      setEName(fresh.name || "");
+      setEColor((fresh.color as TagColor) ?? null);
+      setEWorkflow(fresh.workflowId ?? null);
+    } else {
+      setSel(null);
+      setEName("");
+      setEColor(null);
+      setEWorkflow(null);
+    }
+  }, [rows]);
+
+  /* ----- actions ----- */
   async function onCreate() {
-    const nm = addName.trim();
-    if (!nm) return;
-    setAdding(true);
+    if (!newName.trim()) return;
     setErr(null);
+    setSaving(true);
     try {
-      const t = await createTag({ name: nm, color: addColor });
-      setRows((r) => [t, ...r].sort(sorter));
-      setAddName("");
-      setAddOpen(false);
-      setSelectedId(t.id);
+      const created = await createTag({
+        name: newName.trim(),
+        color: newColor ?? null,
+        workflowId: null,
+      });
+      setRows((r) => [created, ...r]);
+      setNewName("");
+      setNewColor(null);
     } catch (e: any) {
       setErr("Failed to create tag");
     } finally {
-      setAdding(false);
+      setSaving(false);
     }
   }
 
   async function onSave() {
-    if (!selected) return;
-    const nm = name.trim();
-    if (!nm) return;
-    setSave("saving");
+    if (!sel) return;
+    setSaving(true);
     setErr(null);
     try {
-      const updated = await updateTag(selected.id, {
-        name: nm,
-        color: color || "blue",
-        workflowId: workflowId || undefined, // avoid null
+      const updated = await updateTag(sel.id, {
+        name: eName.trim() || sel.name,
+        color: eColor ?? null,
+        workflowId: eWorkflow ?? null,
       });
-      setRows((r) =>
-        r
-          .map((x) => (x.id === updated.id ? updated : x))
-          .sort(sorter)
-      );
-      setSave("saved");
-      setTimeout(() => setSave("idle"), 1200);
+      setRows((r) => r.map((t) => (t.id === sel.id ? updated : t)));
     } catch (e: any) {
-      setSave("error");
       setErr("Failed to save changes");
+    } finally {
+      setSaving(false);
     }
   }
 
   async function onDelete(id: string) {
-    const row = rows.find((t) => t.id === id);
-    if (!row) return;
-    if (!confirm(`Delete tag “${row.name}”? This cannot be undone.`)) return;
+    if (!confirm("Delete this tag?")) return;
     setErr(null);
     try {
       await deleteTag(id);
-      const next = rows.filter((t) => t.id !== id);
-      setRows(next);
-      if (selectedId === id) setSelectedId(next[0]?.id || "");
+      setRows((r) => r.filter((t) => t.id !== id));
+      if (sel?.id === id) {
+        setSel(null);
+        setEName("");
+        setEColor(null);
+        setEWorkflow(null);
+      }
     } catch (e: any) {
       setErr("Failed to delete tag");
     }
   }
 
+  /* ----- UI ----- */
   return (
     <div className="p-tags">
-      <div className="top">
+      <header className="page-h">
         <div className="title">Tags</div>
-        <div className="actions">
-          {!addOpen ? (
-            <button className="btn" onClick={() => setAddOpen(true)}>
-              + New tag
-            </button>
-          ) : (
-            <div className="addbar">
-              <input
-                className="text"
-                placeholder="New tag name…"
-                autoFocus
-                value={addName}
-                onChange={(e) => setAddName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && onCreate()}
-              />
-              <div className="swatches">
-                {COLORS.map((c) => (
-                  <Swatch key={c} color={c} active={c === addColor} onClick={() => setAddColor(c)} />
-                ))}
-              </div>
-              <button className="btn" onClick={onCreate} disabled={!addName.trim() || adding}>
-                {adding ? "Adding…" : "Add"}
-              </button>
-              <button className="btn ghost" onClick={() => setAddOpen(false)} disabled={adding}>
-                Cancel
-              </button>
-            </div>
-          )}
+        <div className="sub">Organize contacts and auto-start workflows per tag.</div>
+      </header>
+
+      {!!err && <div className="alert error">⚠️ {err}</div>}
+
+      {/* Creator bar */}
+      <div className="creator">
+        <input
+          className="name"
+          placeholder="New tag name…"
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && onCreate()}
+        />
+        <div className="colors">
+          {PALETTE.map((p) => (
+            <button
+              key={p.id}
+              className={`dot ${newColor === p.id ? "on" : ""}`}
+              style={{ background: p.swatch }}
+              aria-label={p.id}
+              onClick={() => setNewColor((c) => (c === p.id ? null : p.id))}
+            />
+          ))}
         </div>
+        <button className="btn" disabled={!newName.trim() || saving} onClick={onCreate}>
+          Add
+        </button>
       </div>
 
-      {err && <div className="banner error">⚠️ {err}</div>}
-      {loading && <div className="loading">Loading…</div>}
-
-      {!loading && (
-        <div className="grid">
-          {/* LEFT: list */}
-          <div className="col list">
-            <div className="search">
-              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
-                <path d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z" fill="none" stroke="currentColor" strokeWidth="1.5" />
-              </svg>
-              <input
-                placeholder="Search tags…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-            </div>
-
-            <ul className="rows">
-              {!filtered.length && <li className="empty">No tags</li>}
-              {filtered.map((t) => (
-                <li
-                  key={t.id}
-                  className={`row ${t.id === selectedId ? "active" : ""}`}
-                  onClick={() => setSelectedId(t.id)}
-                >
-                  <span className="dot" style={{ background: HEX[(t.color as TagColor) || "blue"] }} />
-                  <span className="name">{t.name}</span>
-                </li>
-              ))}
-            </ul>
+      <div className="grid">
+        {/* LEFT: search + list */}
+        <aside className="left">
+          <div className="search">
+            <input
+              placeholder="Search tags…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
           </div>
 
-          {/* RIGHT: editor */}
-          <div className="col editor">
-            {!selected ? (
-              <div className="placeholder">Select a tag to edit its name, color, or attached workflow.</div>
-            ) : (
-              <div className="card">
-                <div className="card-h">
-                  <div className="pill" style={{ background: HEX[color] }} />
-                  <div className="h">Edit tag</div>
-                  <button className="danger" onClick={() => onDelete(selected.id)} title="Delete">
-                    Delete
-                  </button>
-                </div>
+          <div className="list">
+            {loading && <div className="hint">Loading…</div>}
+            {!loading && !filtered.length && (
+              <div className="hint">No tags</div>
+            )}
 
-                <div className="form">
-                  <div className="group">
-                    <label>Name</label>
-                    <input
-                      className="text"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      placeholder="Tag name"
+            {filtered.map((t) => (
+              <button
+                key={t.id}
+                className={`row ${sel?.id === t.id ? "active" : ""}`}
+                onClick={() => setSel(t)}
+                title={t.name}
+              >
+                <span className="pill" style={pillStyle(t.color)}>
+                  {t.name}
+                </span>
+                {t.workflowId && <span className="wf">WF</span>}
+              </button>
+            ))}
+          </div>
+        </aside>
+
+        {/* RIGHT: editor */}
+        <section className="editor">
+          {!sel && (
+            <div className="editor-empty">
+              Select a tag to edit its name, color, or attached workflow.
+            </div>
+          )}
+
+          {sel && (
+            <div className="card">
+              <div className="card-h">
+                <div className="preview">
+                  <span className="pill big" style={pillStyle(eColor)}>
+                    {eName.trim() || sel.name}
+                  </span>
+                </div>
+                <button className="trash" onClick={() => onDelete(sel.id)} title="Delete">
+                  🗑
+                </button>
+              </div>
+
+              <div className="form">
+                <label>Name</label>
+                <input
+                  value={eName}
+                  onChange={(e) => setEName(e.target.value)}
+                  placeholder="Tag name"
+                />
+
+                <label>Color</label>
+                <div className="colors lg">
+                  {PALETTE.map((p) => (
+                    <button
+                      key={p.id}
+                      className={`dot ${eColor === p.id ? "on" : ""}`}
+                      style={{ background: p.swatch }}
+                      aria-label={p.id}
+                      onClick={() => setEColor((c) => (c === p.id ? null : p.id))}
                     />
-                  </div>
-
-                  <div className="group">
-                    <label>Color</label>
-                    <div className="swatches big">
-                      {COLORS.map((c) => (
-                        <Swatch key={c} color={c} active={c === color} onClick={() => setColor(c)} />
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="group">
-                    <label>Attached workflow (optional)</label>
-                    <select
-                      className="select"
-                      value={workflowId}
-                      onChange={(e) => setWorkflowId(e.target.value)}
-                    >
-                      <option value="">(none)</option>
-                      {workflows.map((w) => (
-                        <option key={w.id} value={w.id}>
-                          {w.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  ))}
                 </div>
 
-                <div className="card-f">
-                  <div className={`save ${save}`}>
-                    {save === "saving" && "Saving…"}
-                    {save === "saved" && "Saved ✓"}
-                    {save === "error" && "Error"}
-                  </div>
-                  <button className="btn" onClick={onSave} disabled={!name.trim() || save === "saving"}>
-                    Save changes
+                <label>Attached workflow</label>
+                <select
+                  value={eWorkflow ?? ""}
+                  onChange={(e) =>
+                    setEWorkflow(e.currentTarget.value ? e.currentTarget.value : null)
+                  }
+                >
+                  <option value="">(none)</option>
+                  {workflows.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="actions">
+                  <button
+                    className="btn primary"
+                    disabled={saving}
+                    onClick={onSave}
+                  >
+                    {saving ? "Saving…" : "Save changes"}
                   </button>
                 </div>
               </div>
-            )}
-          </div>
-        </div>
-      )}
+            </div>
+          )}
+        </section>
+      </div>
 
-      <style>{css}</style>
+      {/* scoped styles */}
+      <style>{`
+        .p-tags { padding: 16px 18px 28px; }
+        .page-h { margin-bottom: 10px; }
+        .page-h .title { font-weight: 800; font-size: 18px; }
+        .page-h .sub { color:#6b7280; font-size:12px; }
+
+        .alert.error { background:#fef2f2; border:1px solid #fee2e2; color:#991b1b; padding:8px 10px; border-radius:10px; margin:10px 0; }
+
+        .creator {
+          display:grid; grid-template-columns: 1fr auto auto; gap:10px;
+          align-items:center; background:#fff; border:1px solid #e5e7eb;
+          border-radius:12px; padding:10px 12px; margin:6px 0 14px;
+        }
+        .creator .name{ height:36px; border:1px solid #e5e7eb; border-radius:10px; padding:0 10px; }
+        .colors{ display:flex; gap:8px; align-items:center; }
+        .colors .dot{ width:20px; height:20px; border-radius:50%; border:2px solid #fff; box-shadow:0 0 0 1px rgba(0,0,0,.08); cursor:pointer; }
+        .colors .dot.on{ outline:3px solid rgba(16,185,129,.25); }
+
+        .btn{ background:#111827; color:#fff; border:0; height:36px; padding:0 12px; border-radius:10px; cursor:pointer; }
+        .btn:disabled{ opacity:.5; cursor:not-allowed; }
+        .btn.primary{ background:var(--accent,#10b981); }
+
+        .grid{ display:grid; grid-template-columns: 260px 1fr; gap:16px; min-height:540px; }
+        .left{ background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:10px; display:flex; flex-direction:column; }
+        .left .search input{ width:100%; height:34px; border:1px solid #e5e7eb; border-radius:8px; padding:0 10px; }
+        .left .list{ margin-top:8px; overflow:auto; display:grid; gap:8px; }
+        .left .hint{ color:#6b7280; font-size:12px; padding:8px; text-align:center; }
+
+        .row{ display:flex; align-items:center; justify-content:space-between; gap:8px; background:#fff; border:1px solid #eef2f7; padding:6px 8px; border-radius:10px; cursor:pointer; }
+        .row:hover{ border-color:#dbe3ee; }
+        .row.active{ background:#f0fdf4; border-color:#bbf7d0; }
+        .row .wf{ font-size:10px; color:#6b7280; }
+
+        .pill{ display:inline-flex; align-items:center; gap:8px; padding:4px 10px; border-radius:999px; border:1px solid transparent; font-weight:600; line-height:1; }
+        .pill.big{ font-size:14px; padding:6px 12px; }
+
+        .editor{ background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:0; min-height:480px; }
+        .editor-empty{ color:#6b7280; font-size:13px; display:grid; place-items:center; height:100%; }
+
+        .card{ display:grid; grid-template-rows:auto 1fr; height:100%; }
+        .card-h{ display:flex; justify-content:space-between; align-items:center; padding:12px 14px; border-bottom:1px solid #eef2f7; }
+        .trash{ background:none; border:0; font-size:18px; cursor:pointer; opacity:.8; }
+        .trash:hover{ opacity:1; }
+
+        .form{ display:grid; gap:10px; padding:14px; }
+        .form label{ font-size:12px; color:#6b7280; }
+        .form input, .form select{
+          height:36px; border:1px solid #e5e7eb; border-radius:10px; padding:0 10px; background:#fff;
+        }
+        .colors.lg .dot{ width:22px; height:22px; }
+
+        .actions{ display:flex; justify-content:flex-end; margin-top:6px; }
+      `}</style>
     </div>
   );
 }
-
-function Swatch({
-  color,
-  active,
-  onClick,
-}: {
-  color: TagColor;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className={`swatch ${active ? "active" : ""}`}
-      style={{ background: HEX[color] }}
-      aria-label={color}
-      onClick={onClick}
-    >
-      {active && (
-        <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden>
-          <path d="M5 12l4 4L19 6" fill="none" stroke="#fff" strokeWidth="2" />
-        </svg>
-      )}
-    </button>
-  );
-}
-
-function sorter(a: TagDTO, b: TagDTO) {
-  return a.name.localeCompare(b.name);
-}
-
-const css = `
-.p-tags { padding: 16px; }
-.top { display:flex; align-items:center; justify-content:space-between; }
-.title { font-weight:800; }
-.actions { display:flex; align-items:center; gap:8px; }
-.btn { background: var(--accent,#10b981); color:#fff; border:0; border-radius:10px; padding:8px 12px; cursor:pointer; }
-.btn.ghost { background:#fff; color:#374151; border:1px solid #e5e7eb; }
-.banner.error { margin:10px 0; padding:10px; border:1px solid #fee2e2; background:#fef2f2; color:#991b1b; border-radius:10px; }
-.loading { margin:20px 0; color:#6b7280; }
-.grid { display:grid; grid-template-columns: 280px 1fr; gap:14px; margin-top:12px; }
-.col { background:#fff; border:1px solid #e5e7eb; border-radius:12px; overflow:hidden; }
-.col.list { display:grid; grid-template-rows:auto 1fr; }
-.search { display:flex; align-items:center; gap:8px; padding:10px; border-bottom:1px solid #e5e7eb; }
-.search input { width:100%; border:0; outline:0; background:#f9fafb; padding:8px 10px; border-radius:8px; }
-.rows { list-style:none; margin:0; padding:6px; max-height: calc(100vh - 220px); overflow:auto; }
-.row { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:10px; cursor:pointer; }
-.row:hover { background:#f7fafc; }
-.row.active { background:#ecfdf5; }
-.row .dot { width:10px; height:10px; border-radius:50%; }
-.row .name { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.empty { color:#6b7280; padding:10px; }
-.editor { padding:14px; }
-.placeholder { color:#6b7280; display:grid; place-items:center; height:220px; border:1px dashed #e5e7eb; border-radius:12px; }
-.card { border:1px solid #e5e7eb; border-radius:12px; overflow:hidden; }
-.card-h { display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid #e5e7eb; }
-.card-h .h { font-weight:800; flex:1; }
-.card-h .pill { width:18px; height:18px; border-radius:999px; }
-.card-h .danger { background:#fff; border:1px solid #fee2e2; color:#991b1b; border-radius:10px; padding:6px 10px; cursor:pointer; }
-.form { display:grid; gap:14px; padding:14px; }
-.group { display:grid; gap:6px; }
-.group label { font-size:12px; color:#6b7280; }
-.text, .select { width:100%; height:38px; border:1px solid #e5e7eb; border-radius:10px; padding:0 10px; }
-.swatches { display:flex; align-items:center; gap:8px; }
-.swatches.big .swatch { width:26px; height:26px; }
-.swatch { width:22px; height:22px; border-radius:999px; border:2px solid #fff; box-shadow:0 0 0 1px rgba(0,0,0,.08); position:relative; display:grid; place-items:center; cursor:pointer; }
-.swatch.active { box-shadow:0 0 0 2px rgba(16,185,129,.55); }
-.card-f { display:flex; align-items:center; gap:10px; padding:12px 14px; border-top:1px solid #e5e7eb; }
-.save { font-size:12px; color:#6b7280; }
-.save.saved { color:#065f46; }
-.addbar { display:flex; align-items:center; gap:10px; }
-.addbar .text { width:240px; }
-`;
