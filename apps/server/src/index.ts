@@ -1,26 +1,21 @@
 /// <reference path="./types/express.d.ts" />
 
-// apps/server/src/index.ts
 import express, { Request, Response, NextFunction } from "express";
 
-// ESM route imports must include .js
+// ESM route imports MUST include .js
 import authRoute from "./routes/auth.js";
 import uploadsRouter from "./routes/uploads.js";
 import numbersRouter from "./routes/numbers.js";
 import workflowsRouter from "./routes/workflows.js";
 import copilotRouter from "./routes/copilot.js";
-import tagsRouter from "./routes/tags.js"; // ← NEW
+import tagsRouter from "./routes/tags.js";
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
 
 /** Normalize to "scheme://host[:port]" */
 function norm(u?: string | null) {
   if (!u) return "";
-  try {
-    return new URL(u).origin;
-  } catch {
-    return String(u).replace(/\/+$/, "");
-  }
+  try { return new URL(u).origin; } catch { return String(u).replace(/\/+$/, ""); }
 }
 
 /** Explicit allow-list from env (comma separated) */
@@ -37,25 +32,19 @@ function corsGuard(req: Request, res: Response, next: NextFunction) {
   const origin = norm(req.headers.origin as string | undefined);
 
   const allowed =
-    !origin || // server-to-server / same-origin
-    envList.includes(origin) || // explicit allow-list
-    allowRegex.test(origin); // preview domains + localhost
+    !origin ||                      // server-to-server / same-origin
+    envList.includes(origin) ||     // explicit allow-list
+    allowRegex.test(origin);        // preview domains + localhost
 
   if (allowed) {
     res.header("Vary", "Origin");
-    if (origin) res.header("Access-Control-Allow-Origin", origin);
-    else res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Origin", origin || "*");
     res.header("Access-Control-Allow-Credentials", "true");
     res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    res.header(
-      "Access-Control-Allow-Methods",
-      "GET,POST,PUT,PATCH,DELETE,OPTIONS"
-    );
-
+    res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
     if (req.method === "OPTIONS") return res.sendStatus(204);
     return next();
   }
-
   if (req.method === "OPTIONS") return res.sendStatus(403);
   return res.status(403).json({ error: "Not allowed by CORS" });
 }
@@ -75,7 +64,7 @@ app.use("/api/uploads", uploadsRouter);
 app.use("/api/numbers", numbersRouter);
 app.use("/api/workflows", workflowsRouter);
 app.use("/api/copilot", copilotRouter);
-app.use("/api/tags", tagsRouter); // ← NEW
+app.use("/api/tags", tagsRouter);
 
 // ---------- Demo ----------
 app.get("/api/leads", (_req, res) => {
@@ -87,9 +76,7 @@ app.get("/api/leads", (_req, res) => {
 
 // ---------- Root ----------
 app.get("/", (_req, res) => {
-  res
-    .type("text")
-    .send(`GroScale API is running ✅
+  res.type("text").send(`GroScale API is running ✅
 
 Try:
 /health
