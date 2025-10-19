@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useMemo } from "react";
+import { useRef, useState, useEffect, useMemo, UIEvent } from "react";
 import { useNavigate } from "react-router-dom";
 
 /** —— Canonical + synonyms —— */
@@ -154,11 +154,10 @@ export default function Uploads(){
     Object.values(mapping).filter(Boolean).length
   ), [mapping]);
 
+  // Optional fields rendered only if present
   const optionalFields: Array<{key: keyof Mapping, label: string}> = useMemo(()=>{
     const arr: Array<{key: keyof Mapping, label: string}> = [];
-    const add = (canon: string, key: keyof Mapping, label: string) => {
-      if (presentCanon.has(canon)) arr.push({ key, label });
-    };
+    const add = (canon: string, key: keyof Mapping, label: string) => { if (presentCanon.has(canon)) arr.push({ key, label }); };
     add("city","city","City");
     add("state","state","State");
     add("zip","zip","ZIP");
@@ -189,11 +188,26 @@ export default function Uploads(){
     finally{ setBusy(false); }
   }
 
-  // grid column template for the preview
-  const colTemplate = useMemo(() => {
-    if (!headers.length) return "1fr";
-    return headers.map((_,i)=> i===0 ? "220px" : "180px").join(" ");
-  }, [headers]);
+  /** ----- Split-table preview (pinned first column) ----- */
+  const firstColWidth = 220; // px
+  const leftRef = useRef<HTMLDivElement|null>(null);
+  const rightRef = useRef<HTMLDivElement|null>(null);
+  const syncing = useRef<0|1|2>(0); // 1=from right, 2=from left
+
+  const onRightScroll = (e: UIEvent<HTMLDivElement>) => {
+    if (syncing.current === 2) { syncing.current = 0; return; }
+    syncing.current = 1;
+    if (leftRef.current) leftRef.current.scrollTop = (e.target as HTMLDivElement).scrollTop;
+    syncing.current = 0;
+  };
+  const onLeftScroll = (e: UIEvent<HTMLDivElement>) => {
+    if (syncing.current === 1) { syncing.current = 0; return; }
+    syncing.current = 2;
+    if (rightRef.current) rightRef.current.scrollTop = (e.target as HTMLDivElement).scrollTop;
+    syncing.current = 0;
+  };
+
+  const rightHeaders = headers.slice(1);
 
   return (
     <div className="p-uploads">
@@ -239,50 +253,49 @@ export default function Uploads(){
             </div>
 
             <div className="grid">
-              {/* PREVIEW — CSS Grid with sticky header + sticky first column */}
+              {/* Preview: split table */}
               <div className="col">
                 <div className="label">
                   Preview <span className="muted">({Math.min(samples.length, 8)} rows shown)</span>
                 </div>
 
                 <div className="previewWrap">
-                  <div className="previewScroll" role="region" aria-label="Preview">
-                    {/* Header */}
-                    <div className="gpRow gpHeader" style={{ gridTemplateColumns: colTemplate }}>
-                      {headers.map((h,i)=>(
-                        <div
-                          key={i}
-                          className={`gpCell ${i===0 ? "stickyLeft" : ""}`}
-                          title={h}
-                          aria-colindex={i+1}
-                        >
-                          {h}
-                        </div>
-                      ))}
+                  <div className="previewGrid" style={{"--firstW": `${firstColWidth}px`} as React.CSSProperties}>
+                    {/* Left: pinned first column */}
+                    <div className="pinCol" ref={leftRef} onScroll={onLeftScroll}>
+                      <table className="pTable">
+                        <thead>
+                          <tr><th style={{width:firstColWidth}}>{headers[0] || ""}</th></tr>
+                        </thead>
+                        <tbody>
+                          {samples.map((r,i)=>(
+                            <tr key={i} className={i%2?"odd":""}>
+                              <td style={{width:firstColWidth}} title={(r[0]??"")}>{r[0]??""}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
 
-                    {/* Body */}
-                    <div className="gpBody">
-                      {samples.map((r,ri)=>(
-                        <div
-                          key={ri}
-                          className={`gpRow ${ri%2?"odd":""}`}
-                          style={{ gridTemplateColumns: colTemplate }}
-                          role="row"
-                          aria-rowindex={ri+1}
-                        >
-                          {r.map((c,ci)=>(
-                            <div
-                              key={ci}
-                              className={`gpCell ${ci===0 ? "stickyLeft" : ""}`}
-                              title={c}
-                              aria-colindex={ci+1}
-                            >
-                              {c}
-                            </div>
+                    {/* Right: horizontally scrollable rest of columns */}
+                    <div className="scrollBody" ref={rightRef} onScroll={onRightScroll}>
+                      <table className="pTable">
+                        <colgroup>
+                          {rightHeaders.map((_,i)=>(<col key={i} style={{width:"180px"}} />))}
+                        </colgroup>
+                        <thead>
+                          <tr>
+                            {rightHeaders.map((h,i)=>(<th key={i} title={h}>{h}</th>))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {samples.map((r,i)=>(
+                            <tr key={i} className={i%2?"odd":""}>
+                              {r.slice(1).map((c,j)=>(<td key={j} title={c}>{c}</td>))}
+                            </tr>
                           ))}
-                        </div>
-                      ))}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 </div>
@@ -302,7 +315,6 @@ export default function Uploads(){
                   <Picker label="Phone" value={mapping.phone||""} onChange={v=>setMapping(m=>({...m,phone:v}))} options={headers}/>
                 </div>
 
-                {/* Dynamic optional fields — only if present in file */}
                 {(() => {
                   const extra = [] as Array<{key: keyof Mapping, label: string}>;
                   const add = (canon: string, key: keyof Mapping, label: string) => { if (presentCanon.has(canon)) extra.push({ key, label }); };
@@ -370,8 +382,8 @@ export default function Uploads(){
         .drop-center{display:grid;place-items:center;text-align:center;gap:6px}
         .h1{font-weight:700}
         .sub{color:#6b7280;font-size:12px}
-        .card{border:1px solid var(--line,#e5e7eb);border-radius:12px;overflow:hidden}
-        .card-h{padding:10px;border-bottom:1px solid var(--line,#e5e7eb);font-weight:700}
+        .card{border:1px solid #e5e7eb;border-radius:12px;overflow:hidden}
+        .card-h{padding:10px;border-bottom:1px solid #e5e7eb;font-weight:700}
         .table{overflow:auto}
         table{width:100%;border-collapse:collapse}
         th,td{padding:10px;border-top:1px solid #e5e7eb}
@@ -394,23 +406,29 @@ export default function Uploads(){
         .chip{margin-left:8px;font-size:12px;background:#ecfdf5;color:#065f46;padding:2px 8px;border-radius:999px}
         .muted{font-size:12px;color:#6b7280;margin-left:8px}
 
-        /* —— PREVIEW (CSS Grid) —— */
-        .previewWrap{border:1px solid #e5e7eb;border-radius:10px;background:#fff;overflow:hidden}
-        .previewScroll{max-height:280px;overflow:auto;position:relative}
-        .previewScroll::-webkit-scrollbar{height:10px}
-        .previewScroll::-webkit-scrollbar-thumb{background:#e5e7eb;border-radius:8px}
-        .previewScroll:hover::-webkit-scrollbar-thumb{background:#d1d5db}
+        /* —— PREVIEW: split-table layout —— */
+        .previewWrap{border:1px solid #e5e7eb;border-radius:10px;background:#fff;overflow:hidden;padding:6px}
+        .previewGrid{display:grid;grid-template-columns: var(--firstW,220px) 1fr; gap:0}
 
-        .gpRow{display:grid;align-items:center;min-width:max-content}
-        .gpHeader{position:sticky;top:0;z-index:3;background:#f4f6fb;border-bottom:1px solid #e3e5ea}
-        .gpBody .gpRow{border-bottom:1px solid #f4f4f5}
-        .gpBody .gpRow.odd{background:#fbfbfd}
-        .gpCell{padding:12px 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-right:1px solid #f4f4f5}
-        .gpRow .gpCell:last-child{border-right:none}
+        .pinCol, .scrollBody{max-height:280px; overflow:auto}
+        .pinCol{overflow-x:hidden; border-right:1px solid #eef0f4}
+        .scrollBody{overflow: auto}
 
-        /* Sticky first column (header + body) */
-        .stickyLeft{position:sticky;left:0;z-index:2;background:inherit}
-        .gpHeader .stickyLeft{z-index:4}
+        .pTable{border-collapse:separate;border-spacing:0;table-layout:fixed;width:max-content;min-width:100%}
+        .pTable thead th{
+          position:sticky; top:0; z-index:2;
+          background:#f4f6fb; color:#111827; font-weight:700;
+          border-bottom:1px solid #e3e5ea;
+        }
+        .pTable th, .pTable td{
+          width:180px;
+          padding:12px 14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+          border-right:1px solid #f4f4f5; border-bottom:1px solid #f4f4f5; background:#fff;
+        }
+        .pinCol .pTable th, .pinCol .pTable td{ width: var(--firstW,220px); }
+        .pTable th:last-child, .pTable td:last-child{ border-right:none; }
+        .pTable tbody tr.odd td{ background:#fbfbfd; }
+        .pTable tbody tr:hover td{ background:#f8fafc; }
 
         /* form polish */
         .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
