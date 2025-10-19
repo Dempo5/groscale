@@ -153,7 +153,6 @@ router.post("/import", upload.single("file"), async (req, res) => {
   const originalCanon = original.map(nHeader);
   const KEYS = ["name","first","last","email","phone","tags","note","city","state","zip","address","dob"] as const;
 
-  // IMPORTANT: if mapping[k] is empty -> -1 (avoid indexOf("") === 0)
   const ix = Object.fromEntries(
     KEYS.map(k => [k, mapping[k] ? original.indexOf(mapping[k]!) : -1])
   ) as Record<typeof KEYS[number], number>;
@@ -188,7 +187,6 @@ router.post("/import", upload.single("file"), async (req, res) => {
 
     const data: any = { ownerId, name: nm, email, phone };
 
-    // Optional demographics if your schema supports them
     const city     = asStr(pick(r,"city"));
     const state    = asStr(pick(r,"state"));
     const zip      = asStr(pick(r,"zip"));
