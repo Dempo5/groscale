@@ -343,6 +343,9 @@ export type TagColor =
   | "pink"
   | "gray";
 
+/** Allows UI to pass "" but we normalize it away */
+type TagColorInput = TagColor | "" | null | undefined;
+
 export type TagDTO = {
   id: string;
   name: string;
@@ -350,27 +353,33 @@ export type TagDTO = {
   workflowId?: string | null;
 };
 
-/** Server returns { ok, tags } */
+/* Helpers: normalize optional inputs without "" comparisons */
+const normColor = (v: TagColorInput): TagColor | null =>
+  typeof v === "string" && v.trim() !== "" ? (v as TagColor) : null;
+
+const normId = (v: string | "" | null | undefined): string | null =>
+  typeof v === "string" && v.trim() !== "" ? v : null;
+
+/* ---- API ---- */
+
 export async function getTags(): Promise<TagDTO[]> {
   const res = await http<{ ok: boolean; tags: TagDTO[] }>("/api/tags");
   return res.tags;
 }
 
-/** Preferred name used by Tags.tsx */
 export async function listTags(): Promise<TagDTO[]> {
   return getTags();
 }
 
-/** Create a tag (empty string is normalized to null) */
 export async function createTag(input: {
   name: string;
-  color?: TagColor | null;
-  workflowId?: string | null;
+  color?: TagColorInput;
+  workflowId?: string | "" | null;
 }): Promise<TagDTO> {
   const body = {
-    ...input,
-    color: input.color === "" ? null : input.color ?? null,
-    workflowId: input.workflowId === "" ? null : input.workflowId ?? null,
+    name: input.name,
+    color: normColor(input.color),
+    workflowId: normId(input.workflowId),
   };
   const res = await http<{ ok: boolean; tag: TagDTO }>("/api/tags", {
     method: "POST",
@@ -379,22 +388,21 @@ export async function createTag(input: {
   return res.tag;
 }
 
-/** Update a tag (undefined = leave as-is; "" = null) */
 export async function updateTag(
   id: string,
-  patch: Partial<{ name: string; color?: TagColor | null; workflowId?: string | null }>
+  patch: Partial<{
+    name: string;
+    color: TagColorInput;
+    workflowId: string | "" | null;
+  }>
 ): Promise<TagDTO> {
-  const body = {
-    ...patch,
-    color:
-      Object.prototype.hasOwnProperty.call(patch, "color")
-        ? (patch.color === "" ? null : (patch.color ?? null))
-        : undefined,
-    workflowId:
-      Object.prototype.hasOwnProperty.call(patch, "workflowId")
-        ? (patch.workflowId === "" ? null : (patch.workflowId ?? null))
-        : undefined,
-  };
+  const body: any = {};
+  if (Object.prototype.hasOwnProperty.call(patch, "name")) body.name = patch.name;
+  if (Object.prototype.hasOwnProperty.call(patch, "color"))
+    body.color = normColor(patch.color as TagColorInput);
+  if (Object.prototype.hasOwnProperty.call(patch, "workflowId"))
+    body.workflowId = normId(patch.workflowId as string | "" | null);
+
   const res = await http<{ ok: boolean; tag: TagDTO }>(`/api/tags/${id}`, {
     method: "PATCH",
     body: JSON.stringify(body),
