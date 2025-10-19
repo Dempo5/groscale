@@ -1,8 +1,7 @@
 // apps/server/src/routes/tags.ts
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { prisma } from "../../prisma.js";
-
+import { prisma } from "../db.js";
 const router = Router();
 
 /** Shape returned to client */
