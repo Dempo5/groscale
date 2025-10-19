@@ -244,7 +244,7 @@ export default function Uploads(){
                     <table className="previewTable">
                       <colgroup>
                         {headers.map((_, i) => (
-                          <col key={i} style={{ width: i === 0 ? "220px" : "180px" }} />
+                          <col key={i} style={{ width: i === 0 ? "240px" : "180px" }} />
                         ))}
                       </colgroup>
                       <thead>
@@ -366,7 +366,7 @@ export default function Uploads(){
         .w-title{font-weight:800}
         .icon{background:none;border:0;font-size:18px;cursor:pointer;opacity:.75}
 
-        /* Wider preview, tighter mapping column */
+        /* Layout split */
         .grid{display:grid;grid-template-columns: 1.55fr .65fr;gap:16px;padding:18px 22px 20px}
         .col{display:grid;gap:10px}
         .label{font-weight:700}
@@ -374,36 +374,64 @@ export default function Uploads(){
         .chip{margin-left:8px;font-size:12px;background:#ecfdf5;color:#065f46;padding:2px 8px;border-radius:999px}
         .muted{font-size:12px;color:#6b7280;margin-left:8px}
 
-        /* —— PREVIEW: real table, single scroller, sticky header + first column —— */
-        .previewWrap{border:1px solid #e5e7eb;border-radius:10px;background:#fff;overflow:hidden;padding:6px 0}
-        .previewScroll{position:relative; max-height:280px; overflow:auto}          /* stacking context */
+        /* —— PREVIEW: single scroller, sticky header + sticky first column —— */
+        .previewWrap{
+          border:1px solid #e5e7eb;border-radius:10px;background:#fff;overflow:hidden;padding:6px 0;
+          -webkit-transform:translateZ(0); transform:translateZ(0);
+        }
+        .previewScroll{
+          position:relative;              /* stacking context */
+          max-height:300px;
+          overflow:auto;
+          contain: layout paint;          /* isolate paints to prevent bleed */
+        }
         .previewScroll::-webkit-scrollbar{height:10px}
         .previewScroll::-webkit-scrollbar-thumb{background:#e5e7eb;border-radius:8px}
         .previewScroll:hover::-webkit-scrollbar-thumb{background:#d1d5db}
 
-        .previewTable{border-collapse:separate;border-spacing:0;table-layout:fixed;width:max(100%, calc(var(--colW,180px) * var(--cols,5)))}
-        .previewTable thead th{
-          position:sticky; top:0; z-index:10;                                     /* header above all */
-          background:#f4f6fb; color:#111827; will-change: transform;
-          font-weight:700; border-bottom:1px solid #e3e5ea;
+        .previewTable{
+          border-collapse:separate;border-spacing:0;table-layout:fixed;
+          width:max(100%, calc(var(--colW,180px) * var(--cols,5)));
+          background:#fff;
         }
-        .previewTable thead .stickyCol{ left:0; z-index:15; }                      /* header first col top */
+
+        /* Header is above everything in scroller */
+        .previewTable thead th{
+          position:sticky; top:0; z-index:20;
+          background:#f4f6fb; color:#111827;
+          font-weight:700; border-bottom:1px solid #e3e5ea;
+          background-clip: padding-box;
+          backface-visibility: hidden;
+          transform: translateZ(0);
+        }
+        /* Header's first (sticky) cell sits on top */
+        .previewTable thead .stickyCol{ left:0; z-index:30; }
+
+        /* Base cell styles */
         .previewTable th, .previewTable td{
           min-width:140px; max-width:320px;
           padding:12px 14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-          border-right:1px solid #f4f4f5; border-bottom:1px solid #f4f4f5; background:#fff;
+          border-right:1px solid #f4f4f5; border-bottom:1px solid #f4f4f5;
         }
         .previewTable th:last-child, .previewTable td:last-child{ border-right:none; }
-        .previewTable tbody tr.odd td{ background:#fbfbfd; }
-        .previewTable tbody tr:hover td{ background:#f8fafc; }
 
-        /* Sticky first column cells (below header, above normal cells) */
+        /* Row background variables so sticky first col matches zebra/hover */
+        .previewTable tbody tr{ --row-bg:#fff; }
+        .previewTable tbody tr.odd{ --row-bg:#fbfbfd; }
+        .previewTable tbody tr:hover{ --row-bg:#f8fafc; }
+        .previewTable tbody td{ background:var(--row-bg); }
+
+        /* Sticky first column for body cells: below header, above normal cells */
         .previewTable .stickyCol{
-          position:sticky; left:0; z-index:5; background:inherit;
+          position:sticky; left:0; z-index:10;
+          background:var(--row-bg);
           box-shadow: inset -0.5px 0 0 #ececec;
+          backface-visibility: hidden;
+          transform: translateZ(0);
         }
-        /* Widen first column for dates */
-        .previewTable th:first-child, .previewTable td:first-child{ min-width:220px; }
+
+        /* Widen first column for timestamps */
+        .previewTable th:first-child, .previewTable td:first-child{ min-width:240px; }
 
         /* form polish */
         .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
