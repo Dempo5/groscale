@@ -154,19 +154,6 @@ export default function Uploads(){
     Object.values(mapping).filter(Boolean).length
   ), [mapping]);
 
-  const optionalFields: Array<{key: keyof Mapping, label: string}> = useMemo(()=>{
-    const arr: Array<{key: keyof Mapping, label: string}> = [];
-    const add = (canon: string, key: keyof Mapping, label: string) => {
-      if (presentCanon.has(canon)) arr.push({ key, label });
-    };
-    add("city","city","City");
-    add("state","state","State");
-    add("zip","zip","ZIP");
-    add("address","address","Address");
-    add("dob","dob","DOB");
-    return arr;
-  }, [presentCanon]);
-
   async function importNow(){
     if(!file) return;
     setBusy(true); setErr(null);
@@ -188,6 +175,20 @@ export default function Uploads(){
     }catch(e:any){ setErr(String(e?.message||"Import failed")); }
     finally{ setBusy(false); }
   }
+
+  // Optional fields shown only if present in file
+  const optionalFields: Array<{key: keyof Mapping, label: string}> = useMemo(()=>{
+    const arr: Array<{key: keyof Mapping, label: string}> = [];
+    const add = (canon: string, key: keyof Mapping, label: string) => {
+      if (presentCanon.has(canon)) arr.push({ key, label });
+    };
+    add("city","city","City");
+    add("state","state","State");
+    add("zip","zip","ZIP");
+    add("address","address","Address");
+    add("dob","dob","DOB");
+    return arr;
+  }, [presentCanon]);
 
   return (
     <div className="p-uploads">
@@ -233,7 +234,7 @@ export default function Uploads(){
             </div>
 
             <div className="grid">
-              {/* Preview — single scroll, sticky header + sticky first column */}
+              {/* Preview: ONE scroll area (x & y), sticky header ONLY */}
               <div className="col">
                 <div className="label">
                   Preview <span className="muted">({Math.min(samples.length, 8)} rows shown)</span>
@@ -250,11 +251,7 @@ export default function Uploads(){
                       <thead>
                         <tr>
                           {headers.map((h,i)=>(
-                            <th
-                              key={i}
-                              className={i===0?"stickyCol headSticky":"headSticky"}
-                              title={h}
-                            >{h}</th>
+                            <th key={i} title={h}>{h}</th>
                           ))}
                         </tr>
                       </thead>
@@ -262,11 +259,7 @@ export default function Uploads(){
                         {samples.map((r,i)=>(
                           <tr key={i} className={i%2?"odd":""}>
                             {r.map((c,j)=>(
-                              <td
-                                key={j}
-                                className={j===0?"stickyCol":""}
-                                title={c}
-                              >{c}</td>
+                              <td key={j} title={c}>{c}</td>
                             ))}
                           </tr>
                         ))}
@@ -290,22 +283,16 @@ export default function Uploads(){
                   <Picker label="Phone" value={mapping.phone||""} onChange={v=>setMapping(m=>({...m,phone:v}))} options={headers}/>
                 </div>
 
-                {/* Dynamic optional fields — only if present in CSV */}
-                {(() => {
-                  const extra = [] as Array<{key: keyof Mapping, label: string}>;
-                  const add = (canon: string, key: keyof Mapping, label: string) => { if (presentCanon.has(canon)) extra.push({ key, label }); };
-                  add("city","city","City"); add("state","state","State"); add("zip","zip","ZIP");
-                  add("address","address","Address"); add("dob","dob","DOB");
-                  return extra.length ? (
-                    <>
-                      <div className="label sm">Additional fields</div>
-                      {extra.map(f => (
-                        <Picker key={f.key} label={f.label} value={(mapping[f.key] as string)||""}
-                                onChange={v=>setMapping(m=>({...m, [f.key]: v}))} options={headers}/>
-                      ))}
-                    </>
-                  ) : null;
-                })()}
+                {/* Dynamic optional fields — only if present in file */}
+                {optionalFields.length > 0 && (
+                  <>
+                    <div className="label sm">Additional fields</div>
+                    {optionalFields.map(f => (
+                      <Picker key={f.key} label={f.label} value={(mapping[f.key] as string)||""}
+                              onChange={v=>setMapping(m=>({...m, [f.key]: v}))} options={headers}/>
+                    ))}
+                  </>
+                )}
 
                 <div className="two">
                   <Picker label="Tags (per row)" value={mapping.tags||""} onChange={v=>setMapping(m=>({...m,tags:v}))} options={headers} placeholder="(none)"/>
@@ -374,6 +361,7 @@ export default function Uploads(){
         .w-title{font-weight:800}
         .icon{background:none;border:0;font-size:18px;cursor:pointer;opacity:.75}
 
+        /* Layout: wider preview, compact mapping column */
         .grid{display:grid;grid-template-columns: 1.55fr .65fr;gap:16px;padding:18px 22px 20px}
         .col{display:grid;gap:10px}
         .label{font-weight:700}
@@ -381,15 +369,16 @@ export default function Uploads(){
         .chip{margin-left:8px;font-size:12px;background:#ecfdf5;color:#065f46;padding:2px 8px;border-radius:999px}
         .muted{font-size:12px;color:#6b7280;margin-left:8px}
 
-        /* —— PREVIEW: single scroll, sticky header + sticky first column —— */
+        /* —— PREVIEW: ONE scroller, sticky header only —— */
         .previewWrap{border:1px solid #e5e7eb;border-radius:10px;background:#fff;overflow:hidden}
-        .previewScroll{
-          max-height:280px; overflow:auto; position:relative; isolation:isolate;
-          scrollbar-gutter: stable both-edges;
-        }
+        .previewScroll{max-height:280px;overflow:auto}
+        .previewScroll::-webkit-scrollbar{height:10px}
+        .previewScroll::-webkit-scrollbar-thumb{background:#e5e7eb;border-radius:8px}
+        .previewScroll:hover::-webkit-scrollbar-thumb{background:#d1d5db}
+
         .previewTable{border-collapse:separate;border-spacing:0;table-layout:fixed;width:max(100%, calc(var(--colW,180px) * var(--cols,5)))}
         .previewTable thead th{
-          position:sticky; top:0; z-index:4;
+          position:sticky; top:0; z-index:3;
           background:#f4f6fb; color:#111827;
           font-weight:700; border-bottom:1px solid #e3e5ea;
         }
@@ -398,22 +387,10 @@ export default function Uploads(){
           padding:12px 14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
           border-right:1px solid #f4f4f5; border-bottom:1px solid #f4f4f5; background:#fff;
         }
+        .previewTable th:first-child, .previewTable td:first-child{ min-width:220px; }
         .previewTable th:last-child, .previewTable td:last-child{ border-right:none; }
         .previewTable tbody tr.odd td{ background:#fbfbfd; }
         .previewTable tbody tr:hover td{ background:#f8fafc; }
-
-        /* Sticky first column for BOTH header and body cells, with explicit bg and z-index */
-        .previewTable .stickyCol{
-          position:sticky; left:0; z-index:3; background:#fff;
-          box-shadow: inset -0.5px 0 0 #ececec;
-        }
-        .previewTable .headSticky.stickyCol{
-          background:#f4f6fb; z-index:5;   /* higher than body sticky col */
-          box-shadow: inset -0.5px 0 0 #e3e5ea;
-        }
-
-        /* widen first column for dates */
-        .previewTable th:first-child, .previewTable td:first-child{ min-width:220px; }
 
         /* form polish */
         .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
