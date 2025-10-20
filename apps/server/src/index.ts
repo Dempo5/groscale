@@ -9,6 +9,8 @@ import numbersRouter from "./routes/numbers.js";
 import workflowsRouter from "./routes/workflows.js";
 import copilotRouter from "./routes/copilot.js";
 import tagsRouter from "./routes/tags.js";
+import messagesRouter from "./routes/messages.js"; // 👈 NEW
+import twilioRouter from "./routes/twilio.js";     // 👈 NEW
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
 
@@ -32,9 +34,9 @@ function corsGuard(req: Request, res: Response, next: NextFunction) {
   const origin = norm(req.headers.origin as string | undefined);
 
   const allowed =
-    !origin ||                      // server-to-server / same-origin
-    envList.includes(origin) ||     // explicit allow-list
-    allowRegex.test(origin);        // preview domains + localhost
+    !origin ||
+    envList.includes(origin) ||
+    allowRegex.test(origin);
 
   if (allowed) {
     res.header("Vary", "Origin");
@@ -65,6 +67,8 @@ app.use("/api/numbers", numbersRouter);
 app.use("/api/workflows", workflowsRouter);
 app.use("/api/copilot", copilotRouter);
 app.use("/api/tags", tagsRouter);
+app.use("/api/messages", messagesRouter); // 👈 NEW
+app.use("/api/twilio", twilioRouter);     // 👈 NEW
 
 // ---------- Demo ----------
 app.get("/api/leads", (_req, res) => {
@@ -86,6 +90,8 @@ POST /api/uploads
 GET  /api/leads
 GET  /api/workflows
 GET  /api/tags
+POST /api/messages/send
+POST /api/twilio/inbound
 POST /api/copilot/draft`);
 });
 
