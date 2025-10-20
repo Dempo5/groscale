@@ -1,5 +1,5 @@
 // apps/web/src/pages/Tags.tsx
-import { useEffect, useMemo, useState, useId } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   getTags,
@@ -27,10 +27,7 @@ const PALETTE = [
   "#6b7280", // gray
 ];
 
-/** Always-clickable color wheel.
- *  We render a hidden <input type="color"> and trigger it via .click()
- *  from a visible chip button. This works in Chrome/Edge/Safari/Firefox.
- */
+/* ---------- Reusable always-clickable color wheel ---------- */
 function WheelChip({
   value,
   onChange,
@@ -42,34 +39,27 @@ function WheelChip({
   selected: boolean;
   title?: string;
 }) {
-  const inputId = useId();
+  const ref = useRef<HTMLInputElement>(null);
 
   return (
     <span className="wheel-wrap">
-      <input
-        id={inputId}
-        type="color"
-        className="hidden-color-input"
-        value={value ?? "#888888"}
-        onChange={(e) => onChange(e.target.value)}
-        aria-label="Custom color"
-      />
-      <button
-        type="button"
+      <span
         className={`chip wheel ${selected ? "sel" : ""}`}
         title={title || "Pick custom color"}
         onClick={() => {
-          const el = document.getElementById(inputId) as HTMLInputElement | null;
-          if (el) el.click();
+          if (ref.current?.showPicker) ref.current.showPicker();
+          else ref.current?.click();
         }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            const el = document.getElementById(inputId) as HTMLInputElement | null;
-            if (el) el.click();
-          }
-        }}
+        role="button"
         aria-pressed={selected}
+      />
+      <input
+        ref={ref}
+        type="color"
+        className="color-input-overlay"
+        value={value ?? "#888888"}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label="Custom color"
       />
     </span>
   );
@@ -78,27 +68,22 @@ function WheelChip({
 export default function Tags() {
   const nav = useNavigate();
 
-  // page state
   const [busy, setBusy] = useState<BusyState>("loading");
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
 
-  // data
   const [tags, setTags] = useState<TagDTO[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [q, setQ] = useState("");
   const [sel, setSel] = useState<TagDTO | null>(null);
 
-  // create form
   const [newName, setNewName] = useState("");
-  const [newColor, setNewColor] = useState<string | null>(PALETTE[4]); // default teal
+  const [newColor, setNewColor] = useState<string | null>(PALETTE[4]); // teal default
 
-  // edit form
   const [name, setName] = useState("");
   const [color, setColor] = useState<string | null>(null);
   const [workflowId, setWorkflowId] = useState<string | null>(null);
 
-  // load data
   useEffect(() => {
     (async () => {
       try {
@@ -106,7 +91,6 @@ export default function Tags() {
         const [t, wf] = await Promise.all([getTags(), listWorkflows()]);
         setTags(t);
         setWorkflows(wf);
-        setErr(null);
       } catch {
         setErr("Failed to load tags/workflows");
       } finally {
@@ -115,7 +99,6 @@ export default function Tags() {
     })();
   }, []);
 
-  // sync editor with selection
   useEffect(() => {
     if (!sel) {
       setName("");
@@ -128,7 +111,6 @@ export default function Tags() {
     }
   }, [sel?.id]);
 
-  // filter
   const filtered = useMemo(() => {
     const k = q.trim().toLowerCase();
     if (!k) return tags;
@@ -212,7 +194,6 @@ export default function Tags() {
             </div>
           </div>
         </div>
-        <div />
       </div>
 
       {err && <div className="banner error">⚠️ {err}</div>}
@@ -242,7 +223,6 @@ export default function Tags() {
             />
           ))}
 
-          {/* Wheel – always clickable */}
           <WheelChip
             value={newColor}
             onChange={(hex) => setNewColor(hex)}
@@ -250,7 +230,6 @@ export default function Tags() {
             title="Pick custom color"
           />
 
-          {/* hex preview when custom */}
           {isCustom(newColor) && (
             <input
               className="hex"
@@ -267,7 +246,6 @@ export default function Tags() {
       </div>
 
       <div className="grid">
-        {/* LEFT: tag list */}
         <aside className="list">
           <div className="search">
             <input placeholder="Search tags…" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -287,7 +265,6 @@ export default function Tags() {
           </ul>
         </aside>
 
-        {/* RIGHT: editor */}
         <section className="editor">
           {!sel ? (
             <div className="hint">Select a tag to edit its name, color, or attached workflow.</div>
@@ -306,13 +283,11 @@ export default function Tags() {
               </div>
 
               <div className="form">
-                {/* Name */}
                 <label className="row">
                   <span className="lab">Name</span>
                   <input value={name} onChange={(e) => setName(e.target.value)} />
                 </label>
 
-                {/* Color */}
                 <label className="row">
                   <span className="lab">Color</span>
                   <div className="colorPicker">
@@ -337,12 +312,10 @@ export default function Tags() {
                         title="Pick custom color"
                       />
 
-                      {/* clear color */}
                       <button type="button" className="chip none" onClick={() => setColor(null)} title="No color">
                         ×
                       </button>
 
-                      {/* hex for custom color */}
                       {isCustom(color) && (
                         <input
                           className="hex"
@@ -355,7 +328,6 @@ export default function Tags() {
                   </div>
                 </label>
 
-                {/* Workflow */}
                 <label className="row">
                   <span className="lab">Workflow</span>
                   <select value={workflowId ?? ""} onChange={(e) => setWorkflowId(e.target.value || null)}>
@@ -381,69 +353,29 @@ export default function Tags() {
 /* ---------------- styles ---------------- */
 const CSS = `
 .p-tags{padding:16px}
-
-/* header */
 .page-h{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
 .page-h .left{display:flex;align-items:flex-start;gap:12px}
-.back{
-  display:inline-flex;align-items:center;gap:6px;
-  height:36px;padding:0 12px;border-radius:10px;
-  background:#fff;border:1px solid #e5e7eb;color:#111;text-decoration:none;
-  font-weight:600;
-}
+.back{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 12px;border-radius:10px;background:#fff;border:1px solid #e5e7eb;color:#111;text-decoration:none;font-weight:600;}
 .back:hover{background:#f8fafc}
-
 .title{font-weight:800;font-size:20px}
 .sub{color:#6b7280;font-size:12px;margin-top:2px}
-
-/* banners */
 .banner{padding:10px 12px;border-radius:10px;margin:10px 0;font-weight:600}
 .banner.error{background:#fef2f2;color:#991b1b;border:1px solid #fee2e2}
 .banner.ok{background:#ecfdf5;color:#065f46;border:1px solid #d1fae5}
-
-/* create row */
-.create{
-  display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;
-  background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:10px
-}
+.create{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:10px}
 .create .name{height:36px;border:1px solid #e5e7eb;border-radius:8px;padding:0 10px}
-
-/* chips */
 .chips{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.chip{
-  width:22px;height:22px;border-radius:999px;border:2px solid #fff;
-  box-shadow:0 0 0 1px #e5e7eb;cursor:pointer;position:relative
-}
+.chip{width:22px;height:22px;border-radius:999px;border:2px solid #fff;box-shadow:0 0 0 1px #e5e7eb;cursor:pointer;position:relative}
 .chip.sel{box-shadow:0 0 0 2px #10b981}
 .chip.sel::after{content:"";position:absolute;inset:5px;border:2px solid #fff;border-radius:999px}
-
-/* clear chip */
-.chip.none{
-  display:grid;place-items:center;background:#f3f4f6;color:#111;border:1px dashed #d1d5db;font-weight:700;width:26px;height:26px
-}
-
-/* wheel – actual input is hidden, button triggers it */
-.wheel-wrap{position:relative}
-.hidden-color-input{
-  position:absolute;width:1px;height:1px;left:-9999px;top:-9999px;opacity:0;pointer-events:none;
-}
-.chip.wheel{
-  width:26px;height:26px;border-radius:999px;border:2px solid #fff;
-  background:conic-gradient(#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00);
-  box-shadow:0 0 0 1px #e5e7eb;cursor:pointer
-}
+.chip.none{display:grid;place-items:center;background:#f3f4f6;color:#111;border:1px dashed #d1d5db;font-weight:700;width:26px;height:26px}
+.wheel-wrap{position:relative;display:inline-block}
+.chip.wheel{width:26px;height:26px;border-radius:999px;border:2px solid #fff;background:conic-gradient(#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00);box-shadow:0 0 0 1px #e5e7eb;cursor:pointer}
 .chip.wheel.sel{box-shadow:0 0 0 2px #10b981}
-
-/* hex input shown when using a custom color */
-.hex{
-  height:28px;border:1px solid #e5e7eb;border-radius:6px;padding:0 8px;
-  font-family:ui-monospace, SFMono-Regular, Menlo, monospace;width:96px
-}
-
-/* layout */
+.color-input-overlay{position:absolute;inset:0;width:26px;height:26px;opacity:0;cursor:pointer;border:0;padding:0;margin:0;background:transparent;}
+.hex{height:28px;border:1px solid #e5e7eb;border-radius:6px;padding:0 8px;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;width:96px}
 .btn{background:#10b981;color:#fff;border:0;border-radius:10px;padding:8px 12px;height:36px;cursor:pointer}
 .btn.ghost{background:#fff;color:#374151;border:1px solid #e5e7eb}
-
 .grid{display:grid;grid-template-columns:280px 1fr;gap:16px;margin-top:12px}
 .list{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:10px}
 .search input{width:100%;height:34px;border:1px solid #e5e7eb;border-radius:8px;padding:0 10px}
@@ -454,7 +386,6 @@ const CSS = `
 .dot{width:12px;height:12px;border-radius:999px;background:#e5e7eb;border:1px solid #e5e7eb}
 .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .empty{color:#6b7280;padding:10px}
-
 .editor .hint{display:grid;place-items:center;height:360px;color:#6b7280;border:1px dashed #e5e7eb;border-radius:12px}
 .card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden}
 .card-h{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid #e5e7eb}
