@@ -1,8 +1,7 @@
 import { Router } from "express";
-import type { Request, Response } from "express";
-import { PrismaClient, Prisma } from "@prisma/client";
+import { prisma } from "../prisma.js";
+import { startWorkflow } from "../lib/workflowRunner.js";
 
-const prisma = new PrismaClient();
 const router = Router();
 
 function toDTO(t: any) {
@@ -15,64 +14,121 @@ function toDTO(t: any) {
     updatedAt: t.updatedAt,
   };
 }
+function ownerIdFrom(req: any): string {
+  return req?.user?.id || "system";
+}
 
 /** GET /api/tags */
-router.get("/", async (_req: Request, res: Response) => {
-  try {
-    const rows = await prisma.tag.findMany({ orderBy: { name: "asc" } });
-    res.json({ ok: true, tags: rows.map(toDTO) });
-  } catch (err: any) {
-    res.status(500).json({ ok: false, error: err?.message || "failed" });
-  }
+router.get("/", async (req, res) => {
+  const ownerId = ownerIdFrom(req);
+  const rows = await prisma.tag.findMany({
+    where: { ownerId },
+    orderBy: [{ name: "asc" }],
+  });
+  res.json({ ok: true, tags: rows.map(toDTO) });
 });
 
-/** POST /api/tags { name, color?, workflowId? } */
-router.post("/", async (req: Request, res: Response) => {
-  try {
-    const name = String(req.body?.name || "").trim();
-    if (!name) return res.status(400).json({ ok: false, error: "Name required" });
+/** POST /api/tags */
+router.post("/", async (req, res) => {
+  const ownerId = ownerIdFrom(req);
+  const nameRaw = String(req.body?.name || "").trim();
+  if (!nameRaw) return res.status(400).json({ ok: false, error: "Name required" });
 
+  const color = req.body?.color === "" || req.body?.color == null ? null : String(req.body.color);
+  const workflowId =
+    req.body?.workflowId === "" || req.body?.workflowId == null ? null : String(req.body.workflowId);
+
+  try {
     const row = await prisma.tag.create({
-      data: {
-        name,
-        color: req.body?.color ?? null,
-        workflowId: req.body?.workflowId ?? null,
-      },
+      data: { ownerId, name: nameRaw, color, workflowId },
     });
-    res.json({ ok: true, tag: toDTO(row) });
-  } catch (err: any) {
-    res.status(500).json({ ok: false, error: err?.message || "failed" });
+    res.status(201).json({ ok: true, tag: toDTO(row) });
+  } catch (e: any) {
+    if (String(e?.code) === "P2002") {
+      return res.status(409).json({ ok: false, error: "Tag name already exists" });
+    }
+    res.status(500).json({ ok: false, error: e?.message || "Create failed" });
   }
 });
 
-/** PATCH /api/tags/:id { name?, color?, workflowId? } */
-router.patch("/:id", async (req: Request, res: Response) => {
-  const { id } = req.params;
-  try {
-    const patch: any = {};
-    if (Object.prototype.hasOwnProperty.call(req.body, "name")) patch.name = req.body.name;
-    if (Object.prototype.hasOwnProperty.call(req.body, "color")) patch.color = req.body.color ?? null;
-    if (Object.prototype.hasOwnProperty.call(req.body, "workflowId")) patch.workflowId = req.body.workflowId ?? null;
+/** PATCH /api/tags/:id */
+router.patch("/:id", async (req, res) => {
+  const ownerId = ownerIdFrom(req);
+  const id = String(req.params.id);
 
-    const row = await prisma.tag.update({ where: { id }, data: patch });
+  const data: any = {};
+  if (req.body?.name !== undefined) {
+    const nm = String(req.body.name || "").trim();
+    if (!nm) return res.status(400).json({ ok: false, error: "Name required" });
+    data.name = nm;
+  }
+  if (req.body?.color !== undefined) {
+    data.color = req.body.color === "" || req.body.color == null ? null : String(req.body.color);
+  }
+  if (req.body?.workflowId !== undefined) {
+    data.workflowId =
+      req.body.workflowId === "" || req.body.workflowId == null ? null : String(req.body.workflowId);
+  }
+
+  try {
+    const existing = await prisma.tag.findFirst({ where: { id, ownerId } });
+    if (!existing) return res.status(404).json({ ok: false, error: "Not found" });
+
+    const row = await prisma.tag.update({ where: { id }, data });
     res.json({ ok: true, tag: toDTO(row) });
-  } catch (err: any) {
-    res.status(500).json({ ok: false, error: err?.message || "failed" });
+  } catch (e: any) {
+    if (String(e?.code) === "P2002") {
+      return res.status(409).json({ ok: false, error: "Tag name already exists" });
+    }
+    res.status(500).json({ ok: false, error: e?.message || "Update failed" });
   }
 });
 
 /** DELETE /api/tags/:id */
-router.delete("/:id", async (req: Request, res: Response) => {
-  const { id } = req.params;
-  try {
-    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      await tx.leadTag.deleteMany({ where: { tagId: id } });
-      await tx.tag.delete({ where: { id } });
-    });
-    res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ ok: false, error: err?.message || "failed" });
+router.delete("/:id", async (req, res) => {
+  const ownerId = ownerIdFrom(req);
+  const id = String(req.params.id);
+
+  const existing = await prisma.tag.findFirst({ where: { id, ownerId } });
+  if (!existing) return res.status(404).json({ ok: false, error: "Not found" });
+
+  await prisma.tag.delete({ where: { id } });
+  res.json({ ok: true });
+});
+
+/**
+ * POST /api/tags/apply
+ * body: { leadId: string, tagId: string }
+ * Attaches tag to lead and starts workflow if tag.workflowId is set.
+ */
+router.post("/apply", async (req, res) => {
+  const ownerId = ownerIdFrom(req);
+  const leadId = String(req.body?.leadId || "");
+  const tagId = String(req.body?.tagId || "");
+
+  if (!leadId || !tagId) return res.status(400).json({ ok: false, error: "leadId & tagId required" });
+
+  const [lead, tag] = await Promise.all([
+    prisma.lead.findFirst({ where: { id: leadId, ownerId } }),
+    prisma.tag.findFirst({ where: { id: tagId, ownerId } }),
+  ]);
+
+  if (!lead) return res.status(404).json({ ok: false, error: "Lead not found" });
+  if (!tag) return res.status(404).json({ ok: false, error: "Tag not found" });
+
+  // attach
+  await prisma.leadTag.upsert({
+    where: { leadId_tagId: { leadId: lead.id, tagId: tag.id } },
+    create: { leadId: lead.id, tagId: tag.id },
+    update: {},
+  });
+
+  // trigger workflow if present
+  if (tag.workflowId) {
+    startWorkflow(lead.id, tag.workflowId).catch(() => {});
   }
+
+  res.json({ ok: true });
 });
 
 export default router;
