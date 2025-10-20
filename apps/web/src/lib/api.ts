@@ -30,9 +30,11 @@ const TOKEN_KEY = "jwt";
 
 // ---- Base URL: empty = same-origin. In prod set VITE_API_URL (e.g. https://groscale.onrender.com)
 // ---- Base URL: empty = same-origin. In prod set VITE_API_URL (e.g. https://YOUR-SERVER-ORIGIN)
+// ---- Base URL: empty = same-origin. In prod set VITE_API_URL (e.g. https://groscale.onrender.com)
+// ---- Base URL: empty = same-origin. In prod set VITE_API_URL (e.g. https://YOUR-SERVER-ORIGIN)
 const BASE =
   (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/+$/, "") ||
-  "https://groscale.onrender.com"; // TEMP hardcode for testing)
+  "https://groscale.onrender.com"; // TEMP hardcode for testing
 
 /* ---------------- token helpers ---------------- */
 export function getToken(): string | null {
