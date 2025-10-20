@@ -1,83 +1,78 @@
 import { Router } from "express";
-import { PrismaClient, WorkflowStatus, StepType } from "@prisma/client";
+import type { Request, Response } from "express";
+import { PrismaClient, Prisma } from "@prisma/client";
 
 const prisma = new PrismaClient();
-const r = Router();
+const router = Router();
 
-/** GET /api/workflows?full=1 */
-r.get("/", async (req, res) => {
-  const full = String(req.query.full || "") === "1";
-  const rows = await prisma.workflow.findMany({
-    orderBy: { createdAt: "desc" },
-    include: full ? { steps: { orderBy: { order: "asc" } } } : undefined,
-  });
-  res.json({ ok: true, data: rows });
+function toDTO(t: any) {
+  return {
+    id: t.id,
+    name: t.name,
+    color: t.color ?? null,
+    workflowId: t.workflowId ?? null,
+    createdAt: t.createdAt,
+    updatedAt: t.updatedAt,
+  };
+}
+
+/** GET /api/tags */
+router.get("/", async (_req: Request, res: Response) => {
+  try {
+    const rows = await prisma.tag.findMany({ orderBy: { name: "asc" } });
+    res.json({ ok: true, tags: rows.map(toDTO) });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err?.message || "failed" });
+  }
 });
 
-/** POST /api/workflows { name } */
-r.post("/", async (req, res) => {
-  const name = String(req.body?.name || "").trim() || "Untitled workflow";
-  const wf = await prisma.workflow.create({
-    data: { name, status: WorkflowStatus.DRAFT },
-  });
-  res.status(201).json({ ok: true, data: wf });
+/** POST /api/tags { name, color?, workflowId? } */
+router.post("/", async (req: Request, res: Response) => {
+  try {
+    const name = String(req.body?.name || "").trim();
+    if (!name) return res.status(400).json({ ok: false, error: "Name required" });
+
+    const row = await prisma.tag.create({
+      data: {
+        name,
+        color: req.body?.color ?? null,
+        workflowId: req.body?.workflowId ?? null,
+      },
+    });
+    res.json({ ok: true, tag: toDTO(row) });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err?.message || "failed" });
+  }
 });
 
-/** PATCH /api/workflows/:id { name?, status? } */
-r.patch("/:id", async (req, res) => {
-  const id = String(req.params.id);
-  const patch: any = {};
-  if (typeof req.body?.name === "string") patch.name = req.body.name;
-  if (typeof req.body?.status === "string")
-    patch.status = req.body.status as WorkflowStatus;
+/** PATCH /api/tags/:id { name?, color?, workflowId? } */
+router.patch("/:id", async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    const patch: any = {};
+    if (Object.prototype.hasOwnProperty.call(req.body, "name")) patch.name = req.body.name;
+    if (Object.prototype.hasOwnProperty.call(req.body, "color")) patch.color = req.body.color ?? null;
+    if (Object.prototype.hasOwnProperty.call(req.body, "workflowId")) patch.workflowId = req.body.workflowId ?? null;
 
-  const wf = await prisma.workflow.update({ where: { id }, data: patch });
-  res.json({ ok: true, data: wf });
+    const row = await prisma.tag.update({ where: { id }, data: patch });
+    res.json({ ok: true, tag: toDTO(row) });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err?.message || "failed" });
+  }
 });
 
-/** PUT /api/workflows/:id/steps { steps:[ ... ] } */
-r.put("/:id/steps", async (req, res) => {
-  const id = String(req.params.id);
-  const incoming: any[] = Array.isArray(req.body?.steps) ? req.body.steps : [];
-
-  const rows = incoming.map((s, i) =>
-    s?.type === "WAIT"
-      ? {
-          order: i + 1,
-          type: StepType.WAIT,
-          waitMs: Number(s.waitMs) || 0,
-          textBody: null,
-          workflowId: id,
-        }
-      : {
-          order: i + 1,
-          type: StepType.SEND_TEXT,
-          textBody: String(s.textBody || ""),
-          waitMs: null,
-          workflowId: id,
-        }
-  );
-
-  await prisma.$transaction(async (tx) => {
-    await tx.workflowStep.deleteMany({ where: { workflowId: id } });
-    if (rows.length) await tx.workflowStep.createMany({ data: rows });
-  });
-
-  const wf = await prisma.workflow.findUnique({
-    where: { id },
-    include: { steps: { orderBy: { order: "asc" } } },
-  });
-  res.json({ ok: true, data: wf });
+/** DELETE /api/tags/:id */
+router.delete("/:id", async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await tx.leadTag.deleteMany({ where: { tagId: id } });
+      await tx.tag.delete({ where: { id } });
+    });
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err?.message || "failed" });
+  }
 });
 
-/** DELETE /api/workflows/:id */
-r.delete("/:id", async (req, res) => {
-  const id = String(req.params.id);
-  await prisma.$transaction(async (tx) => {
-    await tx.workflowStep.deleteMany({ where: { workflowId: id } });
-    await tx.workflow.delete({ where: { id } });
-  });
-  res.json({ ok: true });
-});
-
-export default r;
+export default router;
