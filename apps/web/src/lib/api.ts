@@ -28,35 +28,24 @@ type AuthResponse =
 
 const TOKEN_KEY = "jwt";
 
-// ---- Base URL: empty = same-origin. In prod set VITE_API_URL (e.g. https://groscale.onrender.com)
-// ---- Base URL: empty = same-origin. In prod set VITE_API_URL (e.g. https://YOUR-SERVER-ORIGIN)
-// ---- Base URL: empty = same-origin. In prod set VITE_API_URL (e.g. https://groscale.onrender.com)
-// ---- Base URL: empty = same-origin. In prod set VITE_API_URL (e.g. https://YOUR-SERVER-ORIGIN)
+/** ---- Base URL
+ * If VITE_API_URL is set, use it. Otherwise fall back to your Render origin (TEMP for testing).
+ * Example VITE_API_URL: https://groscale.onrender.com
+ */
 const BASE =
   (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/+$/, "") ||
-  "https://groscale.onrender.com"; // TEMP hardcode for testing
+  "https://groscale.onrender.com";
+
+// 🔊 Debug so we can see what the web app is targeting
+console.info("[API BASE]", BASE);
 
 /* ---------------- token helpers ---------------- */
 export function getToken(): string | null {
-  try {
-    return localStorage.getItem(TOKEN_KEY);
-  } catch {
-    return null;
-  }
+  try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
 }
-export function setToken(token: string) {
-  try {
-    localStorage.setItem(TOKEN_KEY, token);
-  } catch {}
-}
-export function clearToken() {
-  try {
-    localStorage.removeItem(TOKEN_KEY);
-  } catch {}
-}
-export function isAuthed(): boolean {
-  return !!getToken();
-}
+export function setToken(token: string) { try { localStorage.setItem(TOKEN_KEY, token); } catch {} }
+export function clearToken() { try { localStorage.removeItem(TOKEN_KEY); } catch {} }
+export function isAuthed(): boolean { return !!getToken(); }
 
 /* ---------------- fetch helper ---------------- */
 async function http<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
@@ -68,6 +57,9 @@ async function http<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
+  // 🔊 Debug every request
+  console.debug("[HTTP]", opts.method || "GET", url);
+
   const res = await fetch(url, { ...opts, headers, credentials: "include" });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -77,14 +69,21 @@ async function http<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
   return (ct.includes("application/json") ? res.json() : (res.text() as any)) as T;
 }
 
+/* ---------------- handy pings for connectivity ---------------- */
+export async function pingUploads(): Promise<any> {
+  return http("/api/uploads/ping"); // server route you added
+}
+export function getApiBase(): string {
+  return BASE;
+}
+
 /* ---------------- auth ---------------- */
 export async function register(p: AuthPayload): Promise<AuthResponse> {
   const data = await http<AuthResponse>("/api/auth/register", {
     method: "POST",
     body: JSON.stringify(p),
   });
-  const token =
-    (data as any).token || (data as any).jwt || (data as any).accessToken || "";
+  const token = (data as any).token || (data as any).jwt || (data as any).accessToken || "";
   if (token) setToken(token);
   return data;
 }
@@ -94,18 +93,14 @@ export async function login(p: AuthPayload): Promise<AuthResponse> {
     method: "POST",
     body: JSON.stringify(p),
   });
-  const token =
-    (data as any).token || (data as any).jwt || (data as any).accessToken || "";
+  const token = (data as any).token || (data as any).jwt || (data as any).accessToken || "";
   if (token) setToken(token);
   return data;
 }
 
 export async function logout(): Promise<void> {
-  try {
-    await http("/api/auth/logout", { method: "POST" });
-  } finally {
-    clearToken();
-  }
+  try { await http("/api/auth/logout", { method: "POST" }); }
+  finally { clearToken(); }
 }
 
 /* ---------------- leads (demo) ---------------- */
@@ -118,19 +113,16 @@ export async function uploadLeads(file: File): Promise<UploadSummary> {
   const form = new FormData();
   form.append("file", file);
 
-  const data = await http<any>("/api/uploads/import", {
-    method: "POST",
-    body: form,
-  });
+  const data = await http<any>("/api/uploads/import", { method: "POST", body: form });
 
   const leads =
     data?.stats?.validRows ??
     data?.stats?.totalRows ??
     (typeof data?.inserted === "number" &&
-    typeof data?.duplicates === "number" &&
-    typeof data?.invalids === "number"
-      ? data.inserted + data.duplicates + data.invalids
-      : undefined);
+     typeof data?.duplicates === "number" &&
+     typeof data?.invalids === "number"
+       ? data.inserted + data.duplicates + data.invalids
+       : undefined);
 
   return {
     ok: !!data?.ok,
@@ -285,7 +277,6 @@ export type CopilotDraftRequest = {
   tone?: "friendly" | "neutral" | "formal" | "casual";
   goal?: string;
 };
-
 export type CopilotDraftResponse = {
   ok: boolean;
   draft?: string;
@@ -307,16 +298,8 @@ export async function copilotDraft(
 /* ---------------- tags ---------------- */
 
 export type TagColor =
-  | "red"
-  | "orange"
-  | "amber"
-  | "green"
-  | "teal"
-  | "blue"
-  | "indigo"
-  | "violet"
-  | "pink"
-  | "gray";
+  | "red" | "orange" | "amber" | "green" | "teal"
+  | "blue" | "indigo" | "violet" | "pink" | "gray";
 
 /** Allows UI to pass "" but we normalize it away */
 type TagColorInput = TagColor | "" | null | undefined;
@@ -336,15 +319,11 @@ const normId = (v: string | "" | null | undefined): string | null =>
   typeof v === "string" && v.trim() !== "" ? v : null;
 
 /* ---- API ---- */
-
 export async function getTags(): Promise<TagDTO[]> {
   const res = await http<{ ok: boolean; tags: TagDTO[] }>("/api/tags");
   return res.tags;
 }
-
-export async function listTags(): Promise<TagDTO[]> {
-  return getTags();
-}
+export async function listTags(): Promise<TagDTO[]> { return getTags(); }
 
 export async function createTag(input: {
   name: string;
@@ -365,18 +344,12 @@ export async function createTag(input: {
 
 export async function updateTag(
   id: string,
-  patch: Partial<{
-    name: string;
-    color: TagColorInput;
-    workflowId: string | "" | null;
-  }>
+  patch: Partial<{ name: string; color: TagColorInput; workflowId: string | "" | null; }>
 ): Promise<TagDTO> {
   const body: any = {};
   if (Object.prototype.hasOwnProperty.call(patch, "name")) body.name = patch.name;
-  if (Object.prototype.hasOwnProperty.call(patch, "color"))
-    body.color = normColor(patch.color as TagColorInput);
-  if (Object.prototype.hasOwnProperty.call(patch, "workflowId"))
-    body.workflowId = normId(patch.workflowId as string | "" | null);
+  if (Object.prototype.hasOwnProperty.call(patch, "color")) body.color = normColor(patch.color as TagColorInput);
+  if (Object.prototype.hasOwnProperty.call(patch, "workflowId")) body.workflowId = normId(patch.workflowId as string | "" | null);
 
   const res = await http<{ ok: boolean; tag: TagDTO }>(`/api/tags/${id}`, {
     method: "PATCH",
