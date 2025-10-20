@@ -225,6 +225,47 @@ export async function updateWorkflow(id: string, patch: Partial<Workflow>): Prom
     return (res?.data ?? res) as Workflow;
   } catch { return lsUpdate(id, patch); }
 }
+// --- Workflows (design + save) ---
+
+export type WfStep =
+  | { type: "SEND_TEXT"; textBody: string }
+  | { type: "WAIT"; waitMs: number };
+
+export async function saveWorkflowMeta(
+  id: string,
+  patch: Partial<{ name: string; status: "draft" | "active" | "paused" }>
+) {
+  // Server uses enum "DRAFT|ACTIVE|PAUSED". We map friendly → server.
+  const statusMap: Record<string, string> = { draft: "DRAFT", active: "ACTIVE", paused: "PAUSED" };
+  const body: any = {};
+  if (patch.name !== undefined) body.name = patch.name;
+  if (patch.status !== undefined) body.status = statusMap[patch.status] || "DRAFT";
+  return http(`/api/workflows/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+}
+
+export async function replaceWorkflowSteps(id: string, steps: WfStep[]) {
+  // Send as-is; server validates based on type
+  return http(`/api/workflows/${id}/steps`, {
+    method: "PUT",
+    body: JSON.stringify({ steps }),
+  });
+}
+
+export async function createWorkflow(input: { name: string }) {
+  return http(`/api/workflows`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteWorkflow(id: string) {
+  return http(`/api/workflows/${id}`, { method: "DELETE" });
+}
+
+// If your Workflows page wants the full object with steps:
+export async function listWorkflowsFull() {
+  return http(`/api/workflows?full=1`);
+}
 
 /* ---------------- copilot (draft assistant) ---------------- */
 export type CopilotDraftRequest = {
