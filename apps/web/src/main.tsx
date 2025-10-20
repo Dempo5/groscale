@@ -3,6 +3,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import "./pages/dashboard-ios.css";
+import "./lib/fetchBase";
 
 import AppShell from "./pages/AppShell";
 import Login from "./pages/Login";
