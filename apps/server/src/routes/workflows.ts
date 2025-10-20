@@ -1,125 +1,104 @@
-import { Router } from "express";
-import type { Request, Response } from "express";
-import { PrismaClient } from "@prisma/client";
+/// <reference path="./types/express.d.ts" />
 
-const prisma = new PrismaClient();
-const router = Router();
+import express, { Request, Response, NextFunction } from "express";
 
-/**
- * GET /api/workflows?full=1
- * List workflows (include steps when full=1)
- */
-router.get("/", async (req: Request, res: Response) => {
-  try {
-    const full = String(req.query.full || "") === "1";
-    const data = await prisma.workflow.findMany({
-      orderBy: { createdAt: "desc" },
-      include: full ? { steps: true } : undefined,
-    });
-    res.json({ ok: true, data });
-  } catch (err: any) {
-    res.status(500).json({ ok: false, error: err?.message || "failed" });
+// ESM route imports MUST include .js (you’re doing this right)
+import authRoute from "./routes/auth.js";
+import uploadsRouter from "./routes/uploads.js";
+import numbersRouter from "./routes/numbers.js";
+import workflowsRouter from "./routes/workflows.js";
+import copilotRouter from "./routes/copilot.js";
+import tagsRouter from "./routes/tags.js";
+
+const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
+
+/** Normalize to "scheme://host[:port]" */
+function norm(u?: string | null) {
+  if (!u) return "";
+  try { return new URL(u).origin; } catch { return String(u).replace(/\/+$/, ""); }
+}
+
+/** Explicit allow-list from env (comma separated) */
+const envList = (process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((s) => norm(s.trim()))
+  .filter(Boolean);
+
+/** Allow any Vercel preview, Onrender, and localhost */
+const allowRegex = /(localhost(:\d+)?|\.vercel\.app|\.onrender\.com)$/;
+
+/** Single CORS middleware that always answers OPTIONS */
+function corsGuard(req: Request, res: Response, next: NextFunction) {
+  const origin = norm(req.headers.origin as string | undefined);
+
+  const allowed =
+    !origin ||                      // server-to-server / same-origin
+    envList.includes(origin) ||     // explicit allow-list
+    allowRegex.test(origin);        // preview domains + localhost
+
+  if (allowed) {
+    res.header("Vary", "Origin");
+    res.header("Access-Control-Allow-Origin", origin || "*");
+    res.header("Access-Control-Allow-Credentials", "true");
+    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+    if (req.method === "OPTIONS") return res.sendStatus(204);
+    return next();
   }
+  if (req.method === "OPTIONS") return res.sendStatus(403);
+  return res.status(403).json({ error: "Not allowed by CORS" });
+}
+
+const app = express();
+app.use(express.json());
+app.use(corsGuard);
+
+// ---------- Health ----------
+app.get("/health", (_req, res) => {
+  res.status(200).json({ ok: true, ts: Date.now() });
 });
 
-/**
- * POST /api/workflows
- * body: { name: string }
- */
-router.post("/", async (req: Request, res: Response) => {
-  try {
-    const name = String(req.body?.name || "Untitled workflow");
-    const row = await prisma.workflow.create({
-      data: {
-        name,
-        // Avoid typing enums – use validated string literal
-        status: "DRAFT" as any,
-      },
-    });
-    res.json({ ok: true, data: row });
-  } catch (err: any) {
-    res.status(500).json({ ok: false, error: err?.message || "failed" });
-  }
+// ---------- API routes ----------
+app.use("/api/auth", authRoute);
+app.use("/api/uploads", uploadsRouter);
+app.use("/api/numbers", numbersRouter);
+app.use("/api/workflows", workflowsRouter); // requires default export from routes/workflows.ts
+app.use("/api/copilot", copilotRouter);
+app.use("/api/tags", tagsRouter);
+
+// ---------- Demo ----------
+app.get("/api/leads", (_req, res) => {
+  res.json([
+    { id: 1, name: "Test Lead", email: "lead@example.com" },
+    { id: 2, name: "Demo Lead", email: "demo@example.com" },
+  ]);
 });
 
-/**
- * PATCH /api/workflows/:id
- * body: { name?: string, status?: "ACTIVE" | "PAUSED" | "DRAFT" }
- */
-router.patch("/:id", async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const patch: Record<string, any> = {};
+// ---------- Root ----------
+app.get("/", (_req, res) => {
+  res.type("text").send(`GroScale API is running ✅
 
-    if (typeof req.body?.name === "string") patch.name = req.body.name;
-
-    if (typeof req.body?.status === "string") {
-      const s = String(req.body.status).toUpperCase();
-      if (["ACTIVE", "PAUSED", "DRAFT"].includes(s)) patch.status = s as any;
-    }
-
-    const row = await prisma.workflow.update({ where: { id }, data: patch });
-    res.json({ ok: true, data: row });
-  } catch (err: any) {
-    res.status(500).json({ ok: false, error: err?.message || "failed" });
-  }
+Try:
+/health
+POST /api/auth/register
+POST /api/auth/login
+POST /api/uploads
+GET  /api/leads
+GET  /api/workflows
+GET  /api/tags
+POST /api/copilot/draft`);
 });
 
-/**
- * PUT /api/workflows/:id/steps
- * body: { steps: Array<{ type: "SEND_TEXT" | "WAIT"; textBody?: string; waitMs?: number }> }
- * Replaces all steps for the workflow in a transaction
- */
-router.put("/:id/steps", async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const steps: Array<{ type: string; textBody?: string; waitMs?: number }> =
-    Array.isArray(req.body?.steps) ? req.body.steps : [];
+// ---------- 404 ----------
+app.use((_req, res) => res.status(404).json({ error: "Not found" }));
 
-  try {
-    await prisma.$transaction(async (tx) => {
-      await tx.workflowStep.deleteMany({ where: { workflowId: id } });
-
-      if (steps.length) {
-        await tx.workflowStep.createMany({
-          data: steps.map((s, i) => {
-            const type = s.type === "WAIT" ? "WAIT" : "SEND_TEXT";
-            return {
-              workflowId: id,
-              order: i + 1,
-              type: type as any,
-              textBody: type === "SEND_TEXT" ? (s.textBody ?? "") : null,
-              waitMs: type === "WAIT" ? Number(s.waitMs ?? 0) : null,
-            };
-          }),
-        });
-      }
-    });
-
-    const full = await prisma.workflow.findUnique({
-      where: { id },
-      include: { steps: true },
-    });
-
-    res.json({ ok: true, data: full });
-  } catch (err: any) {
-    res.status(500).json({ ok: false, error: err?.message || "failed" });
-  }
+// ---------- Error handler ----------
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  const code = typeof err?.status === "number" ? err.status : 500;
+  res.status(code).json({ error: err?.message || "Server error" });
 });
 
-/**
- * DELETE /api/workflows/:id
- */
-router.delete("/:id", async (req: Request, res: Response) => {
-  const { id } = req.params;
-  try {
-    await prisma.$transaction(async (tx) => {
-      await tx.workflowStep.deleteMany({ where: { workflowId: id } });
-      await tx.workflow.delete({ where: { id } });
-    });
-    res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ ok: false, error: err?.message || "failed" });
-  }
+// ---------- Start ----------
+app.listen(PORT, () => {
+  console.log(`🚀 GroScales API running on port ${PORT}`);
 });
-
-export default router;
