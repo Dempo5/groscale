@@ -9,38 +9,12 @@ datasource db {
 }
 
 // ---------------- Enums ----------------
-enum UploadStatus {
-  PENDING
-  PROCESSING
-  SUCCESS
-  PARTIAL
-  FAILED
-}
+enum UploadStatus { PENDING PROCESSING SUCCESS PARTIAL FAILED }
+enum MessageDirection { OUTBOUND INBOUND }
+enum MessageStatus { QUEUED SENT DELIVERED FAILED RECEIVED }
 
-enum MessageDirection {
-  OUTBOUND
-  INBOUND
-}
-
-enum MessageStatus {
-  QUEUED
-  SENT
-  DELIVERED
-  FAILED
-  RECEIVED
-}
-
-// ---------- Workflows MVP ----------
-enum WorkflowStatus {
-  ACTIVE
-  PAUSED
-  DRAFT
-}
-
-enum StepType {
-  SEND_TEXT
-  WAIT
-}
+enum WorkflowStatus { ACTIVE PAUSED DRAFT }
+enum StepType { SEND_TEXT WAIT }
 
 // ---------------- Core auth ----------------
 model User {
@@ -60,7 +34,6 @@ model User {
 }
 
 // ---------------- Leads ----------------
-// Email/phone optional to support CSVs; dedupe is in app logic.
 model Lead {
   id        String   @id @default(cuid())
   name      String
@@ -73,7 +46,6 @@ model Lead {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // relations
   tags      LeadTag[]
   threads   MessageThread[]
 
@@ -82,17 +54,15 @@ model Lead {
 }
 
 // ---------------- Phone numbers (Twilio) ----------------
-// NOTE: ownerId is optional *for now* to match your current server
-// route which doesn’t attach a user. Make it required later.
 model PhoneNumber {
   id            String   @id @default(cuid())
-  sid           String   @unique                // Twilio PN SID (PN...)
-  number        String   @unique                // E.164: +1...
+  sid           String   @unique
+  number        String   @unique
   friendlyName  String?
   capabilities  Json?
   isDefault     Boolean  @default(false)
 
-  ownerId       String?                          // <-- make required when auth is ready
+  ownerId       String?
   owner         User?    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   purchasedAt   DateTime @default(now())
@@ -101,11 +71,9 @@ model PhoneNumber {
   @@index([ownerId, isDefault])
 }
 
-// ---------------- Uploads (history rows for the page) ----------------
-// ownerId optional now; make required once uploads are tied to a user.
+// ---------------- Uploads ----------------
 model Upload {
   id         String       @id @default(cuid())
-
   ownerId    String?
   owner      User?        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
@@ -117,124 +85,102 @@ model Upload {
   status     UploadStatus @default(PROCESSING)
   error      String?
   reportUrl  String?
-
   createdAt  DateTime     @default(now())
 
   @@index([ownerId, createdAt])
 }
 
-// ---------------- Messaging (for SMS inbox) ----------------
+// ---------------- Messaging ----------------
 model MessageThread {
-  id          String       @id @default(cuid())
-
-  ownerId     String
-  owner       User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-
-  leadId      String
-  lead        Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
-
-  // which Twilio number carried the thread (use default if null)
-  phoneNumberSid String?   @db.VarChar(34)
-  lastMessageAt  DateTime  @default(now())
-
-  messages    Message[]
+  id             String   @id @default(cuid())
+  ownerId        String
+  owner          User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  leadId         String
+  lead           Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  phoneNumberSid String?  @db.VarChar(34)
+  lastMessageAt  DateTime @default(now())
+  messages       Message[]
 
   @@index([ownerId, lastMessageAt])
   @@index([leadId])
 }
 
 model Message {
-  id           String           @id @default(cuid())
-  threadId     String
-  thread       MessageThread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
-
-  direction    MessageDirection
-  body         String
-  status       MessageStatus    @default(QUEUED)
-  error        String?
-
-  // Twilio metadata
-  externalSid  String?  @unique  // Twilio Message SID (SM...)
-  toNumber     String?          // E.164
-  fromNumber   String?          // E.164
-
-  createdAt    DateTime         @default(now())
+  id          String        @id @default(cuid())
+  threadId    String
+  thread      MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  direction   MessageDirection
+  body        String
+  status      MessageStatus @default(QUEUED)
+  error       String?
+  externalSid String? @unique
+  toNumber    String?
+  fromNumber  String?
+  createdAt   DateTime @default(now())
 
   @@index([threadId, createdAt])
 }
 
 // ---------------- Workflows ----------------
 model Workflow {
-  id        String          @id @default(cuid())
+  id        String         @id @default(cuid())
   ownerId   String?
   name      String
-  status    WorkflowStatus  @default(DRAFT)
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
+  status    WorkflowStatus @default(DRAFT)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
 
   steps     WorkflowStep[]
-
-  // 👇 add this line
-  tags      Tag[]
+  tags      Tag[]          // inverse of Tag.workflow
 }
 
-
 model WorkflowStep {
-  id          String     @id @default(cuid())
-  workflowId  String
-  workflow    Workflow   @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  order       Int
+  id         String   @id @default(cuid())
+  workflowId String
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  order      Int
 
-  type        StepType
-  // SEND_TEXT
-  textBody    String?     // message content
-
-  // WAIT
-  waitMs      Int?        // milliseconds
-
-  createdAt   DateTime    @default(now())
+  type     StepType
+  textBody String?
+  waitMs   Int?
+  createdAt DateTime @default(now())
 
   @@index([workflowId, order])
 }
 
 // ---------------- Tags & Templates ----------------
 model Tag {
-  id         String    @id @default(cuid())
-
+  id         String   @id @default(cuid())
   ownerId    String
-  owner      User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  owner      User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   name       String
-  color      String?           // optional hex or token
-  workflowId String?           // when set, applying this tag can start a workflow
+  color      String?
+  workflowId String?
   workflow   Workflow? @relation(fields: [workflowId], references: [id])
 
   leads      LeadTag[]
-
-  createdAt  DateTime  @default(now())
+  createdAt  DateTime @default(now())
 
   @@unique([ownerId, name])
   @@index([workflowId])
 }
 
 model LeadTag {
-  leadId  String
-  lead    Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
-
-  tagId   String
-  tag     Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  leadId String
+  lead   Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  tagId  String
+  tag    Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@id([leadId, tagId])
 }
 
 model Template {
   id        String   @id @default(cuid())
-
   ownerId   String
   owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-
   name      String
-  body      String   // message content ({{placeholders}} later)
+  body      String
   createdAt DateTime @default(now())
 
   @@unique([ownerId, name])
