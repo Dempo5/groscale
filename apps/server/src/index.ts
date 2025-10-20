@@ -1,8 +1,8 @@
 /// <reference path="./types/express.d.ts" />
 
-import express, { Request, Response, NextFunction } from "express";
+import express, { type Request, type Response, type NextFunction } from "express";
 
-// ESM route imports MUST include .js
+// ESM route imports MUST include .js at runtime
 import authRoute from "./routes/auth.js";
 import uploadsRouter from "./routes/uploads.js";
 import numbersRouter from "./routes/numbers.js";
@@ -12,29 +12,21 @@ import tagsRouter from "./routes/tags.js";
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
 
-/** Normalize to "scheme://host[:port]" */
 function norm(u?: string | null) {
   if (!u) return "";
   try { return new URL(u).origin; } catch { return String(u).replace(/\/+$/, ""); }
 }
 
-/** Explicit allow-list from env (comma separated) */
 const envList = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
   .map((s) => norm(s.trim()))
   .filter(Boolean);
 
-/** Allow any Vercel preview, Onrender, and localhost */
 const allowRegex = /(localhost(:\d+)?|\.vercel\.app|\.onrender\.com)$/;
 
-/** Single CORS middleware that always answers OPTIONS */
 function corsGuard(req: Request, res: Response, next: NextFunction) {
   const origin = norm(req.headers.origin as string | undefined);
-
-  const allowed =
-    !origin ||                      // server-to-server / same-origin
-    envList.includes(origin) ||     // explicit allow-list
-    allowRegex.test(origin);        // preview domains + localhost
+  const allowed = !origin || envList.includes(origin) || allowRegex.test(origin);
 
   if (allowed) {
     res.header("Vary", "Origin");
@@ -53,12 +45,10 @@ const app = express();
 app.use(express.json());
 app.use(corsGuard);
 
-// ---------- Health ----------
-app.get("/health", (_req, res) => {
-  res.status(200).json({ ok: true, ts: Date.now() });
-});
+// Health
+app.get("/health", (_req, res) => res.status(200).json({ ok: true, ts: Date.now() }));
 
-// ---------- API routes ----------
+// API routes
 app.use("/api/auth", authRoute);
 app.use("/api/uploads", uploadsRouter);
 app.use("/api/numbers", numbersRouter);
@@ -66,7 +56,7 @@ app.use("/api/workflows", workflowsRouter);
 app.use("/api/copilot", copilotRouter);
 app.use("/api/tags", tagsRouter);
 
-// ---------- Demo ----------
+// Demo
 app.get("/api/leads", (_req, res) => {
   res.json([
     { id: 1, name: "Test Lead", email: "lead@example.com" },
@@ -74,7 +64,7 @@ app.get("/api/leads", (_req, res) => {
   ]);
 });
 
-// ---------- Root ----------
+// Root
 app.get("/", (_req, res) => {
   res.type("text").send(`GroScale API is running ✅
 
@@ -89,16 +79,13 @@ GET  /api/tags
 POST /api/copilot/draft`);
 });
 
-// ---------- 404 ----------
+// 404 + error
 app.use((_req, res) => res.status(404).json({ error: "Not found" }));
-
-// ---------- Error handler ----------
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   const code = typeof err?.status === "number" ? err.status : 500;
   res.status(code).json({ error: err?.message || "Server error" });
 });
 
-// ---------- Start ----------
 app.listen(PORT, () => {
   console.log(`🚀 GroScales API running on port ${PORT}`);
 });
