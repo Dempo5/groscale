@@ -9,12 +9,37 @@ datasource db {
 }
 
 // ---------------- Enums ----------------
-enum UploadStatus { PENDING PROCESSING SUCCESS PARTIAL FAILED }
-enum MessageDirection { OUTBOUND INBOUND }
-enum MessageStatus { QUEUED SENT DELIVERED FAILED RECEIVED }
+enum UploadStatus {
+  PENDING
+  PROCESSING
+  SUCCESS
+  PARTIAL
+  FAILED
+}
 
-enum WorkflowStatus { ACTIVE PAUSED DRAFT }
-enum StepType { SEND_TEXT WAIT }
+enum MessageDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum MessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+  RECEIVED
+}
+
+enum WorkflowStatus {
+  ACTIVE
+  PAUSED
+  DRAFT
+}
+
+enum StepType {
+  SEND_TEXT
+  WAIT
+}
 
 // ---------------- Core auth ----------------
 model User {
@@ -25,29 +50,29 @@ model User {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  leads         Lead[]
-  phoneNumbers  PhoneNumber[]
-  uploads       Upload[]
-  templates     Template[]
-  tags          Tag[]
-  threads       MessageThread[]
+  leads        Lead[]
+  phoneNumbers PhoneNumber[]
+  uploads      Upload[]
+  templates    Template[]
+  tags         Tag[]
+  threads      MessageThread[]
 }
 
 // ---------------- Leads ----------------
 model Lead {
-  id        String   @id @default(cuid())
-  name      String
-  email     String?  @db.VarChar(191)
-  phone     String?  @db.VarChar(30)
+  id    String  @id @default(cuid())
+  name  String
+  email String? @db.VarChar(191)
+  phone String? @db.VarChar(30)
 
-  ownerId   String
-  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tags      LeadTag[]
-  threads   MessageThread[]
+  tags    LeadTag[]
+  threads MessageThread[]
 
   @@index([ownerId, email])
   @@index([ownerId, phone])
@@ -55,18 +80,18 @@ model Lead {
 
 // ---------------- Phone numbers (Twilio) ----------------
 model PhoneNumber {
-  id            String   @id @default(cuid())
-  sid           String   @unique
-  number        String   @unique
-  friendlyName  String?
-  capabilities  Json?
-  isDefault     Boolean  @default(false)
+  id           String  @id @default(cuid())
+  sid          String  @unique
+  number       String  @unique
+  friendlyName String?
+  capabilities Json?
+  isDefault    Boolean @default(false)
 
-  ownerId       String?
-  owner         User?    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId String?
+  owner   User?   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
-  purchasedAt   DateTime @default(now())
-  messagingServiceSid String? @db.VarChar(34)
+  purchasedAt         DateTime @default(now())
+  messagingServiceSid String?  @db.VarChar(34)
 
   @@index([ownerId, isDefault])
 }
@@ -113,10 +138,10 @@ model Message {
   body        String
   status      MessageStatus @default(QUEUED)
   error       String?
-  externalSid String? @unique
+  externalSid String?       @unique
   toNumber    String?
   fromNumber  String?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime      @default(now())
 
   @@index([threadId, createdAt])
 }
@@ -130,8 +155,8 @@ model Workflow {
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
 
-  steps     WorkflowStep[]
-  tags      Tag[]          // inverse of Tag.workflow
+  steps WorkflowStep[]
+  tags  Tag[]          // inverse of Tag.workflow
 }
 
 model WorkflowStep {
@@ -159,8 +184,8 @@ model Tag {
   workflowId String?
   workflow   Workflow? @relation(fields: [workflowId], references: [id])
 
-  leads      LeadTag[]
-  createdAt  DateTime @default(now())
+  leads     LeadTag[]
+  createdAt DateTime @default(now())
 
   @@unique([ownerId, name])
   @@index([workflowId])
