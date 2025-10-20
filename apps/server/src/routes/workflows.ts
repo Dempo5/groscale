@@ -1,18 +1,15 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { PrismaClient, Prisma } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
-export const workflows = Router();
-
-// Prisma v5: enums live under Prisma.$Enums
-const { WorkflowStatus, StepType } = Prisma.$Enums;
+const router = Router();
 
 /**
  * GET /api/workflows?full=1
- * List workflows (optionally include steps)
+ * List workflows (include steps when full=1)
  */
-workflows.get("/", async (req: Request, res: Response) => {
+router.get("/", async (req: Request, res: Response) => {
   try {
     const full = String(req.query.full || "") === "1";
     const data = await prisma.workflow.findMany({
@@ -29,11 +26,15 @@ workflows.get("/", async (req: Request, res: Response) => {
  * POST /api/workflows
  * body: { name: string }
  */
-workflows.post("/", async (req: Request, res: Response) => {
+router.post("/", async (req: Request, res: Response) => {
   try {
     const name = String(req.body?.name || "Untitled workflow");
     const row = await prisma.workflow.create({
-      data: { name, status: WorkflowStatus.DRAFT },
+      data: {
+        name,
+        // Avoid typing enums – use validated string literal
+        status: "DRAFT" as any,
+      },
     });
     res.json({ ok: true, data: row });
   } catch (err: any) {
@@ -45,18 +46,16 @@ workflows.post("/", async (req: Request, res: Response) => {
  * PATCH /api/workflows/:id
  * body: { name?: string, status?: "ACTIVE" | "PAUSED" | "DRAFT" }
  */
-workflows.patch("/:id", async (req: Request, res: Response) => {
+router.patch("/:id", async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const patch: Prisma.WorkflowUpdateInput = {};
+    const patch: Record<string, any> = {};
 
     if (typeof req.body?.name === "string") patch.name = req.body.name;
 
     if (typeof req.body?.status === "string") {
       const s = String(req.body.status).toUpperCase();
-      if (s === "ACTIVE" || s === "PAUSED" || s === "DRAFT") {
-        patch.status = s as typeof WorkflowStatus.ACTIVE; // enum value
-      }
+      if (["ACTIVE", "PAUSED", "DRAFT"].includes(s)) patch.status = s as any;
     }
 
     const row = await prisma.workflow.update({ where: { id }, data: patch });
@@ -69,27 +68,29 @@ workflows.patch("/:id", async (req: Request, res: Response) => {
 /**
  * PUT /api/workflows/:id/steps
  * body: { steps: Array<{ type: "SEND_TEXT" | "WAIT"; textBody?: string; waitMs?: number }> }
- * Replaces all steps for the workflow
+ * Replaces all steps for the workflow in a transaction
  */
-workflows.put("/:id/steps", async (req: Request, res: Response) => {
+router.put("/:id/steps", async (req: Request, res: Response) => {
   const { id } = req.params;
-
   const steps: Array<{ type: string; textBody?: string; waitMs?: number }> =
     Array.isArray(req.body?.steps) ? req.body.steps : [];
 
   try {
-    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    await prisma.$transaction(async (tx) => {
       await tx.workflowStep.deleteMany({ where: { workflowId: id } });
 
       if (steps.length) {
         await tx.workflowStep.createMany({
-          data: steps.map((s, i) => ({
-            workflowId: id,
-            order: i + 1,
-            type: s.type === "WAIT" ? StepType.WAIT : StepType.SEND_TEXT,
-            textBody: s.type === "SEND_TEXT" ? (s.textBody ?? "") : null,
-            waitMs: s.type === "WAIT" ? (s.waitMs ?? 0) : null,
-          })),
+          data: steps.map((s, i) => {
+            const type = s.type === "WAIT" ? "WAIT" : "SEND_TEXT";
+            return {
+              workflowId: id,
+              order: i + 1,
+              type: type as any,
+              textBody: type === "SEND_TEXT" ? (s.textBody ?? "") : null,
+              waitMs: type === "WAIT" ? Number(s.waitMs ?? 0) : null,
+            };
+          }),
         });
       }
     });
@@ -108,10 +109,10 @@ workflows.put("/:id/steps", async (req: Request, res: Response) => {
 /**
  * DELETE /api/workflows/:id
  */
-workflows.delete("/:id", async (req: Request, res: Response) => {
+router.delete("/:id", async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
-    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    await prisma.$transaction(async (tx) => {
       await tx.workflowStep.deleteMany({ where: { workflowId: id } });
       await tx.workflow.delete({ where: { id } });
     });
@@ -120,3 +121,5 @@ workflows.delete("/:id", async (req: Request, res: Response) => {
     res.status(500).json({ ok: false, error: err?.message || "failed" });
   }
 });
+
+export default router;
