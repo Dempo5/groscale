@@ -1,132 +1,113 @@
-import { Router, type Response, type NextFunction } from "express";
-import { PrismaClient } from "@prisma/client";
-import { requireAuth } from "../middleware/auth.js";
+import { Router } from "express";
+import { PrismaClient, WorkflowStatus, StepType } from "@prisma/client";
 
 const prisma = new PrismaClient();
-const router = Router();
+const r = Router();
 
-/** Optional auth: never rejects; just passes through and preserves req.userId if previous middleware set it. */
-function maybeAuth(req: any, _res: Response, next: NextFunction) {
-  // If your auth middleware already attaches req.userId for ALL requests,
-  // you can remove this and just use requireAuth where needed.
-  next();
-}
-
-/** GET /api/workflows
- * - If logged in: return {ownerId = userId} OR {ownerId = null}
- * - If not logged in: return {ownerId = null}
- * Returns a plain array so the web app can consume directly.
- */
-router.get("/", maybeAuth, async (req: any, res: Response) => {
-  const uid = req.userId ?? null;
-
-  const rows = await prisma.workflow.findMany({
-    where: uid
-      ? { OR: [{ ownerId: uid }, { ownerId: null }] }
-      : { ownerId: null },
-    select: { id: true, name: true, status: true, createdAt: true, updatedAt: true },
-    orderBy: { updatedAt: "desc" },
-  });
-
-  res.json(rows);
-});
-
-/** GET /api/workflows?full=1
- * Full objects (with steps) for the Workflows page editor.
- */
-router.get("/", maybeAuth, async (req: any, res: Response) => {
-  if (!("full" in req.query)) return; // the lightweight handler above already responded
-  const uid = req.userId ?? null;
-
-  const rows = await prisma.workflow.findMany({
-    where: uid
-      ? { OR: [{ ownerId: uid }, { ownerId: null }] }
-      : { ownerId: null },
-    include: { steps: true },
-    orderBy: { updatedAt: "desc" },
-  });
-
-  res.json({ ok: true, data: rows });
-});
-
-/** POST /api/workflows
- * Create workflow. If authenticated, attach ownerId so it always shows up for you.
- */
-router.post("/", maybeAuth, async (req: any, res: Response) => {
-  const { name } = req.body ?? {};
-  if (!name || typeof name !== "string") {
-    return res.status(400).json({ ok: false, error: "Name required" });
+/** GET /api/workflows?full=1  -> list (optionally with steps) */
+r.get("/", async (req, res) => {
+  try {
+    const includeSteps = String(req.query.full || "") === "1";
+    const rows = await prisma.workflow.findMany({
+      orderBy: { createdAt: "desc" },
+      include: includeSteps ? { steps: { orderBy: { order: "asc" } } } : undefined,
+    });
+    res.json({ ok: true, data: rows });
+  } catch (e) {
+    console.error("list workflows error:", e);
+    res.status(500).json({ ok: false, error: "Failed to list workflows" });
   }
-
-  const row = await prisma.workflow.create({
-    data: {
-      name,
-      status: "DRAFT",
-      ownerId: req.userId ?? null, // attach owner when available
-    },
-    select: { id: true, name: true, status: true, createdAt: true, updatedAt: true },
-  });
-
-  res.json({ ok: true, data: row });
 });
 
-/** PATCH /api/workflows/:id
- * Update name/status. Requires auth for safety.
- */
-router.patch("/:id", requireAuth, async (req: any, res: Response) => {
-  const id = req.params.id;
-  const { name, status } = req.body ?? {};
-  const body: any = {};
-  if (name !== undefined) body.name = String(name);
-  if (status !== undefined) {
-    const map: Record<string, "DRAFT" | "ACTIVE" | "PAUSED"> = {
-      draft: "DRAFT",
-      active: "ACTIVE",
-      paused: "PAUSED",
-      DRAFT: "DRAFT",
-      ACTIVE: "ACTIVE",
-      PAUSED: "PAUSED",
-    };
-    body.status = map[String(status)] ?? "DRAFT";
+/** POST /api/workflows { name }  -> create workflow */
+r.post("/", async (req, res) => {
+  try {
+    const name = String(req.body?.name || "").trim() || "Untitled workflow";
+    const row = await prisma.workflow.create({ data: { name } });
+    res.json({ ok: true, data: row });
+  } catch (e) {
+    console.error("create workflow error:", e);
+    res.status(500).json({ ok: false, error: "Failed to create workflow" });
   }
-
-  const row = await prisma.workflow.update({
-    where: { id },
-    data: body,
-    select: { id: true, name: true, status: true, createdAt: true, updatedAt: true },
-  });
-
-  res.json({ ok: true, data: row });
 });
 
-/** PUT /api/workflows/:id/steps
- * Replace all steps atomically. Requires auth.
- */
-router.put("/:id/steps", requireAuth, async (req: any, res: Response) => {
-  const id = req.params.id;
-  const steps = Array.isArray(req.body?.steps) ? req.body.steps : [];
+/** PATCH /api/workflows/:id { name?, status? } */
+r.patch("/:id", async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const patch: any = {};
 
-  await prisma.$transaction([
-    prisma.workflowStep.deleteMany({ where: { workflowId: id } }),
-    prisma.workflowStep.createMany({
-      data: steps.map((s: any, i: number) => ({
-        workflowId: id,
-        order: i,
-        type: s.type === "WAIT" ? "WAIT" : "SEND_TEXT",
-        textBody: s.type === "SEND_TEXT" ? String(s.textBody ?? "") : null,
-        waitMs: s.type === "WAIT" ? Number(s.waitMs ?? 0) : null,
-      })),
-    }),
-  ]);
+    if (typeof req.body?.name === "string") patch.name = req.body.name;
 
-  res.json({ ok: true });
+    if (typeof req.body?.status === "string") {
+      const map: Record<string, WorkflowStatus> = {
+        draft: "DRAFT",
+        active: "ACTIVE",
+        paused: "PAUSED",
+        DRAFT: "DRAFT",
+        ACTIVE: "ACTIVE",
+        PAUSED: "PAUSED",
+      };
+      const s = map[req.body.status];
+      if (s) patch.status = s;
+    }
+
+    const row = await prisma.workflow.update({ where: { id }, data: patch });
+    res.json({ ok: true, data: row });
+  } catch (e) {
+    console.error("update workflow error:", e);
+    res.status(500).json({ ok: false, error: "Failed to update workflow" });
+  }
+});
+
+/** PUT /api/workflows/:id/steps  { steps:[...] }  -> replace all steps */
+r.put("/:id/steps", async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const steps = Array.isArray(req.body?.steps) ? req.body.steps : [];
+
+    const clean = steps.map((s: any, i: number) => {
+      if (s?.type === "SEND_TEXT") {
+        return { type: StepType.SEND_TEXT, order: i + 1, textBody: String(s.textBody || "") };
+      }
+      if (s?.type === "WAIT") {
+        const wait = Number(s.waitMs ?? 0) || 0;
+        return { type: StepType.WAIT, order: i + 1, waitMs: wait };
+      }
+      throw new Error(`Invalid step at index ${i}`);
+    });
+
+    await prisma.$transaction([
+      prisma.workflowStep.deleteMany({ where: { workflowId: id } }),
+      prisma.workflow.update({
+        where: { id },
+        data: { steps: { create: clean } },
+      }),
+    ]);
+
+    const full = await prisma.workflow.findUnique({
+      where: { id },
+      include: { steps: { orderBy: { order: "asc" } } },
+    });
+
+    res.json({ ok: true, data: full });
+  } catch (e) {
+    console.error("replace steps error:", e);
+    res.status(500).json({ ok: false, error: "Failed to replace steps" });
+  }
 });
 
 /** DELETE /api/workflows/:id */
-router.delete("/:id", requireAuth, async (req: any, res: Response) => {
-  const id = req.params.id;
-  await prisma.workflow.delete({ where: { id } });
-  res.json({ ok: true });
+r.delete("/:id", async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    await prisma.workflowStep.deleteMany({ where: { workflowId: id } });
+    await prisma.workflow.delete({ where: { id } });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("delete workflow error:", e);
+    res.status(500).json({ ok: false, error: "Failed to delete workflow" });
+  }
 });
 
-export default router;
+export default r;
