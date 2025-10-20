@@ -40,6 +40,7 @@ function WheelChip({
   title?: string;
 }) {
   const inputId = useId();
+
   return (
     <div className="wheel-wrap">
       <input
@@ -48,28 +49,34 @@ function WheelChip({
         className="visually-hidden-color"
         value={value ?? "#888888"}
         onChange={(e) => onChange(e.target.value)}
+        // keep it focusable for a11y, but visually hidden
+        tabIndex={-1}
         aria-label="Custom color"
       />
       <label
         htmlFor={inputId}
         className={`chip wheel ${selected ? "sel" : ""}`}
         title={title || value || "Custom color"}
+        // Edge/Chromium fix: explicitly trigger .click() on the input
+        onClick={(e) => {
+          e.preventDefault();
+          const el = document.getElementById(inputId) as HTMLInputElement | null;
+          if (el) el.click();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            const el = document.getElementById(inputId) as HTMLInputElement | null;
+            if (el) el.click();
+          }
+        }}
+        role="button"
+        aria-pressed={selected}
       />
     </div>
   );
 }
 
-export default function Tags() {
-  const nav = useNavigate();
-
-  const [busy, setBusy] = useState<BusyState>("loading");
-  const [err, setErr] = useState<string | null>(null);
-  const [ok, setOk] = useState<string | null>(null);
-
-  const [tags, setTags] = useState<TagDTO[]>([]);
-  const [workflows, setWorkflows] = useState<Workflow[]>([]);
-  const [q, setQ] = useState("");
-  const [sel, setSel] = useState<TagDTO | null>(null);
 
   // Create form
   const [newName, setNewName] = useState("");
