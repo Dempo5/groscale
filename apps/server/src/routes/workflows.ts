@@ -1,108 +1,83 @@
-import { Router, type Request, type Response } from "express";
-import { PrismaClient, Prisma } from "@prisma/client";
+import { Router } from "express";
+import { PrismaClient, WorkflowStatus, StepType } from "@prisma/client";
 
 const prisma = new PrismaClient();
-const router = Router();
+const r = Router();
 
-/** GET /api/workflows?full=1  — list workflows (include steps when full=1) */
-router.get("/", async (req: Request, res: Response) => {
-  try {
-    const full = String(req.query.full || "") === "1";
-    const data = await prisma.workflow.findMany({
-      orderBy: { createdAt: "desc" },
-      include: full ? { steps: true } : undefined,
-    });
-    res.json({ ok: true, data });
-  } catch (err: any) {
-    res.status(500).json({ ok: false, error: err?.message || "failed" });
-  }
+/** GET /api/workflows?full=1 */
+r.get("/", async (req, res) => {
+  const full = String(req.query.full || "") === "1";
+  const rows = await prisma.workflow.findMany({
+    orderBy: { createdAt: "desc" },
+    include: full ? { steps: { orderBy: { order: "asc" } } } : undefined,
+  });
+  res.json({ ok: true, data: rows });
 });
 
-/** POST /api/workflows  body: { name: string } */
-router.post("/", async (req: Request, res: Response) => {
-  try {
-    const name = String(req.body?.name || "Untitled workflow");
-    const row = await prisma.workflow.create({
-      data: { name, status: "DRAFT" as any },
-    });
-    res.json({ ok: true, data: row });
-  } catch (err: any) {
-    res.status(500).json({ ok: false, error: err?.message || "failed" });
-  }
+/** POST /api/workflows { name } */
+r.post("/", async (req, res) => {
+  const name = String(req.body?.name || "").trim() || "Untitled workflow";
+  const wf = await prisma.workflow.create({
+    data: { name, status: WorkflowStatus.DRAFT },
+  });
+  res.status(201).json({ ok: true, data: wf });
 });
 
-/** PATCH /api/workflows/:id  body: { name?, status? } */
-router.patch("/:id", async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const patch: Record<string, any> = {};
+/** PATCH /api/workflows/:id { name?, status? } */
+r.patch("/:id", async (req, res) => {
+  const id = String(req.params.id);
+  const patch: any = {};
+  if (typeof req.body?.name === "string") patch.name = req.body.name;
+  if (typeof req.body?.status === "string")
+    patch.status = req.body.status as WorkflowStatus;
 
-    if (typeof req.body?.name === "string") patch.name = req.body.name;
-
-    if (typeof req.body?.status === "string") {
-      const s = String(req.body.status).toUpperCase();
-      if (["ACTIVE", "PAUSED", "DRAFT"].includes(s)) patch.status = s as any;
-    }
-
-    const row = await prisma.workflow.update({ where: { id }, data: patch });
-    res.json({ ok: true, data: row });
-  } catch (err: any) {
-    res.status(500).json({ ok: false, error: err?.message || "failed" });
-  }
+  const wf = await prisma.workflow.update({ where: { id }, data: patch });
+  res.json({ ok: true, data: wf });
 });
 
-/**
- * PUT /api/workflows/:id/steps
- * body: { steps: Array<{ type: "SEND_TEXT"|"WAIT"; textBody?: string; waitMs?: number }>}
- * Replaces all steps transactionally.
- */
-router.put("/:id/steps", async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const steps: Array<{ type: string; textBody?: string; waitMs?: number }> =
-    Array.isArray(req.body?.steps) ? req.body.steps : [];
+/** PUT /api/workflows/:id/steps { steps:[ ... ] } */
+r.put("/:id/steps", async (req, res) => {
+  const id = String(req.params.id);
+  const incoming: any[] = Array.isArray(req.body?.steps) ? req.body.steps : [];
 
-  try {
-    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      await tx.workflowStep.deleteMany({ where: { workflowId: id } });
+  const rows = incoming.map((s, i) =>
+    s?.type === "WAIT"
+      ? {
+          order: i + 1,
+          type: StepType.WAIT,
+          waitMs: Number(s.waitMs) || 0,
+          textBody: null,
+          workflowId: id,
+        }
+      : {
+          order: i + 1,
+          type: StepType.SEND_TEXT,
+          textBody: String(s.textBody || ""),
+          waitMs: null,
+          workflowId: id,
+        }
+  );
 
-      if (steps.length) {
-        await tx.workflowStep.createMany({
-          data: steps.map((s, i) => {
-            const type = s.type === "WAIT" ? "WAIT" : "SEND_TEXT";
-            return {
-              workflowId: id,
-              order: i + 1,
-              type: type as any,
-              textBody: type === "SEND_TEXT" ? (s.textBody ?? "") : null,
-              waitMs: type === "WAIT" ? Number(s.waitMs ?? 0) : null,
-            };
-          }),
-        });
-      }
-    });
+  await prisma.$transaction(async (tx) => {
+    await tx.workflowStep.deleteMany({ where: { workflowId: id } });
+    if (rows.length) await tx.workflowStep.createMany({ data: rows });
+  });
 
-    const full = await prisma.workflow.findUnique({
-      where: { id },
-      include: { steps: true },
-    });
-    res.json({ ok: true, data: full });
-  } catch (err: any) {
-    res.status(500).json({ ok: false, error: err?.message || "failed" });
-  }
+  const wf = await prisma.workflow.findUnique({
+    where: { id },
+    include: { steps: { orderBy: { order: "asc" } } },
+  });
+  res.json({ ok: true, data: wf });
 });
 
 /** DELETE /api/workflows/:id */
-router.delete("/:id", async (req: Request, res: Response) => {
-  const { id } = req.params;
-  try {
-    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      await tx.workflowStep.deleteMany({ where: { workflowId: id } });
-      await tx.workflow.delete({ where: { id } });
-    });
-    res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ ok: false, error: err?.message || "failed" });
-  }
+r.delete("/:id", async (req, res) => {
+  const id = String(req.params.id);
+  await prisma.$transaction(async (tx) => {
+    await tx.workflowStep.deleteMany({ where: { workflowId: id } });
+    await tx.workflow.delete({ where: { id } });
+  });
+  res.json({ ok: true });
 });
 
-export default router;
+export default r;
