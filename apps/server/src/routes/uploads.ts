@@ -2,7 +2,7 @@
 import { Router } from "express";
 import multer from "multer";
 import { parse as csvParse } from "csv-parse/sync";
-import { prisma } from "../../prisma.js";
+import { prisma } from "../prisma.js";
 import { startWorkflow } from "../lib/workflowRunner.js";
 
 const router = Router();
