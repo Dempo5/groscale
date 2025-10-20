@@ -1,6 +1,6 @@
 // apps/server/src/routes/workflows.ts
-import { Router, Request, Response } from "express";
-import { PrismaClient } from "@prisma/client";
+import { Router, type Request, type Response } from "express";
+import { PrismaClient, type Prisma } from "@prisma/client";
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -12,6 +12,14 @@ function normalizeStatus(v?: string) {
   if (up === "DRAFT" || up === "ACTIVE" || up === "PAUSED") return up;
   return undefined;
 }
+
+/** Shape we insert for steps (matches schema fields) */
+type StepRow = {
+  order: number;
+  type: "SEND_TEXT" | "WAIT";
+  textBody: string | null;
+  waitMs: number | null;
+};
 
 /** GET /api/workflows?full=1 — list workflows (optionally with steps) */
 router.get("/", async (req: Request, res: Response) => {
@@ -42,12 +50,13 @@ router.post("/", async (req: Request, res: Response) => {
 router.patch("/:id", async (req: Request, res: Response) => {
   try {
     const id = req.params.id;
-    const patch: any = {};
-    if (typeof req.body?.name === "string") patch.name = req.body.name.trim();
+    const patch: Record<string, unknown> = {};
+
+    if (typeof req.body?.name === "string") patch["name"] = req.body.name.trim();
 
     if (typeof req.body?.status === "string") {
       const st = normalizeStatus(req.body.status);
-      if (st) patch.status = st as any; // map to DB enum value
+      if (st) patch["status"] = st as any; // map to DB enum
     }
 
     const row = await prisma.workflow.update({ where: { id }, data: patch });
@@ -67,14 +76,14 @@ router.put("/:id/steps", async (req: Request, res: Response) => {
   try {
     const id = req.params.id;
 
-    const input = Array.isArray(req.body?.steps) ? req.body.steps : [];
-    const stepsData = input.map((s: any, i: number) => {
+    const input: any[] = Array.isArray(req.body?.steps) ? req.body.steps : [];
+    const stepsData: StepRow[] = input.map((s: any, i: number): StepRow => {
       const t = String(s?.type || "").toUpperCase();
 
       if (t === "SEND_TEXT") {
         return {
           order: i,
-          type: "SEND_TEXT" as any,
+          type: "SEND_TEXT",
           textBody: String(s?.textBody ?? ""),
           waitMs: null,
         };
@@ -83,7 +92,7 @@ router.put("/:id/steps", async (req: Request, res: Response) => {
         const n = Number(s?.waitMs ?? 0);
         return {
           order: i,
-          type: "WAIT" as any,
+          type: "WAIT",
           textBody: null,
           waitMs: Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0,
         };
@@ -91,12 +100,12 @@ router.put("/:id/steps", async (req: Request, res: Response) => {
       throw new Error(`Invalid step type at index ${i}`);
     });
 
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // Replace steps
       await tx.workflowStep.deleteMany({ where: { workflowId: id } });
       if (stepsData.length) {
         await tx.workflowStep.createMany({
-          data: stepsData.map((d) => ({ ...d, workflowId: id })),
+          data: stepsData.map((row: StepRow) => ({ ...row, workflowId: id })),
         });
       }
       // Return fresh workflow (with steps)
