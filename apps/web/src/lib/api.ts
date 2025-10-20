@@ -1,40 +1,30 @@
-// Flat, safe helpers used across the web app.
-// Same-origin in dev. In prod, set VITE_API_URL to your server origin (no trailing slash).
+// apps/web/src/lib/api.ts
+// Same-origin in dev. In prod set VITE_API_URL to your server origin (no trailing slash).
 
-export type Lead = {
-  id: string | number;
-  name: string;
-  email: string;
-  phone?: string | null;
-  createdAt?: string;
-};
+export type Lead = { id: string|number; name: string; email: string; phone?: string|null; createdAt?: string; };
 
 export type UploadSummary = {
-  ok: boolean;
-  inserted: number;
-  skipped: number;
-  duplicates?: number;
-  invalids?: number;
-  errors?: string[];
-  leads?: number;
+  ok: boolean; inserted: number; skipped: number;
+  duplicates?: number; invalids?: number; errors?: string[]; leads?: number;
 };
 
-const TOKEN_KEY = "jwt";
+type AuthPayload = { email: string; password: string; name?: string };
+type AuthResponse =
+  | { token: string; user?: any }
+  | { jwt: string; user?: any }
+  | { accessToken: string; user?: any };
 
-// Base URL for the API
-const BASE =
-  (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/+$/, "") ||
-  "";
+const TOKEN_KEY = "jwt";
+const BASE = (import.meta.env.VITE_API_URL as string|undefined)?.replace(/\/+$/,"") || "";
 
 /* ---------------- token helpers ---------------- */
-export function getToken(): string | null {
-  try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
-}
+export function getToken(): string|null { try { return localStorage.getItem(TOKEN_KEY); } catch { return null; } }
 export function setToken(token: string) { try { localStorage.setItem(TOKEN_KEY, token); } catch {} }
 export function clearToken() { try { localStorage.removeItem(TOKEN_KEY); } catch {} }
+export function isAuthed(): boolean { return !!getToken(); }
 
 /* ---------------- fetch helper ---------------- */
-async function http<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
+async function http<T=any>(path: string, opts: RequestInit = {}): Promise<T> {
   const url = `${BASE}${path}`;
   const headers = new Headers(opts.headers || {});
   if (!headers.has("Content-Type") && opts.body && !(opts.body instanceof FormData)) {
@@ -52,103 +42,146 @@ async function http<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
   return (ct.includes("application/json") ? res.json() : (res.text() as any)) as T;
 }
 
-/* ---------------- workflows ---------------- */
-export type Workflow = {
-  id: string;
-  name: string;
-  status: "DRAFT" | "ACTIVE" | "PAUSED" | "draft" | "active" | "paused";
-  createdAt: string;
-  updatedAt: string;
+/* ---------------- auth ---------------- */
+export async function register(p: AuthPayload): Promise<AuthResponse> {
+  const data = await http<AuthResponse>("/api/auth/register", { method: "POST", body: JSON.stringify(p) });
+  const token = (data as any).token || (data as any).jwt || (data as any).accessToken || "";
+  if (token) setToken(token);
+  return data;
+}
+export async function login(p: AuthPayload): Promise<AuthResponse> {
+  const data = await http<AuthResponse>("/api/auth/login", { method: "POST", body: JSON.stringify(p) });
+  const token = (data as any).token || (data as any).jwt || (data as any).accessToken || "";
+  if (token) setToken(token);
+  return data;
+}
+export async function logout(): Promise<void> { try { await http("/api/auth/logout", { method: "POST" }); } finally { clearToken(); } }
+
+/* ---------------- leads ---------------- */
+export async function getLeads(): Promise<Lead[]> { return http<Lead[]>("/api/leads"); }
+
+/* ---------------- uploads ---------------- */
+export async function uploadLeads(file: File): Promise<UploadSummary> {
+  const form = new FormData(); form.append("file", file);
+  const data = await http<any>("/api/uploads/import", { method: "POST", body: form });
+  const leads =
+    data?.stats?.validRows ?? data?.stats?.totalRows ??
+    (typeof data?.inserted === "number" && typeof data?.duplicates === "number" && typeof data?.invalids === "number"
+      ? data.inserted + data.duplicates + data.invalids : undefined);
+  return { ok: !!data?.ok, inserted: data?.inserted ?? 0, skipped: data?.skipped ?? 0,
+           duplicates: data?.duplicates ?? 0, invalids: data?.invalids ?? 0, errors: data?.errors ?? [], leads };
+}
+
+export type CsvMapping = {
+  name?: string; first?: string; last?: string; email?: string; phone?: string;
+  tags?: string; note?: string; city?: string; state?: string; zip?: string; address?: string; dob?: string;
 };
+export async function uploadLeadsMapped(
+  file: File,
+  mapping: CsvMapping,
+  opts?: { ignoreDuplicates?: boolean; tags?: string[]; workflowId?: string }
+): Promise<UploadSummary & { meta?: any; stats?: any; confidence?: any }> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("mapping", JSON.stringify(mapping || {}));
+  form.append("options", JSON.stringify(opts || {}));
+  return http("/api/uploads/import", { method: "POST", body: form });
+}
 
-export type WfStep =
-  | { type: "SEND_TEXT"; textBody: string }
-  | { type: "WAIT"; waitMs: number };
+/* ---------------- phone numbers ---------------- */
+export type SearchNumbersParams = {
+  country?: string; areaCode?: string; contains?: string; sms?: boolean; mms?: boolean; voice?: boolean; limit?: number;
+};
+export async function searchNumbers(params: SearchNumbersParams = {}) {
+  const q = new URLSearchParams();
+  if (params.country) q.set("country", params.country);
+  if (params.areaCode) q.set("areaCode", params.areaCode);
+  if (params.contains) q.set("contains", params.contains);
+  if (params.sms !== undefined) q.set("sms", String(params.sms));
+  if (params.mms !== undefined) q.set("mms", String(params.mms));
+  if (params.voice !== undefined) q.set("voice", String(params.voice));
+  if (params.limit) q.set("limit", String(params.limit));
+  return http<{ ok: true; data: any[] } | { ok: false; error: string }>(`/api/numbers/available?${q.toString()}`);
+}
+export async function purchaseNumber(input: { country: string; phoneNumber: string; makeDefault?: boolean; messagingServiceSid?: string; }) {
+  return http<{ ok: boolean; error?: string; number?: any }>("/api/numbers/purchase", { method: "POST", body: JSON.stringify(input) });
+}
+export async function listMyNumbers() { return http<{ ok: boolean; data: any[] }>(`/api/numbers/mine`); }
+export async function setDefaultNumber(sid: string) { return http<{ ok: boolean }>(`/api/numbers/default`, { method: "POST", body: JSON.stringify({ sid }) }); }
 
+/* ---------------- workflows (server-first, LS fallback) ---------------- */
+export type Workflow = { id: string; name: string; status: "draft" | "active" | "paused"; createdAt: string; updatedAt: string; };
+
+const WF_LS_KEY = "gs_workflows";
+function lsRead(): Workflow[] { try { const raw = localStorage.getItem(WF_LS_KEY); return raw ? JSON.parse(raw) : []; } catch { return []; } }
+function lsWrite(rows: Workflow[]) { try { localStorage.setItem(WF_LS_KEY, JSON.stringify(rows)); } catch {} }
+function lsCreate(input: { name: string }): Workflow {
+  const now = new Date().toISOString();
+  const row: Workflow = { id: `wf_${Date.now()}`, name: input.name || "Untitled workflow", status: "draft", createdAt: now, updatedAt: now };
+  lsWrite([row, ...lsRead()]); return row;
+}
+function lsUpdate(id: string, patch: Partial<Workflow>): Workflow {
+  const cur = lsRead(); const idx = cur.findIndex(w => w.id === id);
+  if (idx === -1) return lsCreate({ name: patch.name || "Untitled workflow" });
+  const updated: Workflow = { ...cur[idx], ...patch, updatedAt: new Date().toISOString() };
+  const next = [...cur]; next[idx] = updated; lsWrite(next); return updated;
+}
+
+/** If server returns `{ ok, data }`, unwrap; if it returns array, pass through */
 export async function listWorkflows(): Promise<Workflow[]> {
-  const res = await http<any>("/api/workflows");
-  return Array.isArray(res) ? res : (res?.data ?? []);
+  try { const res = await http<any>("/api/workflows"); return Array.isArray(res) ? res : (res?.data ?? []); }
+  catch { return lsRead(); }
 }
-
-export async function listWorkflowsFull(): Promise<any[]> {
-  const res = await http<any>("/api/workflows?full=1");
-  return Array.isArray(res) ? res : (res?.data ?? []);
-}
-
 export async function createWorkflow(input: { name: string }): Promise<Workflow> {
-  const res = await http<any>("/api/workflows", { method: "POST", body: JSON.stringify(input) });
-  return (res?.data ?? res) as Workflow;
+  try { const res = await http<any>("/api/workflows", { method: "POST", body: JSON.stringify(input) }); return (res?.data ?? res) as Workflow; }
+  catch { return lsCreate(input); }
 }
-
-export async function saveWorkflowMeta(
-  id: string,
-  patch: Partial<{ name: string; status: "draft" | "active" | "paused" }>
-) {
-  const map = { draft: "DRAFT", active: "ACTIVE", paused: "PAUSED" } as const;
-  const body: any = {};
-  if (patch.name !== undefined) body.name = patch.name;
-  if (patch.status !== undefined) body.status = map[patch.status];
-  const res = await http<any>(`/api/workflows/${id}`, { method: "PATCH", body: JSON.stringify(body) });
-  return res?.data ?? res;
+export async function updateWorkflow(id: string, patch: Partial<Workflow>): Promise<Workflow> {
+  try { const res = await http<any>(`/api/workflows/${id}`, { method: "PATCH", body: JSON.stringify(patch) }); return (res?.data ?? res) as Workflow; }
+  catch { return lsUpdate(id, patch); }
 }
-
+/** Optional: full object with steps */
+export async function listWorkflowsFull() { return http(`/api/workflows?full=1`); }
+/** Save meta in server enum casing */
+export async function saveWorkflowMeta(id: string, patch: Partial<{ name: string; status: "draft"|"active"|"paused" }>) {
+  const map: Record<string,string> = { draft:"DRAFT", active:"ACTIVE", paused:"PAUSED" };
+  const body:any = {}; if (patch.name !== undefined) body.name = patch.name; if (patch.status) body.status = map[patch.status];
+  return http(`/api/workflows/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+}
+export type WfStep = { type: "SEND_TEXT"; textBody: string } | { type: "WAIT"; waitMs: number };
 export async function replaceWorkflowSteps(id: string, steps: WfStep[]) {
-  const res = await http<any>(`/api/workflows/${id}/steps`, {
-    method: "PUT",
-    body: JSON.stringify({ steps }),
-  });
-  return res?.data ?? res;
+  return http(`/api/workflows/${id}/steps`, { method: "PUT", body: JSON.stringify({ steps }) });
 }
 
-export async function deleteWorkflow(id: string) {
-  await http(`/api/workflows/${id}`, { method: "DELETE" });
+/* ---------------- copilot ---------------- */
+export type CopilotDraftRequest = { lastMessage: string; tone?: "friendly" | "neutral" | "formal" | "casual"; goal?: string; };
+export type CopilotDraftResponse = { ok: boolean; draft?: string; error?: string; meta?: Record<string, any>; };
+export async function copilotDraft(input: CopilotDraftRequest, opts?: { signal?: AbortSignal }): Promise<CopilotDraftResponse> {
+  return http("/api/copilot/draft", { method: "POST", body: JSON.stringify(input), signal: opts?.signal });
 }
 
 /* ---------------- tags ---------------- */
-
-export type TagDTO = {
-  id: string;
-  name: string;
-  color?: string | null;
-  workflowId?: string | null;
-};
+export type TagColor = "red"|"orange"|"amber"|"green"|"teal"|"blue"|"indigo"|"violet"|"pink"|"gray";
+type TagColorInput = TagColor | "" | null | undefined;
+export type TagDTO = { id: string; name: string; color?: TagColor|null; workflowId?: string|null; };
+const normColor = (v: TagColorInput): TagColor|null => typeof v === "string" && v.trim() !== "" ? v as TagColor : null;
+const normId = (v: string|""|null|undefined): string|null => typeof v === "string" && v.trim() !== "" ? v : null;
 
 export async function getTags(): Promise<TagDTO[]> {
-  const res = await http<{ ok: boolean; tags: TagDTO[] }>("/api/tags");
-  return res.tags;
+  const res = await http<{ ok: boolean; tags: TagDTO[] }>("/api/tags"); return res.tags;
 }
-
-export async function createTag(input: {
-  name: string;
-  color?: string | null;
-  workflowId?: string | null;
-}): Promise<TagDTO> {
-  const res = await http<{ ok: boolean; tag: TagDTO }>("/api/tags", {
-    method: "POST",
-    body: JSON.stringify({
-      name: input.name,
-      color: input.color ?? null,
-      workflowId: input.workflowId ?? null,
-    }),
-  });
+export async function listTags(): Promise<TagDTO[]> { return getTags(); }
+export async function createTag(input: { name: string; color?: TagColorInput; workflowId?: string|""|null; }): Promise<TagDTO> {
+  const body = { name: input.name, color: normColor(input.color), workflowId: normId(input.workflowId) };
+  const res = await http<{ ok: boolean; tag: TagDTO }>("/api/tags", { method: "POST", body: JSON.stringify(body) });
   return res.tag;
 }
-
-export async function updateTag(
-  id: string,
-  patch: Partial<{ name: string; color: string | null; workflowId: string | null }>
-): Promise<TagDTO> {
-  const res = await http<{ ok: boolean; tag: TagDTO }>(`/api/tags/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify({
-      ...(patch.name !== undefined ? { name: patch.name } : {}),
-      ...(patch.color !== undefined ? { color: patch.color } : {}),
-      ...(patch.workflowId !== undefined ? { workflowId: patch.workflowId } : {}),
-    }),
-  });
+export async function updateTag(id: string, patch: Partial<{ name: string; color: TagColorInput; workflowId: string|""|null }>): Promise<TagDTO> {
+  const body:any = {};
+  if (Object.prototype.hasOwnProperty.call(patch,"name")) body.name = patch.name;
+  if (Object.prototype.hasOwnProperty.call(patch,"color")) body.color = normColor(patch.color as TagColorInput);
+  if (Object.prototype.hasOwnProperty.call(patch,"workflowId")) body.workflowId = normId(patch.workflowId as any);
+  const res = await http<{ ok: boolean; tag: TagDTO }>(`/api/tags/${id}`, { method: "PATCH", body: JSON.stringify(body) });
   return res.tag;
 }
-
-export async function deleteTag(id: string): Promise<void> {
-  await http<{ ok: boolean }>(`/api/tags/${id}`, { method: "DELETE" });
-}
+export async function deleteTag(id: string): Promise<void> { await http(`/api/tags/${id}`, { method: "DELETE" }); }
