@@ -1,194 +1,14 @@
-// Flat, safe helpers used across the web app.
-// Same-origin in dev. In prod, set VITE_API_URL to your server origin (no trailing slash).
-
-export type Lead = {
-  id: string | number;
-  name: string;
-  email: string;
-  phone?: string | null;
-  createdAt?: string;
-};
-
-export type UploadSummary = {
-  ok: boolean;
-  inserted: number;
-  skipped: number;
-  duplicates?: number;
-  invalids?: number;
-  errors?: string[];
-  // number UI should show in the "LEADS" column
-  leads?: number;
-};
-
-type AuthPayload = { email: string; password: string; name?: string };
-type AuthResponse =
-  | { token: string; user?: any }
-  | { jwt: string; user?: any }
-  | { accessToken: string; user?: any };
-
-const TOKEN_KEY = "jwt";
-
-// ---- Base URL: empty = same-origin. In prod set VITE_API_URL (e.g. https://YOUR-SERVER-ORIGIN)
-const BASE =
-  (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/+$/, "") || "";
-
-/* ---------------- token helpers ---------------- */
-export function getToken(): string | null {
-  try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
-}
-export function setToken(token: string) { try { localStorage.setItem(TOKEN_KEY, token); } catch {} }
-export function clearToken() { try { localStorage.removeItem(TOKEN_KEY); } catch {} }
-export function isAuthed(): boolean { return !!getToken(); }
-
-/* ---------------- fetch helper ---------------- */
-async function http<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
-  const url = `${BASE}${path}`;
-  const headers = new Headers(opts.headers || {});
-  if (!headers.has("Content-Type") && opts.body && !(opts.body instanceof FormData)) {
-    headers.set("Content-Type", "application/json");
-  }
-  const token = getToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-
-  const res = await fetch(url, { ...opts, headers, credentials: "include" });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`${res.status} ${res.statusText}${text ? ` – ${text}` : ""}`);
-  }
-  const ct = res.headers.get("content-type") || "";
-  return (ct.includes("application/json") ? res.json() : (res.text() as any)) as T;
-}
-
-/* ---------------- auth ---------------- */
-export async function register(p: AuthPayload): Promise<AuthResponse> {
-  const data = await http<AuthResponse>("/api/auth/register", {
-    method: "POST",
-    body: JSON.stringify(p),
-  });
-  const token = (data as any).token || (data as any).jwt || (data as any).accessToken || "";
-  if (token) setToken(token);
-  return data;
-}
-
-export async function login(p: AuthPayload): Promise<AuthResponse> {
-  const data = await http<AuthResponse>("/api/auth/login", {
-    method: "POST",
-    body: JSON.stringify(p),
-  });
-  const token = (data as any).token || (data as any).jwt || (data as any).accessToken || "";
-  if (token) setToken(token);
-  return data;
-}
-
-export async function logout(): Promise<void> {
-  try { await http("/api/auth/logout", { method: "POST" }); }
-  finally { clearToken(); }
-}
-
-/* ---------------- leads (demo) ---------------- */
-export async function getLeads(): Promise<Lead[]> {
-  return http<Lead[]>("/api/leads");
-}
-
-/* ---------------- uploads ---------------- */
-export async function uploadLeads(file: File): Promise<UploadSummary> {
-  const form = new FormData();
-  form.append("file", file);
-
-  const data = await http<any>("/api/uploads/import", { method: "POST", body: form });
-
-  const leads =
-    data?.stats?.validRows ??
-    data?.stats?.totalRows ??
-    (typeof data?.inserted === "number" &&
-     typeof data?.duplicates === "number" &&
-     typeof data?.invalids === "number"
-       ? data.inserted + data.duplicates + data.invalids
-       : undefined);
-
-  return {
-    ok: !!data?.ok,
-    inserted: data?.inserted ?? 0,
-    skipped: data?.skipped ?? 0,
-    duplicates: data?.duplicates ?? 0,
-    invalids: data?.invalids ?? 0,
-    errors: data?.errors ?? [],
-    leads,
-  };
-}
-
-/* ---- mapped upload (wizard) ---- */
-export type CsvMapping = {
-  name?: string; first?: string; last?: string; email?: string; phone?: string;
-  tags?: string; note?: string; city?: string; state?: string; zip?: string;
-  address?: string; dob?: string;
-};
-
-export async function uploadLeadsMapped(
-  file: File,
-  mapping: CsvMapping,
-  opts?: { ignoreDuplicates?: boolean; tags?: string[]; workflowId?: string }
-): Promise<UploadSummary & { meta?: any; stats?: any; confidence?: any }> {
-  const form = new FormData();
-  form.append("file", file);
-  form.append("mapping", JSON.stringify(mapping || {}));
-  form.append("options", JSON.stringify(opts || {}));
-  return http<UploadSummary & { meta?: any; stats?: any; confidence?: any }>(
-    "/api/uploads/import",
-    { method: "POST", body: form }
-  );
-}
-
-/* ---------------- phone numbers ---------------- */
-export type SearchNumbersParams = {
-  country?: string; areaCode?: string; contains?: string;
-  sms?: boolean; mms?: boolean; voice?: boolean; limit?: number;
-};
-
-export async function searchNumbers(params: SearchNumbersParams = {}) {
-  const q = new URLSearchParams();
-  if (params.country) q.set("country", params.country);
-  if (params.areaCode) q.set("areaCode", params.areaCode);
-  if (params.contains) q.set("contains", params.contains);
-  if (params.sms !== undefined) q.set("sms", String(params.sms));
-  if (params.mms !== undefined) q.set("mms", String(params.mms));
-  if (params.voice !== undefined) q.set("voice", String(params.voice));
-  if (params.limit) q.set("limit", String(params.limit));
-  return http<{ ok: true; data: any[] } | { ok: false; error: string }>(
-    `/api/numbers/available?${q.toString()}`
-  );
-}
-
-export async function purchaseNumber(input: {
-  country: string; phoneNumber: string; makeDefault?: boolean; messagingServiceSid?: string;
-}) {
-  return http<{ ok: boolean; error?: string; number?: any }>(
-    "/api/numbers/purchase",
-    { method: "POST", body: JSON.stringify(input) }
-  );
-}
-
-export async function listMyNumbers() {
-  return http<{ ok: boolean; data: any[] }>(`/api/numbers/mine`);
-}
-
-export async function setDefaultNumber(sid: string) {
-  return http<{ ok: boolean }>(`/api/numbers/default`, {
-    method: "POST", body: JSON.stringify({ sid }),
-  });
-}
-
 /* ---------------- workflows (server-first, LS fallback) ---------------- */
-
 export type Workflow = {
   id: string;
   name: string;
-  status: "draft" | "active" | "paused";
+  status: "draft" | "active" | "paused"; // client-friendly
   createdAt: string;
   updatedAt: string;
 };
 
 const WF_LS_KEY = "gs_workflows";
+
 function lsRead(): Workflow[] {
   try {
     const raw = localStorage.getItem(WF_LS_KEY);
@@ -198,9 +18,7 @@ function lsRead(): Workflow[] {
   }
 }
 function lsWrite(rows: Workflow[]) {
-  try {
-    localStorage.setItem(WF_LS_KEY, JSON.stringify(rows));
-  } catch {}
+  try { localStorage.setItem(WF_LS_KEY, JSON.stringify(rows)); } catch {}
 }
 function lsCreate(input: { name: string }): Workflow {
   const now = new Date().toISOString();
@@ -219,72 +37,71 @@ function lsUpdate(id: string, patch: Partial<Workflow>): Workflow {
   const cur = lsRead();
   const idx = cur.findIndex((w) => w.id === id);
   if (idx === -1) return lsCreate({ name: patch.name || "Untitled workflow" });
-  const updated: Workflow = {
-    ...cur[idx],
-    ...patch,
-    updatedAt: new Date().toISOString(),
-  };
+  const updated: Workflow = { ...cur[idx], ...patch, updatedAt: new Date().toISOString() };
   const next = [...cur];
   next[idx] = updated;
   lsWrite(next);
   return updated;
 }
 
-/** Server returns array; if it returns {ok,data}, unwrap safely. */
+/** Server may return [] or { ok, data }. Normalize to Workflow[] */
+function unwrapList(res: any): Workflow[] {
+  const arr = Array.isArray(res) ? res : res?.data;
+  return Array.isArray(arr) ? arr.map(x => ({
+    ...x,
+    // map server enums to client strings if needed
+    status: String(x.status || "DRAFT").toLowerCase() as Workflow["status"],
+  })) : [];
+}
+
 export async function listWorkflows(): Promise<Workflow[]> {
   try {
     const res = await http<any>("/api/workflows");
-    return Array.isArray(res) ? (res as Workflow[]) : (res?.data ?? []);
+    return unwrapList(res);
   } catch {
     return lsRead();
   }
 }
 
-/** Optional: need full objects with steps for the Workflows page. */
-export async function listWorkflowsFull(): Promise<any[]> {
-  return http<any[]>("/api/workflows?full=1");
-}
-
-/** Create workflow row (name only). */
 export async function createWorkflow(input: { name: string }): Promise<Workflow> {
   try {
     const res = await http<any>("/api/workflows", {
       method: "POST",
       body: JSON.stringify(input),
     });
-    return (res?.data ?? res) as Workflow;
+    const rows = unwrapList([ (res?.data ?? res) ]);
+    return rows[0] ?? lsCreate(input);
   } catch {
     return lsCreate(input);
   }
 }
 
-/** Update workflow metadata (name/status). */
 export async function updateWorkflow(
   id: string,
-  patch: Partial<Workflow> & { status?: "draft" | "active" | "paused" }
+  patch: Partial<Workflow>
 ): Promise<Workflow> {
   try {
-    // map friendly -> server enum
-    const statusMap: Record<string, string> = {
-      draft: "DRAFT",
-      active: "ACTIVE",
-      paused: "PAUSED",
-    };
-    const body: any = {};
-    if (patch.name !== undefined) body.name = patch.name;
-    if (patch.status !== undefined) body.status = statusMap[patch.status] || "DRAFT";
-
+    // server expects DRAFT/ACTIVE/PAUSED
+    const toServer: any = { ...patch };
+    if (patch.status) {
+      const map: Record<Workflow["status"], "DRAFT" | "ACTIVE" | "PAUSED"> = {
+        draft: "DRAFT",
+        active: "ACTIVE",
+        paused: "PAUSED",
+      };
+      toServer.status = map[patch.status];
+    }
     const res = await http<any>(`/api/workflows/${id}`, {
       method: "PATCH",
-      body: JSON.stringify(body),
+      body: JSON.stringify(toServer),
     });
-    return (res?.data ?? res) as Workflow;
+    const rows = unwrapList([ (res?.data ?? res) ]);
+    return rows[0] ?? lsUpdate(id, patch);
   } catch {
     return lsUpdate(id, patch);
   }
 }
 
-/** Replace ALL steps atomically on the server. */
 export type WfStep =
   | { type: "SEND_TEXT"; textBody: string }
   | { type: "WAIT"; waitMs: number };
@@ -296,67 +113,11 @@ export async function replaceWorkflowSteps(id: string, steps: WfStep[]) {
   });
 }
 
-/** Delete a workflow. */
 export async function deleteWorkflow(id: string) {
   return http(`/api/workflows/${id}`, { method: "DELETE" });
 }
 
-
-/* ---------------- copilot (draft assistant) ---------------- */
-export type CopilotDraftRequest = {
-  lastMessage: string; tone?: "friendly" | "neutral" | "formal" | "casual"; goal?: string;
-};
-export type CopilotDraftResponse = { ok: boolean; draft?: string; error?: string; meta?: Record<string, any>; };
-
-export async function copilotDraft(input: CopilotDraftRequest, opts?: { signal?: AbortSignal }): Promise<CopilotDraftResponse> {
-  return http<CopilotDraftResponse>("/api/copilot/draft", { method: "POST", body: JSON.stringify(input), signal: opts?.signal });
-}
-
-/* ---------------- tags ---------------- */
-
-export type TagColor =
-  | "red" | "orange" | "amber" | "green" | "teal" | "blue" | "indigo" | "violet" | "pink" | "gray";
-
-/** Allows UI to pass "" but we normalize it away */
-type TagColorInput = TagColor | "" | null | undefined;
-
-export type TagDTO = {
-  id: string;
-  name: string;
-  color?: TagColor | null;
-  workflowId?: string | null;
-};
-
-const normColor = (v: TagColorInput): TagColor | null =>
-  typeof v === "string" && v.trim() !== "" ? (v as TagColor) : null;
-
-const normId = (v: string | "" | null | undefined): string | null =>
-  typeof v === "string" && v.trim() !== "" ? v : null;
-
-export async function getTags(): Promise<TagDTO[]> {
-  const res = await http<{ ok: boolean; tags: TagDTO[] }>("/api/tags");
-  return res.tags;
-}
-export async function listTags(): Promise<TagDTO[]> { return getTags(); }
-
-export async function createTag(input: { name: string; color?: TagColorInput; workflowId?: string | "" | null; }): Promise<TagDTO> {
-  const body = { name: input.name, color: normColor(input.color), workflowId: normId(input.workflowId) };
-  const res = await http<{ ok: boolean; tag: TagDTO }>("/api/tags", { method: "POST", body: JSON.stringify(body) });
-  return res.tag;
-}
-
-export async function updateTag(
-  id: string,
-  patch: Partial<{ name: string; color: TagColorInput; workflowId: string | "" | null; }>
-): Promise<TagDTO> {
-  const body: any = {};
-  if (Object.prototype.hasOwnProperty.call(patch, "name")) body.name = patch.name;
-  if (Object.prototype.hasOwnProperty.call(patch, "color")) body.color = normColor(patch.color as TagColorInput);
-  if (Object.prototype.hasOwnProperty.call(patch, "workflowId")) body.workflowId = normId(patch.workflowId as string | "" | null);
-  const res = await http<{ ok: boolean; tag: TagDTO }>(`/api/tags/${id}`, { method: "PATCH", body: JSON.stringify(body) });
-  return res.tag;
-}
-
-export async function deleteTag(id: string): Promise<void> {
-  await http<{ ok: boolean }>(`/api/tags/${id}`, { method: "DELETE" });
+export async function listWorkflowsFull() {
+  // returns { ok, data } with include: { steps: true }
+  return http(`/api/workflows?full=1`);
 }
