@@ -76,6 +76,20 @@ function WheelChip({
     </div>
   );
 }
+// ⬇️ ADD this right after the WheelChip component
+export default function Tags() {
+  const nav = useNavigate();
+
+  // page state
+  const [busy, setBusy] = useState<BusyState>("loading");
+  const [err, setErr] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
+
+  // data
+  const [tags, setTags] = useState<TagDTO[]>([]);
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [q, setQ] = useState("");
+  const [sel, setSel] = useState<TagDTO | null>(null);
 
 
   // Create form
