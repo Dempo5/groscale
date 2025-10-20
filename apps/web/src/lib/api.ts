@@ -1,8 +1,6 @@
-// apps/web/src/lib/api.ts
 // Flat, safe helpers used across the web app.
 // Same-origin in dev. In prod, set VITE_API_URL to your server origin (no trailing slash).
 
-/* ---------------- shared types ---------------- */
 export type Lead = {
   id: string | number;
   name: string;
@@ -28,20 +26,9 @@ type AuthResponse =
   | { jwt: string; user?: any }
   | { accessToken: string; user?: any };
 
-export type SearchNumbersParams = {
-  country?: string;
-  areaCode?: string;
-  contains?: string;
-  sms?: boolean;
-  mms?: boolean;
-  voice?: boolean;
-  limit?: number;
-};
-
-/* ---------------- token + base URL ---------------- */
 const TOKEN_KEY = "jwt";
 
-// Base URL: empty = same-origin. In prod set VITE_API_URL (e.g. https://YOUR-SERVER-ORIGIN)
+// ---- Base URL: empty = same-origin. In prod set VITE_API_URL (e.g. https://groscale.onrender.com)
 const BASE =
   (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/+$/, "") ||
   "";
@@ -185,6 +172,16 @@ export async function uploadLeadsMapped(
 }
 
 /* ---------------- phone numbers ---------------- */
+export type SearchNumbersParams = {
+  country?: string;
+  areaCode?: string;
+  contains?: string;
+  sms?: boolean;
+  mms?: boolean;
+  voice?: boolean;
+  limit?: number;
+};
+
 export async function searchNumbers(params: SearchNumbersParams = {}) {
   const q = new URLSearchParams();
   if (params.country) q.set("country", params.country);
@@ -223,135 +220,60 @@ export async function setDefaultNumber(sid: string) {
   });
 }
 
-/* ---------------- workflows (server-first, LS fallback) ---------------- */
+/* ---------------- workflows (server) ---------------- */
 export type Workflow = {
   id: string;
   name: string;
-  status: "draft" | "active" | "paused"; // client-friendly
+  status: "draft" | "active" | "paused";
   createdAt: string;
   updatedAt: string;
 };
 
-const WF_LS_KEY = "gs_workflows";
-
-function lsRead(): Workflow[] {
-  try {
-    const raw = localStorage.getItem(WF_LS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-function lsWrite(rows: Workflow[]) {
-  try {
-    localStorage.setItem(WF_LS_KEY, JSON.stringify(rows));
-  } catch {}
-}
-function lsCreate(input: { name: string }): Workflow {
-  const now = new Date().toISOString();
-  const row: Workflow = {
-    id: `wf_${Date.now()}`,
-    name: input.name || "Untitled workflow",
-    status: "draft",
-    createdAt: now,
-    updatedAt: now,
-  };
-  const cur = lsRead();
-  lsWrite([row, ...cur]);
-  return row;
-}
-function lsUpdate(id: string, patch: Partial<Workflow>): Workflow {
-  const cur = lsRead();
-  const idx = cur.findIndex((w) => w.id === id);
-  if (idx === -1) return lsCreate({ name: patch.name || "Untitled workflow" });
-  const updated: Workflow = {
-    ...cur[idx],
-    ...patch,
-    updatedAt: new Date().toISOString(),
-  };
-  const next = [...cur];
-  next[idx] = updated;
-  lsWrite(next);
-  return updated;
-}
-
-/** Normalize server list: either [] or { ok, data } */
-function unwrapList(res: any): Workflow[] {
-  const arr = Array.isArray(res) ? res : res?.data;
-  return Array.isArray(arr)
-    ? arr.map((x: any) => ({
-        ...x,
-        status: String(x.status || "DRAFT").toLowerCase() as Workflow["status"],
-      }))
-    : [];
-}
+export type WfStep =
+  | { type: "SEND_TEXT"; textBody: string }
+  | { type: "WAIT"; waitMs: number };
 
 export async function listWorkflows(): Promise<Workflow[]> {
-  try {
-    const res = await http<any>("/api/workflows");
-    return unwrapList(res);
-  } catch {
-    return lsRead();
-  }
+  const res = await http<any>("/api/workflows");
+  return Array.isArray(res) ? (res as Workflow[]) : (res?.data ?? []);
+}
+
+export async function listWorkflowsFull() {
+  return http<any>("/api/workflows?full=1");
 }
 
 export async function createWorkflow(input: { name: string }): Promise<Workflow> {
-  try {
-    const res = await http<any>("/api/workflows", {
-      method: "POST",
-      body: JSON.stringify(input),
-    });
-    const rows = unwrapList(res?.data ? [res.data] : [res]);
-    return rows[0] ?? lsCreate(input);
-  } catch {
-    return lsCreate(input);
-  }
+  const res = await http<any>("/api/workflows", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return (res?.data ?? res) as Workflow;
 }
 
 export async function updateWorkflow(
   id: string,
   patch: Partial<Workflow>
 ): Promise<Workflow> {
-  try {
-    const toServer: any = { ...patch };
-    if (patch.status) {
-      const map: Record<Workflow["status"], "DRAFT" | "ACTIVE" | "PAUSED"> = {
-        draft: "DRAFT",
-        active: "ACTIVE",
-        paused: "PAUSED",
-      };
-      toServer.status = map[patch.status];
-    }
-    const res = await http<any>(`/api/workflows/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify(toServer),
-    });
-    const rows = unwrapList(res?.data ? [res.data] : [res]);
-    return rows[0] ?? lsUpdate(id, patch);
-  } catch {
-    return lsUpdate(id, patch);
-  }
+  const statusMap: any = { draft: "DRAFT", active: "ACTIVE", paused: "PAUSED" };
+  const body: any = {};
+  if (patch.name !== undefined) body.name = patch.name;
+  if (patch.status !== undefined) body.status = statusMap[patch.status] || patch.status;
+  const res = await http<any>(`/api/workflows/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+  return (res?.data ?? res) as Workflow;
 }
 
-/** Replace all steps (for the editor) */
-export type WfStep =
-  | { type: "SEND_TEXT"; textBody: string }
-  | { type: "WAIT"; waitMs: number };
-
 export async function replaceWorkflowSteps(id: string, steps: WfStep[]) {
-  return http(`/api/workflows/${id}/steps`, {
+  return http<any>(`/api/workflows/${id}/steps`, {
     method: "PUT",
     body: JSON.stringify({ steps }),
   });
 }
 
 export async function deleteWorkflow(id: string) {
-  return http(`/api/workflows/${id}`, { method: "DELETE" });
-}
-
-/** Full objects with steps (if your editor wants them) */
-export async function listWorkflowsFull() {
-  return http(`/api/workflows?full=1`);
+  await http(`/api/workflows/${id}`, { method: "DELETE" });
 }
 
 /* ---------------- copilot (draft assistant) ---------------- */
@@ -409,6 +331,8 @@ const normColor = (v: TagColorInput): TagColor | null =>
 
 const normId = (v: string | "" | null | undefined): string | null =>
   typeof v === "string" && v.trim() !== "" ? v : null;
+
+/* ---- API ---- */
 
 export async function getTags(): Promise<TagDTO[]> {
   const res = await http<{ ok: boolean; tags: TagDTO[] }>("/api/tags");
