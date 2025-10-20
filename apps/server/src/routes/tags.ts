@@ -1,57 +1,56 @@
 import { Router } from "express";
-import { PrismaClient, Prisma } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
-const router = Router();
+const r = Router();
 
-// GET tags
-router.get("/api/tags", async (_req, res) => {
+// normalize helpers
+const nStr = (v: any) =>
+  typeof v === "string" && v.trim() !== "" ? v.trim() : null;
+
+/** GET /api/tags */
+r.get("/", async (_req, res) => {
   const tags = await prisma.tag.findMany({ orderBy: { name: "asc" } });
   res.json({ ok: true, tags });
 });
 
-// POST create tag
-router.post("/api/tags", async (req, res, next) => {
-  try {
-    const { name, color, workflowId } = req.body as { name: string; color?: string | null; workflowId?: string | null };
-    const tag = await prisma.tag.create({
-      data: {
-        name,
-        color: color ?? null,
-        workflowId: workflowId ?? null,
-        // TODO: set real ownerId from auth; using placeholder for now
-        ownerId: (req as any).user?.id ?? "demo-owner",
-      },
-    });
-    res.json({ ok: true, tag });
-  } catch (e) { next(e); }
+/** POST /api/tags { name, color?, workflowId? } */
+r.post("/", async (req, res) => {
+  const name = String(req.body?.name || "").trim();
+  if (!name) return res.status(400).json({ ok: false, error: "name required" });
+
+  const tag = await prisma.tag.create({
+    data: {
+      name,
+      color: nStr(req.body?.color),
+      workflowId: nStr(req.body?.workflowId),
+      // NOTE: ownerId would come from auth; set a placeholder for now:
+      ownerId: "demo-owner",
+    },
+  });
+  res.status(201).json({ ok: true, tag });
 });
 
-// PATCH update tag
-router.patch("/api/tags/:id", async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { name, color, workflowId } = req.body as { name?: string; color?: string | null; workflowId?: string | null };
+/** PATCH /api/tags/:id { name?, color?, workflowId? } */
+r.patch("/:id", async (req, res) => {
+  const id = String(req.params.id);
+  const patch: any = {};
+  if (req.body?.name !== undefined) patch.name = String(req.body.name || "");
+  if (req.body?.color !== undefined) patch.color = nStr(req.body.color);
+  if (req.body?.workflowId !== undefined) patch.workflowId = nStr(req.body.workflowId);
 
-    const tag = await prisma.tag.update({
-      where: { id },
-      data: {
-        ...(name !== undefined ? { name } : {}),
-        ...(color !== undefined ? { color: color ?? null } : {}),
-        ...(workflowId !== undefined ? { workflowId: workflowId ?? null } : {}),
-      },
-    });
-    res.json({ ok: true, tag });
-  } catch (e) { next(e); }
+  const tag = await prisma.tag.update({ where: { id }, data: patch });
+  res.json({ ok: true, tag });
 });
 
-// DELETE tag
-router.delete("/api/tags/:id", async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    await prisma.tag.delete({ where: { id } });
-    res.json({ ok: true });
-  } catch (e) { next(e); }
+/** DELETE /api/tags/:id */
+r.delete("/:id", async (req, res) => {
+  const id = String(req.params.id);
+  await prisma.$transaction(async (tx) => {
+    await tx.leadTag.deleteMany({ where: { tagId: id } });
+    await tx.tag.delete({ where: { id } });
+  });
+  res.json({ ok: true });
 });
 
-export default router;
+export default r;
