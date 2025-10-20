@@ -27,7 +27,10 @@ const PALETTE = [
   "#6b7280", // gray
 ];
 
-/* ---------- Reusable color wheel chip (label+input binding = always clickable) ---------- */
+/** Always-clickable color wheel.
+ *  We render a hidden <input type="color"> and trigger it via .click()
+ *  from a visible chip button. This works in Chrome/Edge/Safari/Firefox.
+ */
 function WheelChip({
   value,
   onChange,
@@ -42,24 +45,20 @@ function WheelChip({
   const inputId = useId();
 
   return (
-    <div className="wheel-wrap">
+    <span className="wheel-wrap">
       <input
         id={inputId}
         type="color"
-        className="visually-hidden-color"
+        className="hidden-color-input"
         value={value ?? "#888888"}
         onChange={(e) => onChange(e.target.value)}
-        // keep it focusable for a11y, but visually hidden
-        tabIndex={-1}
         aria-label="Custom color"
       />
-      <label
-        htmlFor={inputId}
+      <button
+        type="button"
         className={`chip wheel ${selected ? "sel" : ""}`}
-        title={title || value || "Custom color"}
-        // Edge/Chromium fix: explicitly trigger .click() on the input
-        onClick={(e) => {
-          e.preventDefault();
+        title={title || "Pick custom color"}
+        onClick={() => {
           const el = document.getElementById(inputId) as HTMLInputElement | null;
           if (el) el.click();
         }}
@@ -70,13 +69,12 @@ function WheelChip({
             if (el) el.click();
           }
         }}
-        role="button"
         aria-pressed={selected}
       />
-    </div>
+    </span>
   );
 }
-// ⬇️ ADD this right after the WheelChip component
+
 export default function Tags() {
   const nav = useNavigate();
 
@@ -91,17 +89,16 @@ export default function Tags() {
   const [q, setQ] = useState("");
   const [sel, setSel] = useState<TagDTO | null>(null);
 
-
-  // Create form
+  // create form
   const [newName, setNewName] = useState("");
   const [newColor, setNewColor] = useState<string | null>(PALETTE[4]); // default teal
 
-  // Edit form (mirrors selection)
+  // edit form
   const [name, setName] = useState("");
   const [color, setColor] = useState<string | null>(null);
   const [workflowId, setWorkflowId] = useState<string | null>(null);
 
-  // Load data
+  // load data
   useEffect(() => {
     (async () => {
       try {
@@ -118,7 +115,7 @@ export default function Tags() {
     })();
   }, []);
 
-  // Sync editor with selection
+  // sync editor with selection
   useEffect(() => {
     if (!sel) {
       setName("");
@@ -129,37 +126,32 @@ export default function Tags() {
       setColor(sel.color ?? null);
       setWorkflowId(sel.workflowId ?? null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel?.id]);
 
-  // Filter list
+  // filter
   const filtered = useMemo(() => {
     const k = q.trim().toLowerCase();
     if (!k) return tags;
     return tags.filter((t) => t.name.toLowerCase().includes(k));
   }, [q, tags]);
 
-  function bannerError(msg: string) {
+  const bannerError = (msg: string) => {
     setErr(msg);
     setOk(null);
-    setTimeout(() => setErr(null), 3500);
-  }
-  function bannerOk(msg: string) {
+    window.setTimeout(() => setErr(null), 3500);
+  };
+  const bannerOk = (msg: string) => {
     setOk(msg);
     setErr(null);
-    setTimeout(() => setOk(null), 1800);
-  }
+    window.setTimeout(() => setOk(null), 1800);
+  };
 
   async function onCreate() {
     const n = newName.trim();
     if (!n) return;
     try {
       setBusy("saving");
-      const tag = await createTag({
-        name: n,
-        color: newColor ?? null,
-        workflowId: null,
-      } as any);
+      const tag = await createTag({ name: n, color: newColor ?? null, workflowId: null } as any);
       setTags((xs) => [tag, ...xs].sort((a, b) => a.name.localeCompare(b.name)));
       setNewName("");
       bannerOk("Tag created");
@@ -174,11 +166,7 @@ export default function Tags() {
     if (!sel) return;
     try {
       setBusy("saving");
-      const patch = {
-        name: name.trim(),
-        color: color ?? null,
-        workflowId: workflowId ?? null,
-      };
+      const patch = { name: name.trim(), color: color ?? null, workflowId: workflowId ?? null };
       const updated = await updateTag(sel.id, patch as any);
       setTags((xs) =>
         xs.map((t) => (t.id === updated.id ? updated : t)).sort((a, b) => a.name.localeCompare(b.name))
@@ -208,14 +196,12 @@ export default function Tags() {
     }
   }
 
-  // Helpers to detect custom color vs palette
   const isCustom = (v: string | null) => !!(v && !PALETTE.includes(v));
 
   return (
     <div className="p-tags">
       <div className="page-h">
         <div className="left">
-          {/* Always-visible back button */}
           <Link className="back" to="/dashboard" onClick={(e) => { e.preventDefault(); nav("/dashboard"); }}>
             ← Back to Dashboard
           </Link>
@@ -242,11 +228,11 @@ export default function Tags() {
           onKeyDown={(e) => e.key === "Enter" && onCreate()}
         />
 
-        {/* palette + wheel */}
         <div className="chips" role="radiogroup" aria-label="Tag color">
           {PALETTE.map((c) => (
             <button
               key={c}
+              type="button"
               className={`chip ${newColor === c ? "sel" : ""}`}
               style={{ background: c }}
               aria-checked={newColor === c}
@@ -256,7 +242,7 @@ export default function Tags() {
             />
           ))}
 
-          {/* Reliable wheel (click label triggers input) */}
+          {/* Wheel – always clickable */}
           <WheelChip
             value={newColor}
             onChange={(hex) => setNewColor(hex)}
@@ -264,7 +250,7 @@ export default function Tags() {
             title="Pick custom color"
           />
 
-          {/* show hex box only if using a custom color */}
+          {/* hex preview when custom */}
           {isCustom(newColor) && (
             <input
               className="hex"
@@ -284,11 +270,7 @@ export default function Tags() {
         {/* LEFT: tag list */}
         <aside className="list">
           <div className="search">
-            <input
-              placeholder="Search tags…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
+            <input placeholder="Search tags…" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
           <ul>
             {filtered.map((t) => (
@@ -338,6 +320,7 @@ export default function Tags() {
                       {PALETTE.map((c) => (
                         <button
                           key={c}
+                          type="button"
                           className={`chip ${color === c ? "sel" : ""}`}
                           style={{ background: c }}
                           aria-checked={color === c}
@@ -355,11 +338,11 @@ export default function Tags() {
                       />
 
                       {/* clear color */}
-                      <button className="chip none" onClick={() => setColor(null)} title="No color">
+                      <button type="button" className="chip none" onClick={() => setColor(null)} title="No color">
                         ×
                       </button>
 
-                      {/* show hex for custom color */}
+                      {/* hex for custom color */}
                       {isCustom(color) && (
                         <input
                           className="hex"
@@ -375,10 +358,7 @@ export default function Tags() {
                 {/* Workflow */}
                 <label className="row">
                   <span className="lab">Workflow</span>
-                  <select
-                    value={workflowId ?? ""}
-                    onChange={(e) => setWorkflowId(e.target.value || null)}
-                  >
+                  <select value={workflowId ?? ""} onChange={(e) => setWorkflowId(e.target.value || null)}>
                     <option value="">(none)</option>
                     {workflows.map((w) => (
                       <option key={w.id} value={w.id}>
@@ -442,16 +422,17 @@ const CSS = `
   display:grid;place-items:center;background:#f3f4f6;color:#111;border:1px dashed #d1d5db;font-weight:700;width:26px;height:26px
 }
 
-/* wheel chip always clickable thanks to label+input */
+/* wheel – actual input is hidden, button triggers it */
 .wheel-wrap{position:relative}
+.hidden-color-input{
+  position:absolute;width:1px;height:1px;left:-9999px;top:-9999px;opacity:0;pointer-events:none;
+}
 .chip.wheel{
   width:26px;height:26px;border-radius:999px;border:2px solid #fff;
   background:conic-gradient(#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00);
   box-shadow:0 0 0 1px #e5e7eb;cursor:pointer
 }
-.visually-hidden-color{
-  position:absolute;left:-9999px;top:-9999px;width:0;height:0;opacity:0;pointer-events:none
-}
+.chip.wheel.sel{box-shadow:0 0 0 2px #10b981}
 
 /* hex input shown when using a custom color */
 .hex{
