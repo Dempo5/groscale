@@ -1,9 +1,9 @@
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { prisma } from "../prisma.js";
-import { startWorkflow } from "../lib/workflowRunner.js";
 
 const router = Router();
 
+/** toDTO keeps response shape stable for the frontend */
 function toDTO(t: any) {
   return {
     id: t.id,
@@ -14,121 +14,62 @@ function toDTO(t: any) {
     updatedAt: t.updatedAt,
   };
 }
-function ownerIdFrom(req: any): string {
-  return req?.user?.id || "system";
-}
 
 /** GET /api/tags */
-router.get("/", async (req, res) => {
-  const ownerId = ownerIdFrom(req);
-  const rows = await prisma.tag.findMany({
-    where: { ownerId },
-    orderBy: [{ name: "asc" }],
-  });
-  res.json({ ok: true, tags: rows.map(toDTO) });
+router.get("/", async (_req: Request, res: Response) => {
+  try {
+    const tags = await prisma.tag.findMany({ orderBy: { name: "asc" } });
+    res.json({ ok: true, tags: tags.map(toDTO) });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message || "failed" });
+  }
 });
 
-/** POST /api/tags */
-router.post("/", async (req, res) => {
-  const ownerId = ownerIdFrom(req);
-  const nameRaw = String(req.body?.name || "").trim();
-  if (!nameRaw) return res.status(400).json({ ok: false, error: "Name required" });
-
-  const color = req.body?.color === "" || req.body?.color == null ? null : String(req.body.color);
-  const workflowId =
-    req.body?.workflowId === "" || req.body?.workflowId == null ? null : String(req.body.workflowId);
-
+/** POST /api/tags { name, color?, workflowId? } */
+router.post("/", async (req: Request, res: Response) => {
   try {
-    const row = await prisma.tag.create({
-      data: { ownerId, name: nameRaw, color, workflowId },
+    const ownerId = (req as any)?.user?.id ?? "system";
+    const tag = await prisma.tag.create({
+      data: {
+        ownerId,
+        name: String(req.body?.name || "").trim(),
+        color: (req.body?.color ?? null) || null,
+        workflowId: (req.body?.workflowId ?? null) || null,
+      },
     });
-    res.status(201).json({ ok: true, tag: toDTO(row) });
+    res.json({ ok: true, tag: toDTO(tag) });
   } catch (e: any) {
-    if (String(e?.code) === "P2002") {
-      return res.status(409).json({ ok: false, error: "Tag name already exists" });
-    }
-    res.status(500).json({ ok: false, error: e?.message || "Create failed" });
+    res.status(500).json({ ok: false, error: e?.message || "failed" });
   }
 });
 
 /** PATCH /api/tags/:id */
-router.patch("/:id", async (req, res) => {
-  const ownerId = ownerIdFrom(req);
-  const id = String(req.params.id);
-
-  const data: any = {};
-  if (req.body?.name !== undefined) {
-    const nm = String(req.body.name || "").trim();
-    if (!nm) return res.status(400).json({ ok: false, error: "Name required" });
-    data.name = nm;
-  }
-  if (req.body?.color !== undefined) {
-    data.color = req.body.color === "" || req.body.color == null ? null : String(req.body.color);
-  }
-  if (req.body?.workflowId !== undefined) {
-    data.workflowId =
-      req.body.workflowId === "" || req.body.workflowId == null ? null : String(req.body.workflowId);
-  }
-
+router.patch("/:id", async (req: Request, res: Response) => {
   try {
-    const existing = await prisma.tag.findFirst({ where: { id, ownerId } });
-    if (!existing) return res.status(404).json({ ok: false, error: "Not found" });
+    const { id } = req.params;
+    const data: any = {};
+    if (req.body?.name !== undefined) data.name = String(req.body.name);
+    if (req.body?.color !== undefined) data.color = req.body.color ?? null;
+    if (req.body?.workflowId !== undefined)
+      data.workflowId = req.body.workflowId || null;
 
-    const row = await prisma.tag.update({ where: { id }, data });
-    res.json({ ok: true, tag: toDTO(row) });
+    const tag = await prisma.tag.update({ where: { id }, data });
+    res.json({ ok: true, tag: toDTO(tag) });
   } catch (e: any) {
-    if (String(e?.code) === "P2002") {
-      return res.status(409).json({ ok: false, error: "Tag name already exists" });
-    }
-    res.status(500).json({ ok: false, error: e?.message || "Update failed" });
+    res.status(500).json({ ok: false, error: e?.message || "failed" });
   }
 });
 
 /** DELETE /api/tags/:id */
-router.delete("/:id", async (req, res) => {
-  const ownerId = ownerIdFrom(req);
-  const id = String(req.params.id);
-
-  const existing = await prisma.tag.findFirst({ where: { id, ownerId } });
-  if (!existing) return res.status(404).json({ ok: false, error: "Not found" });
-
-  await prisma.tag.delete({ where: { id } });
-  res.json({ ok: true });
-});
-
-/**
- * POST /api/tags/apply
- * body: { leadId: string, tagId: string }
- * Attaches tag to lead and starts workflow if tag.workflowId is set.
- */
-router.post("/apply", async (req, res) => {
-  const ownerId = ownerIdFrom(req);
-  const leadId = String(req.body?.leadId || "");
-  const tagId = String(req.body?.tagId || "");
-
-  if (!leadId || !tagId) return res.status(400).json({ ok: false, error: "leadId & tagId required" });
-
-  const [lead, tag] = await Promise.all([
-    prisma.lead.findFirst({ where: { id: leadId, ownerId } }),
-    prisma.tag.findFirst({ where: { id: tagId, ownerId } }),
-  ]);
-
-  if (!lead) return res.status(404).json({ ok: false, error: "Lead not found" });
-  if (!tag) return res.status(404).json({ ok: false, error: "Tag not found" });
-
-  // attach
-  await prisma.leadTag.upsert({
-    where: { leadId_tagId: { leadId: lead.id, tagId: tag.id } },
-    create: { leadId: lead.id, tagId: tag.id },
-    update: {},
-  });
-
-  // trigger workflow if present
-  if (tag.workflowId) {
-    startWorkflow(lead.id, tag.workflowId).catch(() => {});
+router.delete("/:id", async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    await prisma.leadTag.deleteMany({ where: { tagId: id } });
+    await prisma.tag.delete({ where: { id } });
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message || "failed" });
   }
-
-  res.json({ ok: true });
 });
 
 export default router;
