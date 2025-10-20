@@ -1,54 +1,81 @@
 import { Router } from "express";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, WorkflowStatus, StepType } from "@prisma/client";
 
 const prisma = new PrismaClient();
 const r = Router();
 
-// normalize helpers
-const nStr = (v: any) =>
-  typeof v === "string" && v.trim() !== "" ? v.trim() : null;
-
-/** GET /api/tags */
-r.get("/", async (_req, res) => {
-  const tags = await prisma.tag.findMany({ orderBy: { name: "asc" } });
-  res.json({ ok: true, tags });
-});
-
-/** POST /api/tags { name, color?, workflowId? } */
-r.post("/", async (req, res) => {
-  const name = String(req.body?.name || "").trim();
-  if (!name) return res.status(400).json({ ok: false, error: "name required" });
-
-  const tag = await prisma.tag.create({
-    data: {
-      name,
-      color: nStr(req.body?.color),
-      workflowId: nStr(req.body?.workflowId),
-      // NOTE: ownerId would come from auth; set a placeholder for now:
-      ownerId: "demo-owner",
-    },
+/** GET /api/workflows?full=1 */
+r.get("/", async (req, res) => {
+  const full = String(req.query.full || "") === "1";
+  const rows = await prisma.workflow.findMany({
+    orderBy: { createdAt: "desc" },
+    include: full ? { steps: { orderBy: { order: "asc" } } } : undefined,
   });
-  res.status(201).json({ ok: true, tag });
+  res.json({ ok: true, data: rows });
 });
 
-/** PATCH /api/tags/:id { name?, color?, workflowId? } */
+/** POST /api/workflows { name } */
+r.post("/", async (req, res) => {
+  const name = String(req.body?.name || "").trim() || "Untitled workflow";
+  const wf = await prisma.workflow.create({
+    data: { name, status: WorkflowStatus.DRAFT },
+  });
+  res.status(201).json({ ok: true, data: wf });
+});
+
+/** PATCH /api/workflows/:id { name?, status? } */
 r.patch("/:id", async (req, res) => {
   const id = String(req.params.id);
   const patch: any = {};
-  if (req.body?.name !== undefined) patch.name = String(req.body.name || "");
-  if (req.body?.color !== undefined) patch.color = nStr(req.body.color);
-  if (req.body?.workflowId !== undefined) patch.workflowId = nStr(req.body.workflowId);
+  if (typeof req.body?.name === "string") patch.name = req.body.name;
+  if (typeof req.body?.status === "string")
+    patch.status = req.body.status as WorkflowStatus;
 
-  const tag = await prisma.tag.update({ where: { id }, data: patch });
-  res.json({ ok: true, tag });
+  const wf = await prisma.workflow.update({ where: { id }, data: patch });
+  res.json({ ok: true, data: wf });
 });
 
-/** DELETE /api/tags/:id */
+/** PUT /api/workflows/:id/steps { steps:[ ... ] } */
+r.put("/:id/steps", async (req, res) => {
+  const id = String(req.params.id);
+  const incoming: any[] = Array.isArray(req.body?.steps) ? req.body.steps : [];
+
+  const rows = incoming.map((s, i) =>
+    s?.type === "WAIT"
+      ? {
+          order: i + 1,
+          type: StepType.WAIT,
+          waitMs: Number(s.waitMs) || 0,
+          textBody: null,
+          workflowId: id,
+        }
+      : {
+          order: i + 1,
+          type: StepType.SEND_TEXT,
+          textBody: String(s.textBody || ""),
+          waitMs: null,
+          workflowId: id,
+        }
+  );
+
+  await prisma.$transaction(async (tx) => {
+    await tx.workflowStep.deleteMany({ where: { workflowId: id } });
+    if (rows.length) await tx.workflowStep.createMany({ data: rows });
+  });
+
+  const wf = await prisma.workflow.findUnique({
+    where: { id },
+    include: { steps: { orderBy: { order: "asc" } } },
+  });
+  res.json({ ok: true, data: wf });
+});
+
+/** DELETE /api/workflows/:id */
 r.delete("/:id", async (req, res) => {
   const id = String(req.params.id);
   await prisma.$transaction(async (tx) => {
-    await tx.leadTag.deleteMany({ where: { tagId: id } });
-    await tx.tag.delete({ where: { id } });
+    await tx.workflowStep.deleteMany({ where: { workflowId: id } });
+    await tx.workflow.delete({ where: { id } });
   });
   res.json({ ok: true });
 });
