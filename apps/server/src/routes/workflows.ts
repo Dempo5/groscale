@@ -1,133 +1,107 @@
-// apps/server/src/routes/workflows.ts
 import { Router, type Request, type Response } from "express";
-import { PrismaClient, type Prisma } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 
 const prisma = new PrismaClient();
 const router = Router();
 
-/** Accepts "draft|active|paused" (any case) or DB enum "DRAFT|ACTIVE|PAUSED". */
-function normalizeStatus(v?: string) {
-  if (!v) return undefined;
-  const up = String(v).toUpperCase();
-  if (up === "DRAFT" || up === "ACTIVE" || up === "PAUSED") return up;
-  return undefined;
-}
-
-/** Shape we insert for steps (matches schema fields) */
-type StepRow = {
-  order: number;
-  type: "SEND_TEXT" | "WAIT";
-  textBody: string | null;
-  waitMs: number | null;
-};
-
-/** GET /api/workflows?full=1 — list workflows (optionally with steps) */
+/** GET /api/workflows?full=1  — list workflows (include steps when full=1) */
 router.get("/", async (req: Request, res: Response) => {
   try {
     const full = String(req.query.full || "") === "1";
-    const rows = await prisma.workflow.findMany({
-      orderBy: { updatedAt: "desc" },
-      include: full ? { steps: { orderBy: { order: "asc" } } } : undefined,
+    const data = await prisma.workflow.findMany({
+      orderBy: { createdAt: "desc" },
+      include: full ? { steps: true } : undefined,
     });
-    res.json({ ok: true, data: rows });
-  } catch (e: any) {
-    res.status(500).json({ ok: false, error: e?.message || "Failed to list workflows" });
+    res.json({ ok: true, data });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err?.message || "failed" });
   }
 });
 
-/** POST /api/workflows { name } — create workflow */
+/** POST /api/workflows  body: { name: string } */
 router.post("/", async (req: Request, res: Response) => {
   try {
-    const name = (req.body?.name ?? "").toString().trim() || "New workflow";
-    const row = await prisma.workflow.create({ data: { name } });
+    const name = String(req.body?.name || "Untitled workflow");
+    const row = await prisma.workflow.create({
+      data: { name, status: "DRAFT" as any },
+    });
     res.json({ ok: true, data: row });
-  } catch (e: any) {
-    res.status(500).json({ ok: false, error: e?.message || "Failed to create workflow" });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err?.message || "failed" });
   }
 });
 
-/** PATCH /api/workflows/:id { name?, status? } — update meta */
+/** PATCH /api/workflows/:id  body: { name?, status? } */
 router.patch("/:id", async (req: Request, res: Response) => {
   try {
-    const id = req.params.id;
-    const patch: Record<string, unknown> = {};
+    const { id } = req.params;
+    const patch: Record<string, any> = {};
 
-    if (typeof req.body?.name === "string") patch["name"] = req.body.name.trim();
+    if (typeof req.body?.name === "string") patch.name = req.body.name;
 
     if (typeof req.body?.status === "string") {
-      const st = normalizeStatus(req.body.status);
-      if (st) patch["status"] = st as any; // map to DB enum
+      const s = String(req.body.status).toUpperCase();
+      if (["ACTIVE", "PAUSED", "DRAFT"].includes(s)) patch.status = s as any;
     }
 
     const row = await prisma.workflow.update({ where: { id }, data: patch });
     res.json({ ok: true, data: row });
-  } catch (e: any) {
-    res.status(500).json({ ok: false, error: e?.message || "Failed to update workflow" });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err?.message || "failed" });
   }
 });
 
 /**
- * PUT /api/workflows/:id/steps { steps: Array<...> } — replace steps
- * Step shape (client):
- *   { type: "SEND_TEXT", textBody: string }
- *   { type: "WAIT",      waitMs: number }
+ * PUT /api/workflows/:id/steps
+ * body: { steps: Array<{ type: "SEND_TEXT"|"WAIT"; textBody?: string; waitMs?: number }>}
+ * Replaces all steps transactionally.
  */
 router.put("/:id/steps", async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const steps: Array<{ type: string; textBody?: string; waitMs?: number }> =
+    Array.isArray(req.body?.steps) ? req.body.steps : [];
+
   try {
-    const id = req.params.id;
-
-    const input: any[] = Array.isArray(req.body?.steps) ? req.body.steps : [];
-    const stepsData: StepRow[] = input.map((s: any, i: number): StepRow => {
-      const t = String(s?.type || "").toUpperCase();
-
-      if (t === "SEND_TEXT") {
-        return {
-          order: i,
-          type: "SEND_TEXT",
-          textBody: String(s?.textBody ?? ""),
-          waitMs: null,
-        };
-      }
-      if (t === "WAIT") {
-        const n = Number(s?.waitMs ?? 0);
-        return {
-          order: i,
-          type: "WAIT",
-          textBody: null,
-          waitMs: Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0,
-        };
-      }
-      throw new Error(`Invalid step type at index ${i}`);
-    });
-
-    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      // Replace steps
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       await tx.workflowStep.deleteMany({ where: { workflowId: id } });
-      if (stepsData.length) {
+
+      if (steps.length) {
         await tx.workflowStep.createMany({
-          data: stepsData.map((row: StepRow) => ({ ...row, workflowId: id })),
+          data: steps.map((s, i) => {
+            const type = s.type === "WAIT" ? "WAIT" : "SEND_TEXT";
+            return {
+              workflowId: id,
+              order: i + 1,
+              type: type as any,
+              textBody: type === "SEND_TEXT" ? (s.textBody ?? "") : null,
+              waitMs: type === "WAIT" ? Number(s.waitMs ?? 0) : null,
+            };
+          }),
         });
       }
-      // Return fresh workflow (with steps)
-      return tx.workflow.findUnique({
-        where: { id },
-        include: { steps: { orderBy: { order: "asc" } } },
-      });
     });
 
-    res.json({ ok: true, data: result });
-  } catch (e: any) {
-    res.status(500).json({ ok: false, error: e?.message || "Failed to replace steps" });
+    const full = await prisma.workflow.findUnique({
+      where: { id },
+      include: { steps: true },
+    });
+    res.json({ ok: true, data: full });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err?.message || "failed" });
   }
 });
 
-/** DELETE /api/workflows/:id — delete workflow */
+/** DELETE /api/workflows/:id */
 router.delete("/:id", async (req: Request, res: Response) => {
+  const { id } = req.params;
   try {
-    await prisma.workflow.delete({ where: { id: req.params.id } });
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await tx.workflowStep.deleteMany({ where: { workflowId: id } });
+      await tx.workflow.delete({ where: { id } });
+    });
     res.json({ ok: true });
-  } catch (e: any) {
-    res.status(500).json({ ok: false, error: e?.message || "Failed to delete workflow" });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err?.message || "failed" });
   }
 });
 
