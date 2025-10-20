@@ -1,6 +1,6 @@
 /// <reference path="./types/express.d.ts" />
 
-import express, { Request, Response, NextFunction } from "express";
+import express, { type Request, type Response, type NextFunction } from "express";
 
 // ESM route imports MUST include .js
 import authRoute from "./routes/auth.js";
@@ -9,8 +9,8 @@ import numbersRouter from "./routes/numbers.js";
 import workflowsRouter from "./routes/workflows.js";
 import copilotRouter from "./routes/copilot.js";
 import tagsRouter from "./routes/tags.js";
-import messagesRouter from "./routes/messages.js"; // 👈 NEW
-import twilioRouter from "./routes/twilio.js";     // 👈 NEW
+import messagesRouter from "./routes/messages.js"; // keep only if the file exists
+import twilioRouter from "./routes/twilio.js";     // keep only if the file exists
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
 
@@ -34,9 +34,9 @@ function corsGuard(req: Request, res: Response, next: NextFunction) {
   const origin = norm(req.headers.origin as string | undefined);
 
   const allowed =
-    !origin ||
-    envList.includes(origin) ||
-    allowRegex.test(origin);
+    !origin ||                      // server-to-server / same-origin
+    envList.includes(origin) ||     // explicit allow-list
+    allowRegex.test(origin);        // preview domains + localhost
 
   if (allowed) {
     res.header("Vary", "Origin");
@@ -52,7 +52,12 @@ function corsGuard(req: Request, res: Response, next: NextFunction) {
 }
 
 const app = express();
-app.use(express.json());
+
+// behind Render’s proxy (correct req.ip, protocol, etc.)
+app.set("trust proxy", true);
+
+// global JSON for most routes
+app.use(express.json({ limit: "2mb" }));
 app.use(corsGuard);
 
 // ---------- Health ----------
@@ -67,8 +72,17 @@ app.use("/api/numbers", numbersRouter);
 app.use("/api/workflows", workflowsRouter);
 app.use("/api/copilot", copilotRouter);
 app.use("/api/tags", tagsRouter);
-app.use("/api/messages", messagesRouter); // 👈 NEW
-app.use("/api/twilio", twilioRouter);     // 👈 NEW
+
+// Optional (only if the files exist)
+// messages uses JSON body
+app.use("/api/messages", messagesRouter);
+
+// Twilio webhooks need urlencoded parsing (not JSON).
+// If your twilio route does its own parsing, you can remove the middleware here.
+app.use("/api/twilio",
+  express.urlencoded({ extended: false }),  // keeps signature verification possible
+  twilioRouter
+);
 
 // ---------- Demo ----------
 app.get("/api/leads", (_req, res) => {
@@ -86,12 +100,12 @@ Try:
 /health
 POST /api/auth/register
 POST /api/auth/login
-POST /api/uploads
+POST /api/uploads/import
 GET  /api/leads
 GET  /api/workflows
 GET  /api/tags
-POST /api/messages/send
-POST /api/twilio/inbound
+POST /api/messages/send     (if implemented)
+POST /api/twilio/inbound    (Twilio webhook)
 POST /api/copilot/draft`);
 });
 
