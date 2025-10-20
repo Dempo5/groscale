@@ -179,6 +179,7 @@ export async function setDefaultNumber(sid: string) {
 }
 
 /* ---------------- workflows (server-first, LS fallback) ---------------- */
+
 export type Workflow = {
   id: string;
   name: string;
@@ -189,83 +190,117 @@ export type Workflow = {
 
 const WF_LS_KEY = "gs_workflows";
 function lsRead(): Workflow[] {
-  try { const raw = localStorage.getItem(WF_LS_KEY); return raw ? JSON.parse(raw) : []; }
-  catch { return []; }
+  try {
+    const raw = localStorage.getItem(WF_LS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
 }
-function lsWrite(rows: Workflow[]) { try { localStorage.setItem(WF_LS_KEY, JSON.stringify(rows)); } catch {} }
+function lsWrite(rows: Workflow[]) {
+  try {
+    localStorage.setItem(WF_LS_KEY, JSON.stringify(rows));
+  } catch {}
+}
 function lsCreate(input: { name: string }): Workflow {
   const now = new Date().toISOString();
-  const row: Workflow = { id: `wf_${Date.now()}`, name: input.name || "Untitled workflow", status: "draft", createdAt: now, updatedAt: now };
-  const cur = lsRead(); lsWrite([row, ...cur]); return row;
+  const row: Workflow = {
+    id: `wf_${Date.now()}`,
+    name: input.name || "Untitled workflow",
+    status: "draft",
+    createdAt: now,
+    updatedAt: now,
+  };
+  const cur = lsRead();
+  lsWrite([row, ...cur]);
+  return row;
 }
 function lsUpdate(id: string, patch: Partial<Workflow>): Workflow {
   const cur = lsRead();
   const idx = cur.findIndex((w) => w.id === id);
   if (idx === -1) return lsCreate({ name: patch.name || "Untitled workflow" });
-  const updated: Workflow = { ...cur[idx], ...patch, updatedAt: new Date().toISOString() };
-  const next = [...cur]; next[idx] = updated; lsWrite(next); return updated;
+  const updated: Workflow = {
+    ...cur[idx],
+    ...patch,
+    updatedAt: new Date().toISOString(),
+  };
+  const next = [...cur];
+  next[idx] = updated;
+  lsWrite(next);
+  return updated;
 }
 
-/** NOTE: server returns `{ ok, data }`, so unwrap if needed */
+/** Server returns array; if it returns {ok,data}, unwrap safely. */
 export async function listWorkflows(): Promise<Workflow[]> {
   try {
     const res = await http<any>("/api/workflows");
-    return Array.isArray(res) ? res as Workflow[] : (res?.data ?? []);
-  } catch { return lsRead(); }
+    return Array.isArray(res) ? (res as Workflow[]) : (res?.data ?? []);
+  } catch {
+    return lsRead();
+  }
 }
+
+/** Optional: need full objects with steps for the Workflows page. */
+export async function listWorkflowsFull(): Promise<any[]> {
+  return http<any[]>("/api/workflows?full=1");
+}
+
+/** Create workflow row (name only). */
 export async function createWorkflow(input: { name: string }): Promise<Workflow> {
   try {
-    const res = await http<any>("/api/workflows", { method: "POST", body: JSON.stringify(input) });
+    const res = await http<any>("/api/workflows", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
     return (res?.data ?? res) as Workflow;
-  } catch { return lsCreate(input); }
+  } catch {
+    return lsCreate(input);
+  }
 }
-export async function updateWorkflow(id: string, patch: Partial<Workflow>): Promise<Workflow> {
-  try {
-    const res = await http<any>(`/api/workflows/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-    return (res?.data ?? res) as Workflow;
-  } catch { return lsUpdate(id, patch); }
-}
-// --- Workflows (design + save) ---
 
+/** Update workflow metadata (name/status). */
+export async function updateWorkflow(
+  id: string,
+  patch: Partial<Workflow> & { status?: "draft" | "active" | "paused" }
+): Promise<Workflow> {
+  try {
+    // map friendly -> server enum
+    const statusMap: Record<string, string> = {
+      draft: "DRAFT",
+      active: "ACTIVE",
+      paused: "PAUSED",
+    };
+    const body: any = {};
+    if (patch.name !== undefined) body.name = patch.name;
+    if (patch.status !== undefined) body.status = statusMap[patch.status] || "DRAFT";
+
+    const res = await http<any>(`/api/workflows/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+    return (res?.data ?? res) as Workflow;
+  } catch {
+    return lsUpdate(id, patch);
+  }
+}
+
+/** Replace ALL steps atomically on the server. */
 export type WfStep =
   | { type: "SEND_TEXT"; textBody: string }
   | { type: "WAIT"; waitMs: number };
 
-export async function saveWorkflowMeta(
-  id: string,
-  patch: Partial<{ name: string; status: "draft" | "active" | "paused" }>
-) {
-  // Server uses enum "DRAFT|ACTIVE|PAUSED". We map friendly → server.
-  const statusMap: Record<string, string> = { draft: "DRAFT", active: "ACTIVE", paused: "PAUSED" };
-  const body: any = {};
-  if (patch.name !== undefined) body.name = patch.name;
-  if (patch.status !== undefined) body.status = statusMap[patch.status] || "DRAFT";
-  return http(`/api/workflows/${id}`, { method: "PATCH", body: JSON.stringify(body) });
-}
-
 export async function replaceWorkflowSteps(id: string, steps: WfStep[]) {
-  // Send as-is; server validates based on type
   return http(`/api/workflows/${id}/steps`, {
     method: "PUT",
     body: JSON.stringify({ steps }),
   });
 }
 
-export async function createWorkflow(input: { name: string }) {
-  return http(`/api/workflows`, {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
-}
-
+/** Delete a workflow. */
 export async function deleteWorkflow(id: string) {
   return http(`/api/workflows/${id}`, { method: "DELETE" });
 }
 
-// If your Workflows page wants the full object with steps:
-export async function listWorkflowsFull() {
-  return http(`/api/workflows?full=1`);
-}
 
 /* ---------------- copilot (draft assistant) ---------------- */
 export type CopilotDraftRequest = {
