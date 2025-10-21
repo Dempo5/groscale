@@ -9,7 +9,8 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 },
 });
 
-// ---------- helpers ----------
+/* ---------------- helpers ---------------- */
+
 const H: Record<string, string> = {
   firstname: "first",
   "first name": "first",
@@ -50,16 +51,17 @@ const H: Record<string, string> = {
 
 const norm = (s?: string) =>
   (s || "").replace(/\uFEFF/g, "").trim().toLowerCase().replace(/\s+/g, " ");
+
 const nHeader = (s: string) => H[norm(s)] || norm(s);
 
 const pickDelimiter = (txt: string) =>
   ([",", ";", "\t", "|"] as const).reduce(
     (best, ch) => {
-      const rows = txt.split(/\r?\n/).slice(0, 6);
+      const rows = txt.split(/\r?\n/).slice(0, 8);
       const counts = rows.map((r) => (r.match(new RegExp(ch, "g")) || []).length);
-      const avg = counts.reduce((a, b) => a + b, 0) / (counts.length || 1);
+      const avg = counts.reduce((a, b) => a + b, 0) / Math.max(counts.length, 1);
       const variance =
-        counts.reduce((a, b) => a + (b - avg) ** 2, 0) / (counts.length || 1);
+        counts.reduce((a, b) => a + (b - avg) ** 2, 0) / Math.max(counts.length, 1);
       const score = avg - Math.sqrt(variance);
       return score > best.score ? { ch, score } : best;
     },
@@ -70,12 +72,17 @@ const asEmail = (v?: any) => {
   const t = String(v ?? "").trim().toLowerCase();
   return /\S+@\S+\.\S+/.test(t) ? t : undefined;
 };
+
 const asPhone = (v?: any) => {
   let t = String(v ?? "").replace(/[^\d+]/g, "");
   if (!t) return;
+  // If US 10-digit without +1, normalize
   if (!t.startsWith("+") && /^\d{10}$/.test(t)) t = "+1" + t;
+  // If 11 digits starting with 1 (US), allow
+  if (/^1\d{10}$/.test(t)) t = "+" + t;
   return /^\+?\d{7,15}$/.test(t) ? t : undefined;
 };
+
 const fullName = (name?: string, first?: string, last?: string) =>
   (name?.trim() || [first, last].filter(Boolean).join(" ").trim()) || undefined;
 
@@ -106,7 +113,8 @@ async function upsertTags(ownerId: string, leadId: string, names: string[]) {
   }
 }
 
-// ---------- route ----------
+/* ---------------- route ---------------- */
+
 router.post("/import", upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ ok: false, error: "file required" });
 
@@ -118,7 +126,12 @@ router.post("/import", upload.single("file"), async (req, res) => {
       | undefined) || {};
   const mapping =
     (safeJSON(req.body?.mapping) as
-      | Partial<Record<"name" | "first" | "last" | "email" | "phone" | "tags" | "note", string>>
+      | Partial<
+          Record<
+            "name" | "first" | "last" | "email" | "phone" | "tags" | "note" | "city" | "state" | "zip" | "address" | "dob",
+            string
+          >
+        >
       | undefined) || {};
 
   const text = req.file.buffer.toString("utf8");
@@ -145,11 +158,25 @@ router.post("/import", upload.single("file"), async (req, res) => {
 
   const canon = original.map(nHeader);
   const mIndex: Record<string, number> = {};
-  for (const k of ["name", "first", "last", "email", "phone", "tags", "note"] as const) {
+  for (const k of [
+    "name",
+    "first",
+    "last",
+    "email",
+    "phone",
+    "tags",
+    "note",
+    "city",
+    "state",
+    "zip",
+    "address",
+    "dob",
+  ] as const) {
     const explicit = mapping?.[k];
+    // Prefer exact header the UI picked; otherwise fall back to canonical match
     mIndex[k] =
-      explicit && original.includes(explicit)
-        ? original.indexOf(explicit)
+      explicit && original.findIndex((h) => h.toLowerCase() === explicit.toLowerCase()) >= 0
+        ? original.findIndex((h) => h.toLowerCase() === explicit.toLowerCase())
         : canon.indexOf(k);
   }
   const pick = (r: any, k: keyof typeof mIndex) =>
@@ -162,15 +189,24 @@ router.post("/import", upload.single("file"), async (req, res) => {
     dbDup = 0;
 
   const seen = new Set<string>();
+  const rowErrors: { row: number; reason: string }[] = [];
 
-  for (const r of rows) {
-    const nm = fullName(pick(r, "name"), pick(r, "first"), pick(r, "last"));
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+
     const email = asEmail(pick(r, "email"));
     const phone = asPhone(pick(r, "phone"));
-    if (!nm || (!email && !phone)) {
+    if (!email && !phone) {
       invalids++;
+      if (rowErrors.length < 10) rowErrors.push({ row: i + 1, reason: "missing email & phone" });
       continue;
     }
+
+    // Name is now optional: fallback to email user part or the phone itself
+    const nm =
+      fullName(pick(r, "name"), pick(r, "first"), pick(r, "last")) ||
+      (email ? email.split("@")[0] : undefined) ||
+      phone;
 
     const key = email || (phone as string);
     if (seen.has(key)) {
@@ -189,7 +225,7 @@ router.post("/import", upload.single("file"), async (req, res) => {
     }
 
     const lead = await prisma.lead.create({
-      data: { ownerId, name: nm, email, phone },
+      data: { ownerId, name: String(nm), email, phone },
       select: { id: true },
     });
 
@@ -200,9 +236,7 @@ router.post("/import", upload.single("file"), async (req, res) => {
     const allTags = Array.from(new Set([...(options.tags || []), ...rowTags]));
     if (allTags.length) await upsertTags(ownerId, lead.id, allTags);
 
-    // If a workflow was chosen in the UI, you’ll enqueue/trigger it here (future).
-    // For now, just record an audit step or leave as a no-op.
-    // (Real execution will be handled by your worker/queue.)
+    // workflowId will be used by your async worker later; no-op here
     inserted++;
   }
 
@@ -212,8 +246,13 @@ router.post("/import", upload.single("file"), async (req, res) => {
     duplicates: dbDup,
     invalids,
     skipped,
-    stats: { totalRows: rows.length, fileDuplicates: fileDup },
-    meta: { delimiter: d, mappingUsed: mapping, workflowId: options.workflowId, tags: options.tags || [] },
+    stats: { totalRows: rows.length, fileDuplicates: fileDup, sampledErrors: rowErrors },
+    meta: {
+      delimiter: d,
+      mappingUsed: mapping,
+      workflowId: options.workflowId,
+      tags: options.tags || [],
+    },
   });
 });
 
