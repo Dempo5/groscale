@@ -1,84 +1,120 @@
 import { Router } from "express";
-import twilio from "twilio";
 import { prisma } from "../prisma.js";
+import twilioLib from "twilio";
 
 const router = Router();
 
-const hasTwilio =
+const hasTwilioCreds =
   !!process.env.TWILIO_ACCOUNT_SID &&
   !!process.env.TWILIO_AUTH_TOKEN &&
-  (!!process.env.TWILIO_FROM || !!process.env.TWILIO_MESSAGING_SERVICE_SID);
+  !!process.env.TWILIO_MESSAGING_SERVICE_SID;
 
-const client = hasTwilio
-  ? twilio(process.env.TWILIO_ACCOUNT_SID!, process.env.TWILIO_AUTH_TOKEN!)
+const twilio = hasTwilioCreds
+  ? twilioLib(process.env.TWILIO_ACCOUNT_SID!, process.env.TWILIO_AUTH_TOKEN!)
   : null;
 
-const E164 = (v?: string) => {
-  if (!v) return undefined;
-  let t = v.replace(/[^\d+]/g, "");
-  if (!t.startsWith("+") && /^\d{10}$/.test(t)) t = "+1" + t;
-  return /^\+\d{7,15}$/.test(t) ? t : undefined;
-};
+const MSG_SVC = process.env.TWILIO_MESSAGING_SERVICE_SID || "";
 
-/**
- * POST /api/messages/send
- * body: { to: string; body: string; leadId?: string }
- */
-router.post("/send", async (req, res) => {
-  const ownerId = (req as any)?.user?.id ?? "system";
-  const to = E164(req.body?.to);
-  const text = String(req.body?.body ?? "").trim();
-  const leadId = req.body?.leadId ? String(req.body.leadId) : null;
+/** List recent threads (optionally scoped to owner) */
+router.get("/threads", async (req, res) => {
+  const ownerId = (req as any)?.user?.id ?? undefined;
 
-  if (!to || !text) {
-    return res
-      .status(400)
-      .json({ ok: false, error: "to (E.164) and body are required" });
+  const threads = await prisma.messageThread.findMany({
+    where: ownerId ? { ownerId } : undefined,
+    orderBy: { lastMessageAt: "desc" },
+    include: {
+      lead: { select: { id: true, name: true, email: true, phone: true } },
+      messages: { take: 1, orderBy: { createdAt: "desc" } },
+    },
+  });
+  res.json({ ok: true, threads });
+});
+
+/** Get (or create) a thread for a lead + all messages */
+router.get("/thread/:leadId", async (req, res) => {
+  const leadId = String(req.params.leadId);
+  let thread = await prisma.messageThread.findFirst({
+    where: { leadId },
+    include: { messages: { orderBy: { createdAt: "asc" } } },
+  });
+
+  if (!thread) {
+    const lead = await prisma.lead.findUnique({
+      where: { id: leadId },
+      select: { ownerId: true },
+    });
+    if (!lead) return res.status(404).json({ ok: false, error: "Lead not found" });
+
+    thread = await prisma.messageThread.create({
+      data: { ownerId: lead.ownerId, leadId, lastMessageAt: new Date() },
+    });
+    (thread as any).messages = [];
   }
 
-  // pick from / service
-  const from = process.env.TWILIO_FROM || undefined;
-  const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || undefined;
+  res.json({ ok: true, thread });
+});
 
-  // create local record first
-  const msg = await prisma.message.create({
+/** Send an outbound message to a lead (Twilio optional; dry-run if missing creds) */
+router.post("/send", async (req, res) => {
+  const { leadId, body } = req.body || {};
+  if (!leadId || !body) return res.status(400).json({ ok: false, error: "leadId and body required" });
+
+  const lead = await prisma.lead.findUnique({
+    where: { id: leadId },
+    select: { id: true, ownerId: true, phone: true },
+  });
+  if (!lead) return res.status(404).json({ ok: false, error: "Lead not found" });
+  if (!lead.phone) return res.status(400).json({ ok: false, error: "Lead has no phone" });
+
+  let thread = await prisma.messageThread.findFirst({ where: { leadId: lead.id } });
+  if (!thread) {
+    thread = await prisma.messageThread.create({
+      data: { ownerId: lead.ownerId, leadId: lead.id },
+    });
+  }
+
+  // create QUEUED record
+  const queued = await prisma.message.create({
     data: {
-      ownerId,
-      leadId: leadId || undefined,
-      to,
-      from: from || messagingServiceSid || "twilio",
-      direction: "OUT",
-      body: text,
-      status: hasTwilio ? "queued" : "sent",
+      threadId: thread.id,
+      direction: "OUTBOUND",
+      body,
+      status: "QUEUED",
+      toNumber: lead.phone,
     },
   });
 
-  if (!hasTwilio) {
-    // dry run
-    return res.json({ ok: true, message: msg, dryRun: true });
-  }
-
   try {
-    const tw = await client!.messages.create({
-      to,
-      from,
-      messagingServiceSid,
-      body: text,
-      statusCallback: undefined, // optional: add a status callback URL later
+    if (twilio && MSG_SVC) {
+      const resp = await twilio.messages.create({
+        to: lead.phone!,
+        messagingServiceSid: MSG_SVC,
+        body,
+      });
+      await prisma.message.update({
+        where: { id: queued.id },
+        data: { status: "SENT", externalSid: resp.sid },
+      });
+    } else {
+      // dry-run for testing without Twilio
+      await prisma.message.update({
+        where: { id: queued.id },
+        data: { status: "DELIVERED" },
+      });
+    }
+
+    await prisma.messageThread.update({
+      where: { id: thread.id },
+      data: { lastMessageAt: new Date() },
     });
 
-    const updated = await prisma.message.update({
-      where: { id: msg.id },
-      data: { sid: tw.sid, status: "sent" },
-    });
-
-    return res.json({ ok: true, message: updated });
-  } catch (err: any) {
+    res.json({ ok: true, messageId: queued.id, threadId: thread.id });
+  } catch (e: any) {
     await prisma.message.update({
-      where: { id: msg.id },
-      data: { status: "failed", error: String(err?.message || err) },
+      where: { id: queued.id },
+      data: { status: "FAILED", error: String(e?.message || e) },
     });
-    return res.status(500).json({ ok: false, error: String(err?.message || err) });
+    res.status(500).json({ ok: false, error: "Send failed" });
   }
 });
 
