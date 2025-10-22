@@ -211,24 +211,36 @@ model Template {
   @@unique([ownerId, name])
 }
 
-model Message {
-  id        String   @id @default(cuid())
-  ownerId   String
-  leadId    String?  // nullable to allow ad-hoc sends
-  to        String
-  from      String
-  direction MessageDirection
-  body      String
-  status    String    @default("queued") // queued | sent | delivered | failed | received
-  sid       String?   // Twilio SID
-  error     String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+// ---------------- Messaging ----------------
+model MessageThread {
+  id             String   @id @default(cuid())
+  ownerId        String
+  owner          User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  leadId         String
+  lead           Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  phoneNumberSid String?  @db.VarChar(34)
+  lastMessageAt  DateTime @default(now())
+  messages       Message[]
 
-  @@index([ownerId, to])
+  @@index([ownerId, lastMessageAt])
+  @@index([leadId])
 }
 
-enum MessageDirection {
-  OUT
-  IN
+enum MessageDirection { OUTBOUND INBOUND }
+enum MessageStatus    { QUEUED SENT DELIVERED FAILED RECEIVED }
+
+model Message {
+  id          String        @id @default(cuid())
+  threadId    String
+  thread      MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  direction   MessageDirection
+  body        String
+  status      MessageStatus @default(QUEUED)
+  error       String?
+  externalSid String? @unique
+  toNumber    String?
+  fromNumber  String?
+  createdAt   DateTime @default(now())
+
+  @@index([threadId, createdAt])
 }
