@@ -252,12 +252,25 @@ export async function getThreadMessages(threadId: string): Promise<MessageDTO[]>
 }
 
 // Start a thread by phone (optionally provide a name or an existing leadId)
-export async function startThread(input: { phone: string; name?: string; leadId?: string; firstMessage?: string }) {
-  return http<{ ok: boolean; thread: MessageThreadDTO }>(`/api/messages/start`, {
+export async function startThread(input: {
+  phone: string;
+  name?: string;
+  workflowId?: string; // ✅ add this line
+}) {
+  return fetch(`${BASE}/api/messages/start`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify(input),
+  }).then(async (r) => {
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      throw new Error(data?.error || data?.message || `${r.status} ${r.statusText}`);
+    }
+    return data;
   });
 }
+
 
 // Send message into an existing thread
 export async function sendMessageToThread(threadId: string, body: string) {
