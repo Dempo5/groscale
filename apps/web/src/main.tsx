@@ -1,3 +1,4 @@
+// apps/web/src/main.tsx
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
@@ -7,23 +8,23 @@ import "./lib/fetchBase";
 import AppShell from "./pages/AppShell";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
-import Dashboard from "./pages/Dashboard";
+
+// 🔁 Replaces the old Dashboard view
+import Conversations from "./pages/Conversations";
+
 import Uploads from "./pages/Uploads";
 import PhoneNumbers from "./pages/PhoneNumbers";
 import Workflows from "./pages/Workflows";
 import Tags from "./pages/Tags";
 import Templates from "./pages/Templates";
 
-// 👇 NEW: real conversations screen
-import Conversations from "./pages/Conversations";
-
 import ProtectedRoute from "./components/auth-gates/ProtectedRoute";
 import { isAuthed } from "./lib/api";
 
 // Initial redirect based on auth
 function RootRedirect() {
-  // 👇 send authed users to Conversations (change to "/dashboard" if you want)
-  return <Navigate to={isAuthed() ? "/conversations" : "/login"} replace />;
+  // We keep the path "/dashboard" but it now renders <Conversations />
+  return <Navigate to={isAuthed() ? "/dashboard" : "/login"} replace />;
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -41,16 +42,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           {/* Protected */}
           <Route
             path="/dashboard"
-            element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            }
-          />
-
-          {/* 👇 NEW: Conversations */}
-          <Route
-            path="/conversations"
             element={
               <ProtectedRoute>
                 <Conversations />
