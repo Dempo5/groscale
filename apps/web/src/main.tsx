@@ -8,19 +8,17 @@ import "./lib/fetchBase";
 import AppShell from "./pages/AppShell";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
-
-// Dashboard now renders Conversations
-import Conversations from "./pages/Conversations";
-
+import Dashboard from "./pages/Dashboard";
 import Uploads from "./pages/Uploads";
 import PhoneNumbers from "./pages/PhoneNumbers";
 import Workflows from "./pages/Workflows";
-import Tags from "./pages/Tags";
-import Templates from "./pages/Templates";
+import Tags from "./pages/Tags";           // ✅ NEW
+import Templates from "./pages/Templates"; // ✅ NEW
 
 import ProtectedRoute from "./components/auth-gates/ProtectedRoute";
 import { isAuthed } from "./lib/api";
 
+// Initial redirect based on auth
 function RootRedirect() {
   return <Navigate to={isAuthed() ? "/dashboard" : "/login"} replace />;
 }
@@ -42,7 +40,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             path="/dashboard"
             element={
               <ProtectedRoute>
-                <Conversations />
+                <Dashboard />
               </ProtectedRoute>
             }
           />
@@ -55,6 +53,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
               </ProtectedRoute>
             }
           />
+
           <Route
             path="/phone-numbers"
             element={
@@ -63,6 +62,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
               </ProtectedRoute>
             }
           />
+
           <Route
             path="/workflows"
             element={
@@ -71,6 +71,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
               </ProtectedRoute>
             }
           />
+
+          {/* ✅ NEW: Tags */}
           <Route
             path="/tags"
             element={
@@ -79,6 +81,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
               </ProtectedRoute>
             }
           />
+
+          {/* ✅ NEW: Templates */}
           <Route
             path="/templates"
             element={
