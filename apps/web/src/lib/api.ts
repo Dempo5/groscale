@@ -209,3 +209,19 @@ export async function sendTestSMS(to: string, body: string, leadId?: string) {
     body: JSON.stringify({ to, body, leadId }),
   }).then(r => r.json());
 }
+
+/* ---------------- conversations/messages ---------------- */
+export async function listThreads() {
+  return http<{ ok: boolean; threads: any[] }>("/api/messages/threads");
+}
+
+export async function getThreadForLead(leadId: string) {
+  return http<{ ok: boolean; thread: any }>(`/api/messages/thread/${leadId}`);
+}
+
+export async function sendMessage(leadId: string, body: string) {
+  return http<{ ok: boolean; threadId: string; messageId: string }>("/api/messages/send", {
+    method: "POST",
+    body: JSON.stringify({ leadId, body }),
+  });
+}
