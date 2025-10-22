@@ -225,3 +225,57 @@ export async function sendMessage(leadId: string, body: string) {
     body: JSON.stringify({ leadId, body }),
   });
 }
+
+// --- add to apps/web/src/lib/api.ts ---
+
+export type MessageThread = {
+  id: string;
+  ownerId: string;
+  leadId: string;
+  leadName?: string | null;
+  leadEmail?: string | null;
+  leadPhone?: string | null;
+  phoneNumberSid?: string | null;
+  lastMessageAt: string;
+};
+
+export type Message = {
+  id: string;
+  threadId: string;
+  direction: "OUTBOUND" | "INBOUND";
+  body: string;
+  status: "QUEUED" | "SENT" | "DELIVERED" | "FAILED" | "RECEIVED";
+  error?: string | null;
+  externalSid?: string | null;
+  toNumber?: string | null;
+  fromNumber?: string | null;
+  createdAt: string;
+};
+
+export async function listThreads(): Promise<MessageThread[]> {
+  const res = await http<any>("/api/messages/threads");
+  return Array.isArray(res?.data) ? res.data : (res ?? []);
+}
+
+export async function getThreadMessages(threadId: string): Promise<Message[]> {
+  const res = await http<any>(`/api/messages/${threadId}`);
+  return Array.isArray(res?.data) ? res.data : (res ?? []);
+}
+
+export async function sendMessage(threadId: string, body: string) {
+  return http<{ ok: boolean; id: string }>(`/api/messages/send`, {
+    method: "POST",
+    body: JSON.stringify({ threadId, body }),
+  });
+}
+
+export async function startThread(input: {
+  phone: string;
+  name?: string;
+  leadId?: string;
+}) {
+  return http<MessageThread>(`/api/messages/start`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
