@@ -1,61 +1,144 @@
+// apps/web/src/pages/Uploads.tsx
 import { useRef, useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import {
+  listWorkflows,
+  uploadLeadsMapped,
+  type CsvMapping,
+} from "../lib/api";
 
 /** —— Canonical + synonyms —— */
-const H: Record<string,string> = {
-  firstname:"first","first name":"first",first:"first",
-  lastname:"last","last name":"last",last:"last",
-  name:"name","full name":"name",fullname:"name","contact name":"name",
-  email:"email","e-mail":"email","email address":"email",mail:"email",
-  phone:"phone","phone number":"phone",mobile:"phone",cell:"phone",telephone:"phone",tel:"phone",
-  "primary ph":"phone","primary phone":"phone",ph:"phone",phone2:"phone",
-  tags:"tags",label:"tags",labels:"tags",segments:"tags",groups:"tags",lists:"tags",
-  note:"note",notes:"note",comment:"note",comments:"note",memo:"note",
-  dob:"dob","date of birth":"dob",
-  city:"city",town:"city",
-  state:"state",province:"state",region:"state",
-  zip:"zip",zipcode:"zip","postal code":"zip","post code":"zip",
-  address:"address",addr:"address","street address":"address",street:"address",line1:"address",
+const H: Record<string, string> = {
+  firstname: "first",
+  "first name": "first",
+  first: "first",
+  lastname: "last",
+  "last name": "last",
+  last: "last",
+  name: "name",
+  "full name": "name",
+  fullname: "name",
+  "contact name": "name",
+  email: "email",
+  "e-mail": "email",
+  "email address": "email",
+  mail: "email",
+  phone: "phone",
+  "phone number": "phone",
+  mobile: "phone",
+  cell: "phone",
+  telephone: "phone",
+  tel: "phone",
+  "primary ph": "phone",
+  "primary phone": "phone",
+  ph: "phone",
+  phone2: "phone",
+  tags: "tags",
+  label: "tags",
+  labels: "tags",
+  segments: "tags",
+  groups: "tags",
+  lists: "tags",
+  note: "note",
+  notes: "note",
+  comment: "note",
+  comments: "note",
+  memo: "note",
+  dob: "dob",
+  "date of birth": "dob",
+  city: "city",
+  town: "city",
+  state: "state",
+  province: "state",
+  region: "state",
+  zip: "zip",
+  zipcode: "zip",
+  "postal code": "zip",
+  "post code": "zip",
+  address: "address",
+  addr: "address",
+  "street address": "address",
+  street: "address",
+  line1: "address",
 };
-const SYN: Record<string,string[]> = {
-  name:["name","full name","contact name"],
-  first:["first","first name","firstname","given","fname"],
-  last:["last","last name","lastname","surname","lname","family"],
-  email:["email","e-mail","email address","mail"],
-  phone:["phone","phone number","mobile","cell","tel","telephone","primary ph","primary phone","ph","phone2"],
-  tags:["tags","label","labels","segments","groups","lists"],
-  note:["note","notes","comment","comments","memo"],
-  city:["city","town"],
-  state:["state","province","region"],
-  zip:["zip","zipcode","postal","postal code","post code"],
-  address:["address","street","street address","addr","line1"],
-  dob:["dob","date of birth","birthdate","birthday"],
+const SYN: Record<string, string[]> = {
+  name: ["name", "full name", "contact name"],
+  first: ["first", "first name", "firstname", "given", "fname"],
+  last: ["last", "last name", "lastname", "surname", "lname", "family"],
+  email: ["email", "e-mail", "email address", "mail"],
+  phone: [
+    "phone",
+    "phone number",
+    "mobile",
+    "cell",
+    "tel",
+    "telephone",
+    "primary ph",
+    "primary phone",
+    "ph",
+    "phone2",
+  ],
+  tags: ["tags", "label", "labels", "segments", "groups", "lists"],
+  note: ["note", "notes", "comment", "comments", "memo"],
+  city: ["city", "town"],
+  state: ["state", "province", "region"],
+  zip: ["zip", "zipcode", "postal", "postal code", "post code"],
+  address: ["address", "street", "street address", "addr", "line1"],
+  dob: ["dob", "date of birth", "birthdate", "birthday"],
 };
 
-const norm = (s:string)=> s.replace(/\uFEFF/g,"").trim().toLowerCase().replace(/\s+/g," ");
-const nHeader = (s:string)=> H[norm(s)] || s.trim();
-const normKey = (s:string)=> s.toLowerCase().replace(/[^a-z0-9]/g,"");
+const norm = (s: string) =>
+  s.replace(/\uFEFF/g, "").trim().toLowerCase().replace(/\s+/g, " ");
+const nHeader = (s: string) => H[norm(s)] || s.trim();
+const normKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-const guessDelim = (text:string)=>([",",";","\t","|"] as const).reduce((best,c)=>{
-  const rows = text.split(/\r?\n/).slice(0,6);
-  const cnts = rows.map(r => (r.match(new RegExp(`\\${c}`,"g"))||[]).length);
-  const avg = cnts.reduce((a,b)=>a+b,0)/(cnts.length||1);
-  const varc= cnts.reduce((a,b)=>a+(b-avg)**2,0)/(cnts.length||1);
-  const score = avg - Math.sqrt(varc);
-  return score > best.score ? {ch:c, score} : best;
-},{ch:",",score:-1 as number}).ch;
+const guessDelim = (text: string) =>
+  ([",", ";", "\t", "|"] as const).reduce(
+    (best, c) => {
+      const rows = text.split(/\r?\n/).slice(0, 6);
+      const cnts = rows.map((r) => (r.match(new RegExp(`\\${c}`, "g")) || []).length);
+      const avg = cnts.reduce((a, b) => a + b, 0) / (cnts.length || 1);
+      const varc = cnts.reduce((a, b) => a + (b - avg) ** 2, 0) / (cnts.length || 1);
+      const score = avg - Math.sqrt(varc);
+      return score > best.score ? { ch: c, score } : best;
+    },
+    { ch: ",", score: -1 as number }
+  ).ch;
 
-type Mapping = Partial<Record<
-  "name"|"first"|"last"|"email"|"phone"|"tags"|"note"|"city"|"state"|"zip"|"address"|"dob", string
->>;
-type Row = { id:string; name:string; size:number; at:string; leads:number; duplicates:number; invalids:number; status:"success"|"partial"|"failed"; };
+type Mapping = Partial<
+  Record<
+    | "name"
+    | "first"
+    | "last"
+    | "email"
+    | "phone"
+    | "tags"
+    | "note"
+    | "city"
+    | "state"
+    | "zip"
+    | "address"
+    | "dob",
+    string
+  >
+>;
+type Row = {
+  id: string;
+  name: string;
+  size: number;
+  at: string;
+  leads: number;
+  duplicates: number;
+  invalids: number;
+  status: "success" | "partial" | "failed";
+};
 
-export default function Uploads(){
+export default function Uploads() {
   const nav = useNavigate();
-  const inputRef = useRef<HTMLInputElement|null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [open, setOpen] = useState(false);
-  const [file, setFile] = useState<File|null>(null);
+  const [file, setFile] = useState<File | null>(null);
 
   // preview state
   const [headers, setHeaders] = useState<string[]>([]);
@@ -64,44 +147,67 @@ export default function Uploads(){
   const [presentCanon, setPresentCanon] = useState<Set<string>>(new Set());
 
   // options
-  const [opts, setOpts] = useState<{ignoreDuplicates:boolean; tags:string[]; workflowId?:string}>({ ignoreDuplicates:false, tags:[] });
-  const [workflows, setWorkflows] = useState<{id:string; name:string}[]>([]);
-  const [err, setErr] = useState<string|null>(null);
+  const [opts, setOpts] = useState<{
+    ignoreDuplicates: boolean;
+    tags: string[];
+    workflowId?: string;
+  }>({ ignoreDuplicates: false, tags: [] });
+  const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([]);
+  const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  useEffect(()=>{ (async()=>{
-    try{
-      const res = await fetch("/api/workflows", { credentials:"include" });
-      if(res.ok){ const data = await res.json(); setWorkflows((data||[]).map((w:any)=>({id:w.id,name:w.name}))); }
-    }catch{/* silent */}
-  })(); },[]);
+  // Load workflows via API helper (respects VITE_API_URL)
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await listWorkflows();
+        setWorkflows((data || []).map((w: any) => ({ id: w.id, name: w.name })));
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, []);
 
-  const readText = (f:File)=>new Promise<string>((res,rej)=>{ const fr=new FileReader(); fr.onerror=()=>rej(fr.error); fr.onload=()=>res(String(fr.result||"")); fr.readAsText(f); });
+  const readText = (f: File) =>
+    new Promise<string>((res, rej) => {
+      const fr = new FileReader();
+      fr.onerror = () => rej(fr.error);
+      fr.onload = () => res(String(fr.result || ""));
+      fr.readAsText(f);
+    });
 
   // fuzzy header scoring
-  function scoreHeader(h:string, canon:string): number {
-    const hk = normKey(h), ck = normKey(canon);
+  function scoreHeader(h: string, canon: string): number {
+    const hk = normKey(h),
+      ck = normKey(canon);
     if (!hk || !ck) return 0;
     if (hk === ck) return 100;
-    if (hk.includes(ck)) return 80 - Math.abs(hk.length-ck.length);
+    if (hk.includes(ck)) return 80 - Math.abs(hk.length - ck.length);
     return 0;
   }
   function guessFor(canon: keyof typeof SYN, raw: string[]): string {
-    const candidates = [canon, ...(SYN[canon]||[])];
-    let best = {h:"", s:0};
-    for (const h of raw) for (const c of candidates) {
-      const s = scoreHeader(h, c); if (s > best.s) best = {h, s};
-    }
+    const candidates = [canon, ...(SYN[canon] || [])];
+    let best = { h: "", s: 0 };
+    for (const h of raw)
+      for (const c of candidates) {
+        const s = scoreHeader(h, c);
+        if (s > best.s) best = { h, s };
+      }
     return best.s >= 50 ? best.h : "";
   }
 
-  async function begin(f:File){
-    setErr(null); setFile(f); setOpen(true);
+  async function begin(f: File) {
+    setErr(null);
+    setFile(f);
+    setOpen(true);
     const text = await readText(f);
-    const looksJson = f.type.includes("json") || text.trim().startsWith("{") || text.trim().startsWith("[");
+    const looksJson =
+      f.type.includes("json") ||
+      text.trim().startsWith("{") ||
+      text.trim().startsWith("[");
 
     if (looksJson) {
-      try{
+      try {
         const data = JSON.parse(text);
         const arr: any[] = Array.isArray(data) ? data : [data];
         if (!arr.length || typeof arr[0] !== "object") throw new Error();
@@ -109,95 +215,179 @@ export default function Uploads(){
         const raw = Object.keys(arr[0]);
         const canon = raw.map(nHeader);
         setHeaders(raw);
-        setSamples(arr.slice(0,8).map(obj => raw.map(k => String(obj[k] ?? ""))));
+        setSamples(arr.slice(0, 8).map((obj) => raw.map((k) => String(obj[k] ?? ""))));
         setPresentCanon(new Set(canon));
 
         const picked: Mapping = {
-          name:guessFor("name", raw), first:guessFor("first", raw), last:guessFor("last", raw),
-          email:guessFor("email", raw), phone:guessFor("phone", raw),
-          tags:guessFor("tags", raw), note:guessFor("note", raw),
-          city:guessFor("city", raw), state:guessFor("state", raw), zip:guessFor("zip", raw),
-          address:guessFor("address", raw), dob:guessFor("dob", raw),
+          name: guessFor("name", raw),
+          first: guessFor("first", raw),
+          last: guessFor("last", raw),
+          email: guessFor("email", raw),
+          phone: guessFor("phone", raw),
+          tags: guessFor("tags", raw),
+          note: guessFor("note", raw),
+          city: guessFor("city", raw),
+          state: guessFor("state", raw),
+          zip: guessFor("zip", raw),
+          address: guessFor("address", raw),
+          dob: guessFor("dob", raw),
         };
-        setMapping(m => ({ ...picked, ...m }));
+        setMapping((m) => ({ ...picked, ...m }));
         return;
-      }catch{/* fall through to CSV */}
+      } catch {
+        /* fall through to CSV */
+      }
     }
 
     // CSV path
     const d = guessDelim(text);
-    const lines = text.split(/\r?\n/).filter(l=>l.length);
-    if(!lines.length) { setErr("Empty file"); return; }
-    const raw = lines[0].split(d).map(h=>String(h).replace(/\uFEFF/g,"").trim());
+    const lines = text.split(/\r?\n/).filter((l) => l.length);
+    if (!lines.length) {
+      setErr("Empty file");
+      return;
+    }
+    const raw = lines[0].split(d).map((h) => String(h).replace(/\uFEFF/g, "").trim());
     const canon = raw.map(nHeader);
     setHeaders(raw);
-    setSamples(lines.slice(1,9).map(l=>l.split(d)));
+    setSamples(lines.slice(1, 9).map((l) => l.split(d)));
     setPresentCanon(new Set(canon));
 
     const picked: Mapping = {
-      name:guessFor("name", raw), first:guessFor("first", raw), last:guessFor("last", raw),
-      email:guessFor("email", raw), phone:guessFor("phone", raw),
-      tags:guessFor("tags", raw), note:guessFor("note", raw),
-      city:guessFor("city", raw), state:guessFor("state", raw), zip:guessFor("zip", raw),
-      address:guessFor("address", raw), dob:guessFor("dob", raw),
+      name: guessFor("name", raw),
+      first: guessFor("first", raw),
+      last: guessFor("last", raw),
+      email: guessFor("email", raw),
+      phone: guessFor("phone", raw),
+      tags: guessFor("tags", raw),
+      note: guessFor("note", raw),
+      city: guessFor("city", raw),
+      state: guessFor("state", raw),
+      zip: guessFor("zip", raw),
+      address: guessFor("address", raw),
+      dob: guessFor("dob", raw),
     };
-    setMapping(m => ({ ...picked, ...m }));
+    setMapping((m) => ({ ...picked, ...m }));
   }
 
-  const validMap = useMemo(()=> {
+  const validMap = useMemo(() => {
     const hasName = !!(mapping.name || (mapping.first && mapping.last));
-    const hasKey  = !!(mapping.email || mapping.phone);
+    const hasKey = !!(mapping.email || mapping.phone);
     return hasName && hasKey;
   }, [mapping]);
 
-  const mappedCount = useMemo(()=>(Object.values(mapping).filter(Boolean).length), [mapping]);
+  const mappedCount = useMemo(
+    () => Object.values(mapping).filter(Boolean).length,
+    [mapping]
+  );
 
   // Optional fields shown only if present in file
-  const optionalFields: Array<{key: keyof Mapping, label: string}> = useMemo(()=>{
-    const arr: Array<{key: keyof Mapping, label: string}> = [];
+  const optionalFields: Array<{ key: keyof Mapping; label: string }> = useMemo(() => {
+    const arr: Array<{ key: keyof Mapping; label: string }> = [];
     const add = (canon: string, key: keyof Mapping, label: string) => {
       if (presentCanon.has(canon)) arr.push({ key, label });
     };
-    add("city","city","City");
-    add("state","state","State");
-    add("zip","zip","ZIP");
-    add("address","address","Address");
-    add("dob","dob","DOB");
+    add("city", "city", "City");
+    add("state", "state", "State");
+    add("zip", "zip", "ZIP");
+    add("address", "address", "Address");
+    add("dob", "dob", "DOB");
     return arr;
   }, [presentCanon]);
 
-  /** —— Import action (ensures TS can see it) —— */
+  /** —— Import action (uses API helper so it hits Render, not Vercel) —— */
   const importNow = async () => {
-    if(!file) return;
-    setBusy(true); setErr(null);
-    const form = new FormData();
-    form.append("file", file);
-    form.append("mapping", JSON.stringify(mapping));
-    form.append("options", JSON.stringify(opts));
-    try{
-      const res = await fetch("/api/uploads/import",{ method:"POST", body:form, credentials:"include" });
-      if(!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      const inserted = Number(data?.inserted||0), dups = Number(data?.duplicates||0), invalids = Number(data?.invalids||0);
-      setRows(r=>[{
-        id:crypto.randomUUID(), name:file.name, size:file.size, at:new Date().toISOString(),
-        leads:inserted, duplicates:dups, invalids,
-        status: inserted>0 && (dups>0 || invalids>0) ? "partial" : inserted>0 ? "success" : "failed"
-      },...r]);
-      setOpen(false);
-    }catch(e:any){ setErr(String(e?.message||"Import failed")); }
-    finally{ setBusy(false); }
+    if (!file) return;
+    setBusy(true);
+    setErr(null);
+
+    try {
+      const res = await uploadLeadsMapped(
+        file,
+        (mapping as unknown) as CsvMapping,
+        {
+          ignoreDuplicates: !!opts.ignoreDuplicates,
+          tags: opts.tags || [],
+          workflowId: opts.workflowId || undefined,
+        }
+      );
+
+      const leads =
+        typeof res.leads === "number"
+          ? res.leads
+          : (res.inserted ?? 0) + (res.duplicates ?? 0) + (res.invalids ?? 0);
+
+      const inserted = Number(res?.inserted || 0);
+      const dups = Number(res?.duplicates || 0);
+      const invalids = Number(res?.invalids || 0);
+
+      setRows((r) => [
+        {
+          id: crypto.randomUUID(),
+          name: file.name,
+          size: file.size,
+          at: new Date().toISOString(),
+          leads,
+          duplicates: dups,
+          invalids,
+          status: res.ok
+            ? inserted > 0 && (dups > 0 || invalids > 0)
+              ? "partial"
+              : inserted > 0
+              ? "success"
+              : "failed"
+            : "failed",
+        },
+        ...r,
+      ]);
+
+      if (!res.ok) {
+        setErr("Import finished with errors. Check counts.");
+      } else {
+        setOpen(false);
+      }
+    } catch (e: any) {
+      setErr(String(e?.message || "Import failed"));
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
     <div className="p-uploads">
-      <div className="crumbs"><button className="link" onClick={()=>nav("/dashboard")}>← Dashboard</button><span>› Uploads</span></div>
+      <div className="crumbs">
+        <button className="link" onClick={() => nav("/dashboard")}>
+          ← Dashboard
+        </button>
+        <span>› Uploads</span>
+      </div>
 
-      <label className="drop" onKeyDown={e=>{ if(e.key==="Enter"||e.key===" ") inputRef.current?.click(); }} tabIndex={0}>
-        <input ref={inputRef} type="file" accept=".csv,.json,text/csv,application/json" style={{display:"none"}}
-               onChange={e=> e.target.files && begin(e.target.files[0])}/>
+      <label
+        className="drop"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
+        }}
+        tabIndex={0}
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".csv,.json,text/csv,application/json"
+          style={{ display: "none" }}
+          onChange={(e) => e.target.files && begin(e.target.files[0])}
+        />
         <div className="drop-center">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 3v14"/><path d="M7 8l5-5 5 5"/><path d="M5 21h14"/></svg>
+          <svg
+            width="28"
+            height="28"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+          >
+            <path d="M12 3v14" />
+            <path d="M7 8l5-5 5 5" />
+            <path d="M5 21h14" />
+          </svg>
           <div className="h1">Drop CSV or JSON</div>
           <div className="sub">Click to browse • Max 50MB • UTF-8 • Headers required</div>
         </div>
@@ -206,17 +396,35 @@ export default function Uploads(){
       <div className="card">
         <div className="card-h">Recent uploads</div>
         <div className="table">
-          <table><thead><tr><th>File</th><th>Date</th><th className="num">Leads</th><th className="num">Duplicates</th><th className="num">Invalids</th><th>Status</th></tr></thead>
+          <table>
+            <thead>
+              <tr>
+                <th>File</th>
+                <th>Date</th>
+                <th className="num">Leads</th>
+                <th className="num">Duplicates</th>
+                <th className="num">Invalids</th>
+                <th>Status</th>
+              </tr>
+            </thead>
             <tbody>
-              {!rows.length && <tr><td colSpan={6} className="empty">No uploads yet.</td></tr>}
-              {rows.map(r=>(
+              {!rows.length && (
+                <tr>
+                  <td colSpan={6} className="empty">
+                    No uploads yet.
+                  </td>
+                </tr>
+              )}
+              {rows.map((r) => (
                 <tr key={r.id}>
                   <td>{r.name}</td>
                   <td>{new Date(r.at).toLocaleString()}</td>
                   <td className="num">{r.leads}</td>
                   <td className="num">{r.duplicates}</td>
                   <td className="num">{r.invalids}</td>
-                  <td><span className={`pill ${r.status}`}>{r.status}</span></td>
+                  <td>
+                    <span className={`pill ${r.status}`}>{r.status}</span>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -229,11 +437,13 @@ export default function Uploads(){
           <div className="sheet">
             <div className="sheet-h">
               <div className="w-title">Import Leads</div>
-              <button className="icon" onClick={()=>!busy && setOpen(false)}>✕</button>
+              <button className="icon" onClick={() => !busy && setOpen(false)}>
+                ✕
+              </button>
             </div>
 
             <div className="grid">
-              {/* Preview: ONE scroll area (x & y), sticky header ONLY */}
+              {/* Preview */}
               <div className="col">
                 <div className="label">
                   Preview <span className="muted">({Math.min(samples.length, 8)} rows shown)</span>
@@ -249,13 +459,21 @@ export default function Uploads(){
                       </colgroup>
                       <thead>
                         <tr>
-                          {headers.map((h,i)=>(<th key={i} title={h}>{h}</th>))}
+                          {headers.map((h, i) => (
+                            <th key={i} title={h}>
+                              {h}
+                            </th>
+                          ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {samples.map((r,i)=>(
-                          <tr key={i} className={i%2?"odd":""}>
-                            {r.map((c,j)=>(<td key={j} title={c}>{c}</td>))}
+                        {samples.map((r, i) => (
+                          <tr key={i} className={i % 2 ? "odd" : ""}>
+                            {r.map((c, j) => (
+                              <td key={j} title={c}>
+                                {c}
+                              </td>
+                            ))}
                           </tr>
                         ))}
                       </tbody>
@@ -266,63 +484,161 @@ export default function Uploads(){
 
               {/* Mapping + Options */}
               <div className="col">
-                <div className="label">Map Columns <span className="chip">{mappedCount} mapped</span></div>
-
-                <Picker label="Name (optional if First+Last)" value={mapping.name||""} onChange={v=>setMapping(m=>({...m,name:v}))} options={headers}/>
-                <div className="two">
-                  <Picker label="First name" value={mapping.first||""} onChange={v=>setMapping(m=>({...m,first:v}))} options={headers}/>
-                  <Picker label="Last name"  value={mapping.last||""}  onChange={v=>setMapping(m=>({...m,last:v}))}  options={headers}/>
-                </div>
-                <div className="two">
-                  <Picker label="Email" value={mapping.email||""} onChange={v=>setMapping(m=>({...m,email:v}))} options={headers}/>
-                  <Picker label="Phone" value={mapping.phone||""} onChange={v=>setMapping(m=>({...m,phone:v}))} options={headers}/>
+                <div className="label">
+                  Map Columns <span className="chip">{mappedCount} mapped</span>
                 </div>
 
-                {optionalFields.length > 0 && (
-                  <>
-                    <div className="label sm">Additional fields</div>
-                    {optionalFields.map(f => (
-                      <Picker key={f.key} label={f.label} value={(mapping[f.key] as string)||""}
-                              onChange={v=>setMapping(m=>({...m, [f.key]: v}))} options={headers}/>
-                    ))}
-                  </>
-                )}
+                <Picker
+                  label="Name (optional if First+Last)"
+                  value={mapping.name || ""}
+                  onChange={(v) => setMapping((m) => ({ ...m, name: v }))}
+                  options={headers}
+                />
+                <div className="two">
+                  <Picker
+                    label="First name"
+                    value={mapping.first || ""}
+                    onChange={(v) => setMapping((m) => ({ ...m, first: v }))}
+                    options={headers}
+                  />
+                  <Picker
+                    label="Last name"
+                    value={mapping.last || ""}
+                    onChange={(v) => setMapping((m) => ({ ...m, last: v }))}
+                    options={headers}
+                  />
+                </div>
+                <div className="two">
+                  <Picker
+                    label="Email"
+                    value={mapping.email || ""}
+                    onChange={(v) => setMapping((m) => ({ ...m, email: v }))}
+                    options={headers}
+                  />
+                  <Picker
+                    label="Phone"
+                    value={mapping.phone || ""}
+                    onChange={(v) => setMapping((m) => ({ ...m, phone: v }))}
+                    options={headers}
+                  />
+                </div>
+
+                {/** Optional extras only if present */}
+                {(() => {
+                  const optionalFields: Array<{ key: keyof Mapping; label: string }> = [];
+                  const add = (canon: string, key: keyof Mapping, label: string) => {
+                    if (presentCanon.has(canon)) optionalFields.push({ key, label });
+                  };
+                  add("city", "city", "City");
+                  add("state", "state", "State");
+                  add("zip", "zip", "ZIP");
+                  add("address", "address", "Address");
+                  add("dob", "dob", "DOB");
+                  return optionalFields.length ? (
+                    <>
+                      <div className="label sm">Additional fields</div>
+                      {optionalFields.map((f) => (
+                        <Picker
+                          key={f.key}
+                          label={f.label}
+                          value={(mapping[f.key] as string) || ""}
+                          onChange={(v) => setMapping((m) => ({ ...m, [f.key]: v }))}
+                          options={headers}
+                        />
+                      ))}
+                    </>
+                  ) : null;
+                })()}
 
                 <div className="two">
-                  <Picker label="Tags (per row)" value={mapping.tags||""} onChange={v=>setMapping(m=>({...m,tags:v}))} options={headers} placeholder="(none)"/>
-                  <Picker label="Note" value={mapping.note||""} onChange={v=>setMapping(m=>({...m, note:v}))} options={headers} placeholder="(none)"/>
+                  <Picker
+                    label="Tags (per row)"
+                    value={mapping.tags || ""}
+                    onChange={(v) => setMapping((m) => ({ ...m, tags: v }))}
+                    options={headers}
+                    placeholder="(none)"
+                  />
+                  <Picker
+                    label="Note"
+                    value={mapping.note || ""}
+                    onChange={(v) => setMapping((m) => ({ ...m, note: v }))}
+                    options={headers}
+                    placeholder="(none)"
+                  />
                 </div>
 
                 <div className="label mt">Configure</div>
                 <label className="chk tip">
-                  <input type="checkbox" checked={opts.ignoreDuplicates}
-                         onChange={e=>setOpts(o=>({...o,ignoreDuplicates:e.target.checked}))}/>
+                  <input
+                    type="checkbox"
+                    checked={opts.ignoreDuplicates}
+                    onChange={(e) =>
+                      setOpts((o) => ({ ...o, ignoreDuplicates: e.target.checked }))
+                    }
+                  />
                   Ignore duplicates within file
-                  <span className="q" aria-label="File vs DB duplicates"
-                        title="Ignores repeated rows in this file only. Existing contacts in your database are still detected and skipped.">?</span>
+                  <span
+                    className="q"
+                    aria-label="File vs DB duplicates"
+                    title="Ignores repeated rows in this file only. Existing contacts in your database are still detected and skipped."
+                  >
+                    ?
+                  </span>
                 </label>
                 <div className="two">
                   <div className="stack">
                     <div className="sublabel">Apply tags to all leads</div>
-                    <input className="text" placeholder="comma,separated,tags" value={(opts.tags||[]).join(",")}
-                      onChange={e=> setOpts(o=>({...o, tags: e.target.value.split(",").map(t=>t.trim()).filter(Boolean)}))}/>
+                    <input
+                      className="text"
+                      placeholder="comma,separated,tags"
+                      value={(opts.tags || []).join(",")}
+                      onChange={(e) =>
+                        setOpts((o) => ({
+                          ...o,
+                          tags: e.target.value
+                            .split(",")
+                            .map((t) => t.trim())
+                            .filter(Boolean),
+                        }))
+                      }
+                    />
                   </div>
                   <div className="stack">
                     <div className="sublabel">Workflow</div>
-                    <select className="select" value={opts.workflowId||""} onChange={e=>setOpts(o=>({...o,workflowId:e.target.value||undefined}))}>
+                    <select
+                      className="select"
+                      value={opts.workflowId || ""}
+                      onChange={(e) =>
+                        setOpts((o) => ({
+                          ...o,
+                          workflowId: e.target.value || undefined,
+                        }))
+                      }
+                    >
                       <option value="">(none)</option>
-                      {workflows.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}
+                      {workflows.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.name}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>
 
-                {!validMap && <div className="warn">Map either <b>Name</b> or <b>First+Last</b>, and at least one of <b>Email</b> or <b>Phone</b>.</div>}
+                {!validMap && (
+                  <div className="warn">
+                    Map either <b>Name</b> or <b>First+Last</b>, and at least one of{" "}
+                    <b>Email</b> or <b>Phone</b>.
+                  </div>
+                )}
                 {err && <div className="err">{err}</div>}
 
                 <div className="actions">
                   <span className="hint">Invalid emails/phones will be skipped automatically.</span>
                   <div className="spacer" />
-                  <button className="btn ghost" onClick={()=>setOpen(false)} disabled={busy}>Cancel</button>
+                  <button className="btn ghost" onClick={() => setOpen(false)} disabled={busy}>
+                    Cancel
+                  </button>
                   <button className="btn" onClick={() => void importNow()} disabled={!validMap || busy}>
                     {busy ? "Importing…" : "Import"}
                   </button>
@@ -409,20 +725,38 @@ export default function Uploads(){
       `}</style>
 
       {/* Tell the preview table how many columns it has for width calc */}
-      <style>{`.previewTable{--cols:${Math.max(headers.length,1)}}`}</style>
+      <style>{`.previewTable{--cols:${Math.max(headers.length, 1)}}`}</style>
     </div>
   );
 }
 
-function Picker({ label, value, onChange, options, placeholder }:{
-  label:string; value:string; onChange:(v:string)=>void; options:string[]; placeholder?:string;
-}){
+function Picker({
+  label,
+  value,
+  onChange,
+  options,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+  placeholder?: string;
+}) {
   return (
     <div className="stack" aria-label={label}>
       <div className="sublabel">{label}</div>
-      <select className={`select ${value ? "mapped" : ""}`} value={value} onChange={e=>onChange(e.target.value)}>
+      <select
+        className={`select ${value ? "mapped" : ""}`}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
         <option value="">{placeholder || "(none)"}</option>
-        {options.map(h=><option key={h} value={h}>{h}</option>)}
+        {options.map((h) => (
+          <option key={h} value={h}>
+            {h}
+          </option>
+        ))}
       </select>
     </div>
   );
