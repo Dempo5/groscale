@@ -11,6 +11,7 @@ import copilotRouter from "./routes/copilot.js";
 import tagsRouter from "./routes/tags.js";
 import messagesRouter from "./routes/messages.js"; // keep only if the file exists
 import twilioRouter from "./routes/twilio.js";     // keep only if the file exists
+import debugMsgs from "./routes/messages.debug.js";
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
 
@@ -122,3 +123,5 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 app.listen(PORT, () => {
   console.log(`🚀 GroScales API running on port ${PORT}`);
 });
+
+app.use("/api/messages", express.json(), debugMsgs);
