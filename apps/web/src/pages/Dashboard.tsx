@@ -1,10 +1,16 @@
+// apps/web/src/pages/Dashboard.tsx
 import { useEffect, useMemo, useState } from "react";
 import "./dashboard-ios.css";
-import { getLeads, Lead, logout, listWorkflows, startThread, Workflow } from "../lib/api";
+import {
+  getLeads,
+  Lead,
+  logout,
+  listWorkflows,
+  startThread,
+  type Workflow,
+} from "../lib/api";
 import { NavLink, useNavigate } from "react-router-dom";
 import CopilotModal from "../components/CopilotModal";
-
-type Msg = { id: string; from: "lead" | "me"; text: string; at: string };
 
 const OutlineIcon = ({
   d,
@@ -54,11 +60,7 @@ function normalizePhone(input: string): string {
 }
 
 /* ---------- quick start box (appears only when showNew = true) ---------- */
-function NewConversationBox({
-  onClose,
-}: {
-  onClose: () => void;
-}) {
+function NewConversationBox({ onClose }: { onClose: () => void }) {
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
   const [wf, setWf] = useState<string>("");
@@ -66,7 +68,6 @@ function NewConversationBox({
   const [status, setStatus] = useState<string>("");
 
   useEffect(() => {
-    // load once when box opens
     listWorkflows()
       .then((ws) => setWorkflows(ws || []))
       .catch(() => setWorkflows([]));
@@ -80,9 +81,13 @@ function NewConversationBox({
       return;
     }
     try {
-      await startThread({ phone: n, name: name.trim() || undefined, workflowId: wf || undefined });
+      await startThread({
+        phone: n,
+        name: name.trim() || undefined,
+        workflowId: wf || undefined,
+      });
       setStatus("Created!");
-      onClose(); // hide the box after success
+      onClose(); // hide after success
     } catch (e: any) {
       setStatus(e?.message || "Failed to create conversation.");
     }
@@ -122,16 +127,13 @@ function NewConversationBox({
           <button className="btn-outline" onClick={onClose}>Cancel</button>
         </div>
 
-        {/* friendly status row */}
-        {status && (
+        {status ? (
           <div className="hint" style={{ color: status.includes("Failed") ? "#e5484d" : "inherit" }}>
             {status}
           </div>
-        )}
-        {!status && (
+        ) : (
           <div className="hint">
-            Tip: use your own number to test. Messages will appear in the middle column once your
-            backend webhook + send route are wired.
+            Tip: use your own number to test. Messages will appear here once your backend webhook + send route are wired.
           </div>
         )}
       </div>
@@ -177,24 +179,6 @@ export default function Dashboard() {
     () => leads.find((l) => String(l.id) === String(selectedId)) || null,
     [leads, selectedId]
   );
-
-  const messages: Msg[] = useMemo(() => {
-    if (!selected) return [];
-    return [
-      {
-        id: "m1",
-        from: "lead",
-        text: "Hi! I’m exploring coverage options. What plans do you recommend?",
-        at: "9:14 AM",
-      },
-      {
-        id: "m2",
-        from: "me",
-        text: "Great to meet you. I’ll compare Blue Cross and United and send a quick quote today.",
-        at: "9:17 AM",
-      },
-    ];
-  }, [selected?.id]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -325,11 +309,9 @@ export default function Dashboard() {
           </div>
 
           {/* Quick-start appears ONLY when + New is clicked */}
-          {showNew && (
-            <NewConversationBox onClose={() => setShowNew(false)} />
-          )}
+          {showNew && <NewConversationBox onClose={() => setShowNew(false)} />}
 
-          {/* Your existing search + rows */}
+          {/* Search + rows */}
           <div className="search">
             <OutlineIcon d="M11 19a8 8 0 1 1 5.29-14.29L21 9l-4 4" />
             <input
@@ -362,7 +344,7 @@ export default function Dashboard() {
           </ul>
         </section>
 
-        {/* THREAD (still shows your demo bubbles for now) */}
+        {/* THREAD – no fake/demo bubbles */}
         <section className="panel thread">
           <div className="thread-title">
             <div className="who">
@@ -377,15 +359,12 @@ export default function Dashboard() {
           </div>
 
           <div className="messages" key={selected?.id ?? "none"}>
-            {!messages.length && (
-              <div className="hint">Messages will appear here once you start texting.</div>
-            )}
-            {messages.map((m) => (
-              <div key={m.id} className={`bubble ${m.from === "me" ? "mine" : ""}`}>
-                <div className="txt">{m.text}</div>
-                <div className="stamp">{m.at}</div>
+            <div className="bubble" style={{ opacity: 0.75 }}>
+              Messages will appear here once you start texting.
+              <div className="stamp">
+                Use “+ New” to text your own number, and wire your webhook to ingest inbound.
               </div>
-            ))}
+            </div>
           </div>
 
           <div className="composer">
