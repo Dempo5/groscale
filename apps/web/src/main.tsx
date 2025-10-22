@@ -9,7 +9,7 @@ import AppShell from "./pages/AppShell";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 
-// 🔽 NEW
+// Dashboard now renders Conversations
 import Conversations from "./pages/Conversations";
 
 import Uploads from "./pages/Uploads";
@@ -30,6 +30,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <BrowserRouter>
       <AppShell>
         <Routes>
+          {/* Default redirect */}
           <Route path="/" element={<RootRedirect />} />
 
           {/* Public */}
@@ -41,7 +42,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             path="/dashboard"
             element={
               <ProtectedRoute>
-                {/* 🔽 swap Dashboard → Conversations (keeps left nav the same) */}
                 <Conversations />
               </ProtectedRoute>
             }
