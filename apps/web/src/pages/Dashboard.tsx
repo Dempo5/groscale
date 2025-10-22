@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import "./dashboard-ios.css";
-import { getLeads, Lead, logout } from "../lib/api";
+import { getLeads, Lead, logout, listWorkflows, startThread, Workflow } from "../lib/api";
 import { NavLink, useNavigate } from "react-router-dom";
 import CopilotModal from "../components/CopilotModal";
 
-// NEW: real messaging bits
-import MessagePanel from "../components/MessagePanel";
-import NewConversationBox from "../components/NewConversationBox";
+type Msg = { id: string; from: "lead" | "me"; text: string; at: string };
 
 const OutlineIcon = ({
   d,
@@ -46,18 +44,113 @@ const CopyBtn = ({ value }: { value?: string | null }) => (
   </button>
 );
 
+/* ---------- tiny utils ---------- */
+function normalizePhone(input: string): string {
+  const digits = (input || "").replace(/\D+/g, "");
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.startsWith("1") && digits.length === 11) return `+${digits}`;
+  if (digits.startsWith("+")) return digits;
+  return `+${digits}`; // best effort
+}
+
+/* ---------- quick start box (appears only when showNew = true) ---------- */
+function NewConversationBox({
+  onClose,
+}: {
+  onClose: () => void;
+}) {
+  const [phone, setPhone] = useState("");
+  const [name, setName] = useState("");
+  const [wf, setWf] = useState<string>("");
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [status, setStatus] = useState<string>("");
+
+  useEffect(() => {
+    // load once when box opens
+    listWorkflows()
+      .then((ws) => setWorkflows(ws || []))
+      .catch(() => setWorkflows([]));
+  }, []);
+
+  async function create() {
+    setStatus("");
+    const n = normalizePhone(phone);
+    if (!n || n === "+") {
+      setStatus("Enter a valid phone number.");
+      return;
+    }
+    try {
+      await startThread({ phone: n, name: name.trim() || undefined, workflowId: wf || undefined });
+      setStatus("Created!");
+      onClose(); // hide the box after success
+    } catch (e: any) {
+      setStatus(e?.message || "Failed to create conversation.");
+    }
+  }
+
+  return (
+    <div className="search" style={{ display: "block", paddingTop: 10, paddingBottom: 10 }}>
+      <div style={{ display: "grid", gap: 8, width: "100%" }}>
+        <input
+          className="input"
+          placeholder="Your test number (e.g. +15551234567)"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+        />
+        <input
+          className="input"
+          placeholder="Name (optional)"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <select
+          className="input"
+          value={wf}
+          onChange={(e) => setWf(e.target.value)}
+          aria-label="Workflow"
+        >
+          <option value="">(none)</option>
+          {workflows.map((w) => (
+            <option key={w.id} value={w.id}>
+              {w.name}
+            </option>
+          ))}
+        </select>
+
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn-primary" onClick={create}>Create</button>
+          <button className="btn-outline" onClick={onClose}>Cancel</button>
+        </div>
+
+        {/* friendly status row */}
+        {status && (
+          <div className="hint" style={{ color: status.includes("Failed") ? "#e5484d" : "inherit" }}>
+            {status}
+          </div>
+        )}
+        {!status && (
+          <div className="hint">
+            Tip: use your own number to test. Messages will appear in the middle column once your
+            backend webhook + send route are wired.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const nav = useNavigate();
 
   const [leads, setLeads] = useState<Lead[]>([]);
   const [selectedId, setSelectedId] = useState<string | number | null>(null);
   const [query, setQuery] = useState("");
+  const [draft, setDraft] = useState("");
   const [railOpen, setRailOpen] = useState(true);
   const [copilotOpen, setCopilotOpen] = useState(false);
 
-  // NEW: when you start a conversation from the left “New” box,
-  // we store the created threadId here to show real messages.
-  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  // show quick-start only when + New is pressed
+  const [showNew, setShowNew] = useState(false);
 
   const [theme, setTheme] = useState<"light" | "dark">(
     (localStorage.getItem("gs_theme") as "light" | "dark") || "light"
@@ -84,6 +177,24 @@ export default function Dashboard() {
     () => leads.find((l) => String(l.id) === String(selectedId)) || null,
     [leads, selectedId]
   );
+
+  const messages: Msg[] = useMemo(() => {
+    if (!selected) return [];
+    return [
+      {
+        id: "m1",
+        from: "lead",
+        text: "Hi! I’m exploring coverage options. What plans do you recommend?",
+        at: "9:14 AM",
+      },
+      {
+        id: "m2",
+        from: "me",
+        text: "Great to meet you. I’ll compare Blue Cross and United and send a quick quote today.",
+        at: "9:17 AM",
+      },
+    ];
+  }, [selected?.id]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -160,7 +271,7 @@ export default function Dashboard() {
         {/* LEFT RAIL */}
         <aside className={`rail ${railOpen ? "" : "collapsed"} matte`}>
           <nav>
-            {/* Contacts → Conversations (same route) */}
+            {/* Conversations (was Contacts) → /dashboard */}
             <NavLink
               to="/dashboard"
               className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`}
@@ -170,47 +281,27 @@ export default function Dashboard() {
               {railOpen && <span>Conversations</span>}
             </NavLink>
 
-            <NavLink
-              to="/workflows"
-              className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`}
-              title="Workflows"
-            >
+            <NavLink to="/workflows" className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`} title="Workflows">
               <OutlineIcon d="M4 6h16M4 12h10M4 18h7" />
               {railOpen && <span>Workflows</span>}
             </NavLink>
 
-            <NavLink
-              to="/phone-numbers"
-              className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`}
-              title="Phone numbers"
-            >
+            <NavLink to="/phone-numbers" className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`} title="Phone numbers">
               <OutlineIcon d="M6 2h12v20H6zM9 18h6" />
               {railOpen && <span>Phone numbers</span>}
             </NavLink>
 
-            <NavLink
-              to="/tags"
-              className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`}
-              title="Tags"
-            >
+            <NavLink to="/tags" className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`} title="Tags">
               <OutlineIcon d="M20 12l-8 8-8-8 8-8 8 8z" />
               {railOpen && <span>Tags</span>}
             </NavLink>
 
-            <NavLink
-              to="/templates"
-              className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`}
-              title="Templates"
-            >
+            <NavLink to="/templates" className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`} title="Templates">
               <OutlineIcon d="M4 4h16v6H4zM4 14h10" />
               {railOpen && <span>Templates</span>}
             </NavLink>
 
-            <NavLink
-              to="/uploads"
-              className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`}
-              title="Uploads"
-            >
+            <NavLink to="/uploads" className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`} title="Uploads">
               <OutlineIcon d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16" />
               {railOpen && <span>Uploads</span>}
             </NavLink>
@@ -229,16 +320,16 @@ export default function Dashboard() {
           <div className="list-head">
             <div className="h">Conversations</div>
             <div className="list-head-actions">
-              {/* you can keep your + New button or remove it */}
-              <button className="btn-outline sm" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
-                + New
-              </button>
+              <button className="btn-outline sm" onClick={() => setShowNew(true)}>+ New</button>
             </div>
           </div>
 
-          {/* NEW: quick-start box to text your own number */}
-          <NewConversationBox onCreated={(id) => setSelectedThreadId(id)} />
+          {/* Quick-start appears ONLY when + New is clicked */}
+          {showNew && (
+            <NewConversationBox onClose={() => setShowNew(false)} />
+          )}
 
+          {/* Your existing search + rows */}
           <div className="search">
             <OutlineIcon d="M11 19a8 8 0 1 1 5.29-14.29L21 9l-4 4" />
             <input
@@ -271,7 +362,7 @@ export default function Dashboard() {
           </ul>
         </section>
 
-        {/* THREAD (real messages now) */}
+        {/* THREAD (still shows your demo bubbles for now) */}
         <section className="panel thread">
           <div className="thread-title">
             <div className="who">
@@ -285,9 +376,45 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* If you already know the threadId for this selected lead,
-              set it in selectedThreadId and it will load. If not, the panel shows the empty-state copy. */}
-          <MessagePanel threadId={selectedThreadId} />
+          <div className="messages" key={selected?.id ?? "none"}>
+            {!messages.length && (
+              <div className="hint">Messages will appear here once you start texting.</div>
+            )}
+            {messages.map((m) => (
+              <div key={m.id} className={`bubble ${m.from === "me" ? "mine" : ""}`}>
+                <div className="txt">{m.text}</div>
+                <div className="stamp">{m.at}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="composer">
+            <input
+              placeholder="Send a message…"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              disabled
+            />
+            <button
+              className="btn-outline"
+              onClick={() => nav("/templates")}
+              title="Open templates"
+            >
+              Templates
+            </button>
+            <button
+              className="btn-copilot"
+              title="AI Copilot"
+              onClick={() => setCopilotOpen(true)}
+            >
+              <span className="copilot-static" aria-hidden />
+              <OutlineIcon d="M5 12l4 4L19 6" />
+              Copilot
+            </button>
+            <button className="btn-primary" disabled>
+              Send
+            </button>
+          </div>
         </section>
 
         {/* DETAILS */}
