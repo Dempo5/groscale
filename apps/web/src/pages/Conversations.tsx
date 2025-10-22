@@ -1,135 +1,205 @@
-import { useEffect, useMemo, useState } from "react";
-import { listThreads, getThreadForLead, sendMessage } from "../lib/api";
-
-type Thread = {
-  id: string;
-  lastMessageAt: string;
-  lead: { id: string; name: string; email?: string; phone?: string };
-  messages?: Array<{ id: string; body: string; direction: "INBOUND" | "OUTBOUND"; createdAt: string }>;
-};
+// apps/web/src/pages/Conversations.tsx
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  listThreads,
+  getThreadMessages,
+  sendMessage,
+  startThread,
+  type MessageThread,
+  type Message,
+} from "../lib/api";
 
 export default function Conversations() {
-  const [threads, setThreads] = useState<Thread[]>([]);
-  const [activeLeadId, setActiveLeadId] = useState<string | null>(null);
-  const [msgs, setMsgs] = useState<Thread["messages"]>([]);
-  const [draft, setDraft] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [threads, setThreads] = useState<MessageThread[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [composer, setComposer] = useState("");
+  const [search, setSearch] = useState("");
+  const [busy, setBusy] = useState(false);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  // load list
+  // load threads on mount
   useEffect(() => {
     (async () => {
-      const res = await listThreads();
-      setThreads(res.threads || []);
-      if (!activeLeadId && res.threads?.[0]?.lead?.id) {
-        setActiveLeadId(res.threads[0].lead.id);
+      try {
+        const data = await listThreads();
+        setThreads(data);
+        if (!activeId && data.length) setActiveId(data[0].id);
+      } catch {
+        setThreads([]);
       }
     })();
   }, []);
 
-  // load a thread’s messages when lead changes
+  // load messages for selected thread
   useEffect(() => {
-    if (!activeLeadId) return;
-    (async () => {
-      const res = await getThreadForLead(activeLeadId);
-      setMsgs(res.thread?.messages || []);
-    })();
-  }, [activeLeadId]);
+    let t: any;
+    async function load() {
+      if (!activeId) return;
+      try {
+        const msgs = await getThreadMessages(activeId);
+        setMessages(msgs);
+        // autoscroll
+        queueMicrotask(() => {
+          scrollRef.current?.scrollTo({ top: 1e9 });
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+    load();
+    // simple 5s poll
+    t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, [activeId]);
 
-  const activeLead = useMemo(
-    () => threads.find(t => t.lead.id === activeLeadId)?.lead || null,
-    [threads, activeLeadId]
-  );
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return threads;
+    return threads.filter(
+      (th) =>
+        th.leadName?.toLowerCase().includes(q) ||
+        (th.leadEmail || "").toLowerCase().includes(q) ||
+        (th.leadPhone || "").toLowerCase().includes(q)
+    );
+  }, [threads, search]);
 
   async function onSend() {
-    if (!activeLeadId || !draft.trim()) return;
-    setLoading(true);
+    if (!activeId || !composer.trim()) return;
+    setBusy(true);
     try {
-      await sendMessage(activeLeadId, draft.trim());
-      setDraft("");
-      // refresh thread
-      const res = await getThreadForLead(activeLeadId);
-      setMsgs(res.thread?.messages || []);
+      await sendMessage(activeId, composer.trim());
+      setComposer("");
+      // fetch after send
+      const msgs = await getThreadMessages(activeId);
+      setMessages(msgs);
+      queueMicrotask(() => scrollRef.current?.scrollTo({ top: 1e9 }));
+    } catch (e: any) {
+      alert(e?.message || "Failed to send");
     } finally {
-      setLoading(false);
+      setBusy(false);
+    }
+  }
+
+  async function onNewConversation() {
+    const phone = prompt("Enter phone number (E.164 or 10-digit):");
+    if (!phone) return;
+    const name = prompt("Contact name (optional):") || undefined;
+
+    try {
+      const th = await startThread({ phone, name });
+      // prepend if not already present
+      setThreads((prev) =>
+        prev.some((p) => p.id === th.id) ? prev : [th, ...prev]
+      );
+      setActiveId(th.id);
+    } catch (e: any) {
+      alert(e?.message || "Could not start conversation");
     }
   }
 
   return (
     <div className="conv">
-      <aside className="list">
-        <div className="h">Conversations</div>
-        {threads.map(t => (
-          <button
-            key={t.id}
-            className={`row ${t.lead.id === activeLeadId ? "active" : ""}`}
-            onClick={() => setActiveLeadId(t.lead.id)}
-          >
-            <div className="name">{t.lead.name}</div>
-            <div className="sub">{t.lead.phone || t.lead.email}</div>
-          </button>
-        ))}
-        {!threads.length && <div className="empty">No conversations yet.</div>}
+      <aside className="left">
+        <div className="left-h">
+          <div className="title">Conversations</div>
+          <button className="btn" onClick={onNewConversation}>+ New</button>
+        </div>
+        <input
+          className="search"
+          placeholder="Search name, email or phone"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+
+        {!filtered.length ? (
+          <div className="empty">
+            <div className="empty-title">No conversations yet</div>
+            <div className="empty-sub">
+              Start one with “New”, or upload a CSV—messages will appear here.
+            </div>
+          </div>
+        ) : (
+          <div className="threadlist">
+            {filtered.map((th) => (
+              <button
+                key={th.id}
+                className={`row ${activeId === th.id ? "active" : ""}`}
+                onClick={() => setActiveId(th.id)}
+              >
+                <div className="avatar">{(th.leadName || "U").slice(0, 1)}</div>
+                <div className="meta">
+                  <div className="name">{th.leadName || th.leadEmail || th.leadPhone}</div>
+                  <div className="sub">
+                    {th.leadEmail || th.leadPhone || "—"}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
       </aside>
 
-      <main className="room">
-        {activeLead ? (
+      <section className="right">
+        {!activeId ? (
+          <div className="pick">Pick a conversation</div>
+        ) : (
           <>
-            <div className="hdr">
-              <div className="title">{activeLead.name}</div>
-              <div className="meta">{activeLead.phone || activeLead.email}</div>
-            </div>
-
-            <div className="msgs">
-              {(msgs || []).map(m => (
-                <div key={m.id} className={`msg ${m.direction === "OUTBOUND" ? "out" : "in"}`}>
-                  <div className="bubble">{m.body}</div>
-                  <div className="time">{new Date(m.createdAt).toLocaleTimeString()}</div>
+            <div ref={scrollRef} className="messages">
+              {messages.map((m) => (
+                <div
+                  key={m.id}
+                  className={`bubble ${m.direction === "OUTBOUND" ? "me" : ""}`}
+                  title={new Date(m.createdAt).toLocaleString()}
+                >
+                  {m.body}
                 </div>
               ))}
-              {!msgs?.length && <div className="empty mid">No messages yet.</div>}
             </div>
 
             <div className="composer">
               <input
-                className="input"
+                className="composer-input"
                 placeholder="Send a message…"
-                value={draft}
-                onChange={e => setDraft(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter") onSend(); }}
+                value={composer}
+                onChange={(e) => setComposer(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void onSend();
+                  }
+                }}
               />
-              <button className="send" disabled={loading || !draft.trim()} onClick={onSend}>
-                {loading ? "Sending…" : "Send"}
+              <button className="btn" disabled={busy || !composer.trim()} onClick={onSend}>
+                Send
               </button>
             </div>
           </>
-        ) : (
-          <div className="empty mid">Pick a conversation</div>
         )}
-      </main>
+      </section>
 
       <style>{`
-        .conv{display:grid;grid-template-columns:320px 1fr;height:calc(100vh - 90px);gap:12px;padding:12px}
-        .list{border:1px solid #e5e7eb;border-radius:12px;overflow:auto}
-        .h{padding:10px 12px;font-weight:800;border-bottom:1px solid #e5e7eb}
-        .row{display:block;width:100%;text-align:left;border:0;background:none;padding:10px 12px;border-bottom:1px solid #f3f4f6;cursor:pointer}
-        .row.active{background:#eefaf6}
-        .name{font-weight:700}
-        .sub{font-size:12px;color:#6b7280}
-        .room{border:1px solid #e5e7eb;border-radius:12px;display:grid;grid-template-rows:auto 1fr auto;min-width:0}
-        .hdr{padding:12px;border-bottom:1px solid #e5e7eb}
+        .conv{display:grid;grid-template-columns:320px 1fr;height:calc(100vh - 64px);gap:14px;padding:10px}
+        .left{border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;display:grid;grid-template-rows:auto auto 1fr}
+        .left-h{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #e5e7eb}
         .title{font-weight:800}
-        .meta{font-size:12px;color:#6b7280}
-        .msgs{padding:12px;overflow:auto;display:grid;gap:10px;align-content:start}
-        .msg{display:grid;justify-content:start}
-        .msg.out{justify-content:end}
-        .bubble{max-width:60ch;padding:10px 12px;border-radius:12px;background:#f3f4f6}
-        .msg.out .bubble{background:#10b981;color:#fff}
-        .time{font-size:11px;color:#6b7280;margin-top:2px;justify-self:end}
-        .composer{display:flex;gap:8px;padding:12px;border-top:1px solid #e5e7eb}
-        .input{flex:1;border:1px solid #e5e7eb;border-radius:10px;height:38px;padding:0 12px}
-        .send{background:#10b981;color:#fff;border:0;border-radius:10px;padding:0 14px;min-width:88px}
-        .empty{color:#6b7280;padding:12px}
-        .empty.mid{display:grid;place-items:center;color:#9ca3af}
+        .btn{background:var(--accent,#10b981);color:#fff;border:0;border-radius:10px;padding:8px 12px;cursor:pointer}
+        .search{margin:10px;border:1px solid #e5e7eb;border-radius:8px;height:36px;padding:0 10px}
+        .threadlist{overflow:auto;padding:6px}
+        .row{display:flex;gap:10px;align-items:center;width:100%;border:1px solid #e5e7eb;border-radius:10px;padding:10px;background:#fff;margin:6px 0;cursor:pointer;text-align:left}
+        .row.active{outline:2px solid rgba(16,185,129,.25);border-color:#bbf7d0;background:#f0fdf4}
+        .avatar{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:#f3f4f6;font-weight:700}
+        .meta .name{font-weight:700}
+        .meta .sub{font-size:12px;color:#6b7280}
+        .empty{margin:40px 16px;color:#6b7280}
+        .empty-title{font-weight:700;color:#111827}
+        .right{border:1px solid #e5e7eb;border-radius:12px;display:grid;grid-template-rows:1fr auto;overflow:hidden;min-width:0;background:#fff}
+        .messages{padding:16px;overflow:auto;background:#fafafa}
+        .bubble{max-width:60ch;margin:8px 0;padding:10px 12px;background:#fff;border:1px solid #e5e7eb;border-radius:12px}
+        .bubble.me{margin-left:auto;background:#e8fff7;border-color:#bbf7d0}
+        .composer{display:flex;gap:8px;padding:10px;border-top:1px solid #e5e7eb;background:#fff}
+        .composer-input{flex:1;border:1px solid #e5e7eb;border-radius:10px;height:40px;padding:0 12px}
+        .pick{display:grid;place-items:center;color:#6b7280}
       `}</style>
     </div>
   );
