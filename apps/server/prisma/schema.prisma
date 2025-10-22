@@ -210,3 +210,25 @@ model Template {
 
   @@unique([ownerId, name])
 }
+
+model Message {
+  id        String   @id @default(cuid())
+  ownerId   String
+  leadId    String?  // nullable to allow ad-hoc sends
+  to        String
+  from      String
+  direction MessageDirection
+  body      String
+  status    String    @default("queued") // queued | sent | delivered | failed | received
+  sid       String?   // Twilio SID
+  error     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([ownerId, to])
+}
+
+enum MessageDirection {
+  OUT
+  IN
+}
