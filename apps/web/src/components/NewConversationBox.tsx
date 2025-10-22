@@ -1,34 +1,107 @@
-import { useState } from "react";
-import { startThread } from "../lib/api";
+import { useEffect, useMemo, useState } from "react";
+import { listWorkflows, startThread, Workflow } from "../lib/api";
 
-export default function NewConversationBox({ onCreated }: { onCreated: (threadId: string) => void }) {
+type Props = {
+  onCreated: (threadId: string) => void;
+};
+
+export default function NewConversationBox({ onCreated }: Props) {
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
-  const [first, setFirst] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [workflowId, setWorkflowId] = useState<string>("");
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  async function create() {
-    setErr(null);
-    const p = phone.replace(/[^\d+]/g, "");
-    if (!p) return setErr("Enter a phone number.");
-    setBusy(true);
+  useEffect(() => {
+    (async () => {
+      try {
+        const rows = await listWorkflows(); // returns Workflow[]
+        setWorkflows(Array.isArray(rows) ? rows : []);
+      } catch {
+        // ignore
+      }
+    })();
+  }, []);
+
+  const canSubmit = useMemo(() => {
+    return /\d/.test(phone); // some digits present
+  }, [phone]);
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSubmit || submitting) return;
+
+    setSubmitting(true);
+    setError(null);
     try {
-      const res = await startThread({ phone: p, name: name || undefined, firstMessage: first || undefined });
-      if ((res as any)?.thread?.id) onCreated(res.thread.id);
-      setPhone(""); setName(""); setFirst("");
-    } catch (e: any) {
-      setErr(String(e?.message || "Failed"));
-    } finally { setBusy(false); }
+      const payload: { phone: string; name?: string; workflowId?: string } = {
+        phone: phone.replace(/\D/g, ""),
+      };
+      if (name.trim()) payload.name = name.trim();
+      if (workflowId) payload.workflowId = workflowId;
+
+      const res = await startThread(payload);
+      // Accept several shapes: {threadId}, {id}, {thread:{id}}
+      const threadId =
+        (res as any)?.threadId || (res as any)?.id || (res as any)?.thread?.id;
+      if (!threadId) throw new Error("No thread id returned");
+
+      // clear inputs and bubble up
+      setPhone("");
+      setName("");
+      setWorkflowId("");
+      onCreated(String(threadId));
+    } catch (err: any) {
+      setError(err?.message || "Failed to start conversation");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
-    <div style={{ padding: "8px 10px", display: "grid", gap: 6 }}>
-      <input className="input" placeholder="+15551234567" value={phone} onChange={(e)=>setPhone(e.target.value)} />
-      <input className="input" placeholder="Name (optional)" value={name} onChange={(e)=>setName(e.target.value)} />
-      <input className="input" placeholder="First message (optional)" value={first} onChange={(e)=>setFirst(e.target.value)} />
-      {err && <div className="label" style={{ color: "crimson" }}>{err}</div>}
-      <button className="btn-outline" onClick={create} disabled={busy}>{busy ? "Starting…" : "New"}</button>
-    </div>
+    <form onSubmit={handleCreate} className="p-2" style={{ display: "grid", gap: 6 }}>
+      <input
+        className="input"
+        placeholder="Phone (e.g. +15551234567)"
+        value={phone}
+        onChange={(e) => setPhone(e.target.value)}
+      />
+      <input
+        className="input"
+        placeholder="Name (optional)"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+      />
+
+      {/* Workflow dropdown (optional) */}
+      <select
+        className="input"
+        value={workflowId}
+        onChange={(e) => setWorkflowId(e.target.value)}
+        title="Workflow to start for this contact (optional)"
+      >
+        <option value="">(no workflow)</option>
+        {workflows.map((wf) => (
+          <option key={wf.id} value={wf.id}>
+            {wf.name}
+          </option>
+        ))}
+      </select>
+
+      {error && (
+        <div style={{ color: "#b91c1c", fontSize: 12, padding: "2px 0" }}>
+          {error}
+        </div>
+      )}
+
+      <button
+        type="submit"
+        className="btn-primary"
+        disabled={!canSubmit || submitting}
+      >
+        {submitting ? "Creating..." : "New"}
+      </button>
+    </form>
   );
 }
