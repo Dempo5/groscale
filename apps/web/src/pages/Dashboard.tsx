@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import "./dashboard-ios.css";
 import { getLeads, Lead, logout } from "../lib/api";
-import { NavLink, useNavigate } from "react-router-dom"; // ⬅️ add useNavigate
+import { NavLink, useNavigate } from "react-router-dom";
 import CopilotModal from "../components/CopilotModal";
 
-type Msg = { id: string; from: "lead" | "me"; text: string; at: string };
+// NEW: real messaging bits
+import MessagePanel from "../components/MessagePanel";
+import NewConversationBox from "../components/NewConversationBox";
 
 const OutlineIcon = ({
   d,
@@ -45,14 +47,17 @@ const CopyBtn = ({ value }: { value?: string | null }) => (
 );
 
 export default function Dashboard() {
-  const nav = useNavigate(); // ⬅️ navigation helper
+  const nav = useNavigate();
 
   const [leads, setLeads] = useState<Lead[]>([]);
   const [selectedId, setSelectedId] = useState<string | number | null>(null);
   const [query, setQuery] = useState("");
-  const [draft, setDraft] = useState("");
   const [railOpen, setRailOpen] = useState(true);
   const [copilotOpen, setCopilotOpen] = useState(false);
+
+  // NEW: when you start a conversation from the left “New” box,
+  // we store the created threadId here to show real messages.
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
 
   const [theme, setTheme] = useState<"light" | "dark">(
     (localStorage.getItem("gs_theme") as "light" | "dark") || "light"
@@ -79,26 +84,6 @@ export default function Dashboard() {
     () => leads.find((l) => String(l.id) === String(selectedId)) || null,
     [leads, selectedId]
   );
-
-  const messages: Msg[] = useMemo(() => {
-    if (!selected) return [];
-    return [
-      {
-        id: "m1",
-        from: "lead",
-        text:
-          "Hi! I’m exploring coverage options. What plans do you recommend?",
-        at: "9:14 AM",
-      },
-      {
-        id: "m2",
-        from: "me",
-        text:
-          "Great to meet you. I’ll compare Blue Cross and United and send a quick quote today.",
-        at: "9:17 AM",
-      },
-    ];
-  }, [selected?.id]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -175,17 +160,16 @@ export default function Dashboard() {
         {/* LEFT RAIL */}
         <aside className={`rail ${railOpen ? "" : "collapsed"} matte`}>
           <nav>
-            {/* Contacts → /dashboard */}
+            {/* Contacts → Conversations (same route) */}
             <NavLink
               to="/dashboard"
               className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`}
-              title="Contacts"
+              title="Conversations"
             >
               <OutlineIcon d="M16 11c1.66 0 3-1.34 3-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zM5 20c0-3.31 2.69-6 6-6h2" />
-              {railOpen && <span>Contacts</span>}
+              {railOpen && <span>Conversations</span>}
             </NavLink>
 
-            {/* Workflows → /workflows */}
             <NavLink
               to="/workflows"
               className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`}
@@ -195,7 +179,6 @@ export default function Dashboard() {
               {railOpen && <span>Workflows</span>}
             </NavLink>
 
-            {/* Phone numbers → /phone-numbers */}
             <NavLink
               to="/phone-numbers"
               className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`}
@@ -205,7 +188,6 @@ export default function Dashboard() {
               {railOpen && <span>Phone numbers</span>}
             </NavLink>
 
-            {/* Tags → /tags */}
             <NavLink
               to="/tags"
               className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`}
@@ -215,7 +197,6 @@ export default function Dashboard() {
               {railOpen && <span>Tags</span>}
             </NavLink>
 
-            {/* Templates → /templates */}
             <NavLink
               to="/templates"
               className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`}
@@ -225,7 +206,6 @@ export default function Dashboard() {
               {railOpen && <span>Templates</span>}
             </NavLink>
 
-            {/* Uploads → /uploads */}
             <NavLink
               to="/uploads"
               className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`}
@@ -247,11 +227,17 @@ export default function Dashboard() {
         {/* LIST */}
         <section className="panel list">
           <div className="list-head">
-            <div className="h">Contacts</div>
+            <div className="h">Conversations</div>
             <div className="list-head-actions">
-              <button className="btn-outline sm">+ New</button>
+              {/* you can keep your + New button or remove it */}
+              <button className="btn-outline sm" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+                + New
+              </button>
             </div>
           </div>
+
+          {/* NEW: quick-start box to text your own number */}
+          <NewConversationBox onCreated={(id) => setSelectedThreadId(id)} />
 
           <div className="search">
             <OutlineIcon d="M11 19a8 8 0 1 1 5.29-14.29L21 9l-4 4" />
@@ -285,7 +271,7 @@ export default function Dashboard() {
           </ul>
         </section>
 
-        {/* THREAD */}
+        {/* THREAD (real messages now) */}
         <section className="panel thread">
           <div className="thread-title">
             <div className="who">
@@ -299,42 +285,9 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="messages" key={selected?.id ?? "none"}>
-            {messages.map((m) => (
-              <div key={m.id} className={`bubble ${m.from === "me" ? "mine" : ""}`}>
-                <div className="txt">{m.text}</div>
-                <div className="stamp">{m.at}</div>
-              </div>
-            ))}
-          </div>
-
-          <div className="composer">
-            <input
-              placeholder="Send a message…"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              disabled
-            />
-            <button
-              className="btn-outline"
-              onClick={() => nav("/templates")} // ⬅️ go to Templates
-              title="Open templates"
-            >
-              Templates
-            </button>
-            <button
-              className="btn-copilot"
-              title="AI Copilot"
-              onClick={() => setCopilotOpen(true)}
-            >
-              <span className="copilot-static" aria-hidden />
-              <OutlineIcon d="M5 12l4 4L19 6" />
-              Copilot
-            </button>
-            <button className="btn-primary" disabled>
-              Send
-            </button>
-          </div>
+          {/* If you already know the threadId for this selected lead,
+              set it in selectedThreadId and it will load. If not, the panel shows the empty-state copy. */}
+          <MessagePanel threadId={selectedThreadId} />
         </section>
 
         {/* DETAILS */}
@@ -399,7 +352,6 @@ export default function Dashboard() {
           <div className="section">
             <div className="section-title">Tags</div>
             <div className="tag-row">
-              {/* ⬅️ make chips navigate to Tags page and highlight */}
               <button
                 className="tag tag-blue"
                 onClick={() => nav(`/tags?highlight=${encodeURIComponent("new")}`)}
