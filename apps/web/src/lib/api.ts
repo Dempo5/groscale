@@ -199,3 +199,13 @@ export async function updateTag(id: string, patch: Partial<{ name: string; color
   return res.tag;
 }
 export async function deleteTag(id: string): Promise<void> { await http<{ ok: boolean }>(`/api/tags/${id}`, { method: "DELETE" }); }
+
+// apps/web/src/lib/api.ts (add)
+export async function sendTestSMS(to: string, body: string, leadId?: string) {
+  return fetch(`${BASE}/api/messages/send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ to, body, leadId }),
+  }).then(r => r.json());
+}
