@@ -1,107 +1,118 @@
-import { useEffect, useMemo, useState } from "react";
-import { listWorkflows, startThread, Workflow } from "../lib/api";
+// apps/web/src/components/NewConversationBox.tsx
+import { useEffect, useState } from "react";
+import { listWorkflows, startThread, type Workflow } from "../lib/api";
 
 type Props = {
   onCreated: (threadId: string) => void;
+  onCancel?: () => void;
 };
 
-export default function NewConversationBox({ onCreated }: Props) {
+export default function NewConversationBox({ onCreated, onCancel }: Props) {
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
   const [workflowId, setWorkflowId] = useState<string>("");
-  const [workflows, setWorkflows] = useState<Workflow[]>([]);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [wfs, setWfs] = useState<Workflow[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
+    let alive = true;
     (async () => {
       try {
-        const rows = await listWorkflows(); // returns Workflow[]
-        setWorkflows(Array.isArray(rows) ? rows : []);
+        const data = await listWorkflows();
+        if (alive) setWfs(data || []);
       } catch {
-        // ignore
+        if (alive) setWfs([]);
       }
     })();
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  const canSubmit = useMemo(() => {
-    return /\d/.test(phone); // some digits present
-  }, [phone]);
-
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    if (!canSubmit || submitting) return;
-
-    setSubmitting(true);
-    setError(null);
+  async function create() {
+    setErr(null);
+    if (!phone.trim()) {
+      setErr("Phone is required");
+      return;
+    }
+    setBusy(true);
     try {
-      const payload: { phone: string; name?: string; workflowId?: string } = {
-        phone: phone.replace(/\D/g, ""),
-      };
-      if (name.trim()) payload.name = name.trim();
-      if (workflowId) payload.workflowId = workflowId;
+      const res = await startThread({
+        phone: phone.trim(),
+        name: name.trim() || undefined,
+        workflowId: workflowId || undefined,
+      });
 
-      const res = await startThread(payload);
-      // Accept several shapes: {threadId}, {id}, {thread:{id}}
-      const threadId =
-        (res as any)?.threadId || (res as any)?.id || (res as any)?.thread?.id;
-      if (!threadId) throw new Error("No thread id returned");
-
-      // clear inputs and bubble up
+      // backends may return {id} or {thread:{id}}; handle both
+      const id =
+        (res as any)?.id ||
+        (res as any)?.threadId ||
+        (res as any)?.thread?.id ||
+        "";
+      if (!id) throw new Error("Start API returned no id");
+      onCreated(id);
       setPhone("");
       setName("");
       setWorkflowId("");
-      onCreated(String(threadId));
-    } catch (err: any) {
-      setError(err?.message || "Failed to start conversation");
+    } catch (e: any) {
+      setErr(e?.message || "Failed to start conversation");
     } finally {
-      setSubmitting(false);
+      setBusy(false);
     }
   }
 
   return (
-    <form onSubmit={handleCreate} className="p-2" style={{ display: "grid", gap: 6 }}>
+    <div style={{ padding: 8 }}>
       <input
         className="input"
-        placeholder="Phone (e.g. +15551234567)"
+        placeholder="Phone (ex: +15551234567)"
         value={phone}
         onChange={(e) => setPhone(e.target.value)}
+        style={{ width: "100%", marginBottom: 8 }}
       />
       <input
         className="input"
         placeholder="Name (optional)"
         value={name}
         onChange={(e) => setName(e.target.value)}
+        style={{ width: "100%", marginBottom: 8 }}
       />
-
-      {/* Workflow dropdown (optional) */}
       <select
         className="input"
         value={workflowId}
         onChange={(e) => setWorkflowId(e.target.value)}
-        title="Workflow to start for this contact (optional)"
+        style={{ width: "100%", marginBottom: 8 }}
       >
-        <option value="">(no workflow)</option>
-        {workflows.map((wf) => (
-          <option key={wf.id} value={wf.id}>
-            {wf.name}
+        <option value="">(none)</option>
+        {wfs.map((w) => (
+          <option value={w.id} key={w.id}>
+            {w.name}
           </option>
         ))}
       </select>
 
-      {error && (
-        <div style={{ color: "#b91c1c", fontSize: 12, padding: "2px 0" }}>
-          {error}
+      {err && (
+        <div
+          style={{
+            color: "#b91c1c",
+            fontSize: 12,
+            marginBottom: 8,
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {err}
         </div>
       )}
 
-      <button
-        type="submit"
-        className="btn-primary"
-        disabled={!canSubmit || submitting}
-      >
-        {submitting ? "Creating..." : "New"}
-      </button>
-    </form>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button className="btn-primary" onClick={create} disabled={busy}>
+          {busy ? "Creating…" : "Create"}
+        </button>
+        <button className="btn-outline" onClick={onCancel} disabled={busy}>
+          Cancel
+        </button>
+      </div>
+    </div>
   );
 }
