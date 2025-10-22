@@ -1,4 +1,3 @@
-// apps/web/src/main.tsx
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
@@ -12,15 +11,19 @@ import Dashboard from "./pages/Dashboard";
 import Uploads from "./pages/Uploads";
 import PhoneNumbers from "./pages/PhoneNumbers";
 import Workflows from "./pages/Workflows";
-import Tags from "./pages/Tags";           // ✅ NEW
-import Templates from "./pages/Templates"; // ✅ NEW
+import Tags from "./pages/Tags";
+import Templates from "./pages/Templates";
+
+// 👇 NEW: real conversations screen
+import Conversations from "./pages/Conversations";
 
 import ProtectedRoute from "./components/auth-gates/ProtectedRoute";
 import { isAuthed } from "./lib/api";
 
 // Initial redirect based on auth
 function RootRedirect() {
-  return <Navigate to={isAuthed() ? "/dashboard" : "/login"} replace />;
+  // 👇 send authed users to Conversations (change to "/dashboard" if you want)
+  return <Navigate to={isAuthed() ? "/conversations" : "/login"} replace />;
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -41,6 +44,16 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             element={
               <ProtectedRoute>
                 <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* 👇 NEW: Conversations */}
+          <Route
+            path="/conversations"
+            element={
+              <ProtectedRoute>
+                <Conversations />
               </ProtectedRoute>
             }
           />
@@ -72,7 +85,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             }
           />
 
-          {/* ✅ NEW: Tags */}
           <Route
             path="/tags"
             element={
@@ -82,7 +94,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             }
           />
 
-          {/* ✅ NEW: Templates */}
           <Route
             path="/templates"
             element={
