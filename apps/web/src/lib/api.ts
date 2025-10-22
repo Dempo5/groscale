@@ -29,7 +29,7 @@ type AuthResponse =
 const TOKEN_KEY = "jwt";
 
 // ---- Base URL: empty = same-origin. In prod set VITE_API_URL (e.g. https://groscale.onrender.com)
-const BASE =
+export const BASE =
   (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/+$/, "") ||
   "";
 
