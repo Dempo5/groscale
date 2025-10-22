@@ -9,7 +9,7 @@ import AppShell from "./pages/AppShell";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 
-// 🔁 Replaces the old Dashboard view
+// 🔽 NEW
 import Conversations from "./pages/Conversations";
 
 import Uploads from "./pages/Uploads";
@@ -21,9 +21,7 @@ import Templates from "./pages/Templates";
 import ProtectedRoute from "./components/auth-gates/ProtectedRoute";
 import { isAuthed } from "./lib/api";
 
-// Initial redirect based on auth
 function RootRedirect() {
-  // We keep the path "/dashboard" but it now renders <Conversations />
   return <Navigate to={isAuthed() ? "/dashboard" : "/login"} replace />;
 }
 
@@ -32,7 +30,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <BrowserRouter>
       <AppShell>
         <Routes>
-          {/* Default redirect */}
           <Route path="/" element={<RootRedirect />} />
 
           {/* Public */}
@@ -44,6 +41,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             path="/dashboard"
             element={
               <ProtectedRoute>
+                {/* 🔽 swap Dashboard → Conversations (keeps left nav the same) */}
                 <Conversations />
               </ProtectedRoute>
             }
@@ -57,7 +55,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
               </ProtectedRoute>
             }
           />
-
           <Route
             path="/phone-numbers"
             element={
@@ -66,7 +63,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
               </ProtectedRoute>
             }
           />
-
           <Route
             path="/workflows"
             element={
@@ -75,7 +71,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
               </ProtectedRoute>
             }
           />
-
           <Route
             path="/tags"
             element={
@@ -84,7 +79,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
               </ProtectedRoute>
             }
           />
-
           <Route
             path="/templates"
             element={
