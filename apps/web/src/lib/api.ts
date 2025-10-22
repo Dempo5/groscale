@@ -210,13 +210,14 @@ export async function sendTestSMS(to: string, body: string, leadId?: string) {
   }).then(r => r.json());
 }
 
-/* ---------------- conversations / messages (final) ---------------- */
+// ===== Messaging (threads & messages) =====
+export type MessageDir = "OUTBOUND" | "INBOUND";
+export type MessageStatus = "QUEUED" | "SENT" | "DELIVERED" | "FAILED" | "RECEIVED";
 
-/** Thread summary used by the left list */
-export type MessageThread = {
+export type MessageThreadDTO = {
   id: string;
-  ownerId?: string;
-  leadId?: string | null;
+  ownerId: string;
+  leadId: string;
   leadName?: string | null;
   leadEmail?: string | null;
   leadPhone?: string | null;
@@ -224,13 +225,12 @@ export type MessageThread = {
   lastMessageAt: string;
 };
 
-/** Individual message used in the right pane */
-export type Message = {
+export type MessageDTO = {
   id: string;
   threadId: string;
-  direction: "OUTBOUND" | "INBOUND";
+  direction: MessageDir;
   body: string;
-  status: "QUEUED" | "SENT" | "DELIVERED" | "FAILED" | "RECEIVED";
+  status: MessageStatus;
   error?: string | null;
   externalSid?: string | null;
   toNumber?: string | null;
@@ -238,46 +238,30 @@ export type Message = {
   createdAt: string;
 };
 
-/** List the user’s threads */
-export async function listThreads(): Promise<MessageThread[]> {
+// List all threads (left column)
+export async function listThreads(): Promise<MessageThreadDTO[]> {
   const res = await http<any>("/api/messages/threads");
-  // Accept either {ok, threads} or raw array
-  if (Array.isArray(res)) return res as MessageThread[];
-  if (Array.isArray(res?.threads)) return res.threads as MessageThread[];
-  if (Array.isArray(res?.data)) return res.data as MessageThread[];
-  return [];
+  // backend may return {ok, data} or just array
+  return Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
 }
 
-/** Get messages for a thread */
-export async function getThreadMessages(threadId: string): Promise<Message[]> {
+// Get messages in a thread
+export async function getThreadMessages(threadId: string): Promise<MessageDTO[]> {
   const res = await http<any>(`/api/messages/${threadId}`);
-  // Accept {ok, messages}, {data}, or raw array
-  if (Array.isArray(res)) return res as Message[];
-  if (Array.isArray(res?.messages)) return res.messages as Message[];
-  if (Array.isArray(res?.data)) return res.data as Message[];
-  return [];
+  return Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
 }
 
-/** Start a brand-new thread by phone (optional name + firstMessage) */
-export async function startThread(input: {
-  phone: string;           // E.164 is best, we'll send it as-is
-  name?: string;
-  firstMessage?: string;
-}): Promise<{ threadId: string }> {
-  const res = await http<any>("/api/messages/start", {
+// Start a thread by phone (optionally provide a name or an existing leadId)
+export async function startThread(input: { phone: string; name?: string; leadId?: string; firstMessage?: string }) {
+  return http<{ ok: boolean; thread: MessageThreadDTO }>(`/api/messages/start`, {
     method: "POST",
     body: JSON.stringify(input),
   });
-  // Accept {ok, threadId}, {thread: {id}}, {id}
-  if (typeof res?.threadId === "string") return { threadId: res.threadId };
-  if (typeof res?.id === "string") return { threadId: res.id };
-  if (res?.thread?.id) return { threadId: String(res.thread.id) };
-  throw new Error("Start thread: missing thread id in response");
 }
 
-/** Send a message into an existing thread */
-export async function sendMessage(threadId: string, body: string) {
-  return http<{ ok: boolean; id?: string }>(`/api/messages/send`, {
+// Send message into an existing thread
+export async function sendMessageToThread(threadId: string, body: string) {
+  return http<{ ok: boolean; id: string }>(`/api/messages/send`, {
     method: "POST",
     body: JSON.stringify({ threadId, body }),
   });
