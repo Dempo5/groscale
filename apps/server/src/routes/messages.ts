@@ -1,6 +1,6 @@
+// apps/server/src/routes/messages.ts
 import { Router } from "express";
-// 👇 NodeNext/ESM requires the extension in relative imports
-import { prisma } from "../prisma.js";
+import { prisma } from "../prisma.js"; // ESM: include .js in relative import
 
 const r = Router();
 
@@ -12,17 +12,20 @@ r.get("/threads", async (req, res) => {
     orderBy: { lastMessageAt: "desc" },
     include: { lead: { select: { name: true, email: true, phone: true } } },
   });
-  const data = rows.map((t) => ({
-    id: t.id,
-    ownerId: t.ownerId,
-    leadId: t.leadId,
-    leadName: t.lead?.name ?? null,
-    leadEmail: t.lead?.email ?? null,
-    leadPhone: t.lead?.phone ?? null,
-    phoneNumberSid: t.phoneNumberSid ?? null,
-    lastMessageAt: t.lastMessageAt ?? null,
-  }));
-  res.json({ ok: true, data });
+
+  res.json({
+    ok: true,
+    data: rows.map((t) => ({
+      id: t.id,
+      ownerId: t.ownerId,
+      leadId: t.leadId,
+      leadName: t.lead?.name ?? null,
+      leadEmail: t.lead?.email ?? null,
+      leadPhone: t.lead?.phone ?? null,
+      phoneNumberSid: (t as any).phoneNumberSid ?? null,
+      lastMessageAt: t.lastMessageAt ?? null,
+    })),
+  });
 });
 
 /* Get messages in a thread */
@@ -43,7 +46,7 @@ r.post("/start", async (req, res) => {
     name?: string;
     leadId?: string;
     firstMessage?: string;
-    workflowId?: string;
+    workflowId?: string; // accepted but ignored unless your schema has it
   };
 
   if (!phone) return res.status(400).json({ ok: false, error: "phone required" });
@@ -56,11 +59,12 @@ r.post("/start", async (req, res) => {
           data: { name: name || phone, email: null, phone, ownerId },
         });
 
+  // NOTE: do NOT include workflowId unless it exists in your Prisma model
   const thread = await prisma.messageThread.create({
     data: {
       ownerId,
       leadId: lead!.id,
-      workflowId: workflowId ?? null,
+      // workflowId, // ❌ remove/comment if not in schema
     },
   });
 
@@ -73,7 +77,6 @@ r.post("/start", async (req, res) => {
         status: "QUEUED",
       },
     });
-    // enqueue SMS send here if you want
   }
 
   res.json({ ok: true, thread });
@@ -95,7 +98,6 @@ r.post("/send", async (req, res) => {
     },
   });
 
-  // enqueue to your provider here
   res.json({ ok: true, id: msg.id });
 });
 
