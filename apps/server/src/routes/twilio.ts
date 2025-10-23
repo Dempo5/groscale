@@ -1,7 +1,9 @@
 // apps/server/src/routes/twilio.ts
 import { Router, type Request } from "express";
 import { prisma } from "../prisma.js";
-import { Prisma } from "@prisma/client";
+
+// ✅ version-proof enum type (works across Prisma versions)
+type MsgStatus = import("@prisma/client").Message["status"];
 
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || "";
 let twilioValidate: ((...args: any[]) => boolean) | null = null;
@@ -32,7 +34,7 @@ function asE164(input?: string): string | undefined {
 }
 
 async function verifyTwilio(req: Request): Promise<boolean> {
-  if (!TWILIO_AUTH_TOKEN) return true;
+  if (!TWILIO_AUTH_TOKEN) return true; // skip in dev
   const validator = await ensureValidator();
   if (!validator) return true;
 
@@ -63,7 +65,7 @@ r.post("/status", async (req, res) => {
     getFirst<string>(req.body?.SmsStatus) ||
     "";
 
-  const statusMap: Record<string, Prisma.MessageStatus> = {
+  const statusMap: Record<string, MsgStatus> = {
     queued: "QUEUED",
     accepted: "QUEUED",
     sending: "SENT",
@@ -75,12 +77,11 @@ r.post("/status", async (req, res) => {
     received: "RECEIVED",
   };
 
-  const norm: Prisma.MessageStatus =
-    statusMap[raw.toLowerCase()] || "SENT";
+  const norm: MsgStatus = statusMap[raw.toLowerCase()] || "SENT";
 
   await prisma.message.updateMany({
     where: { externalSid: sid },
-    data: { status: norm }, // ✅ enum type
+    data: { status: norm },
   });
 
   return res.sendStatus(204);
@@ -144,7 +145,7 @@ r.post("/inbound", async (req, res) => {
       threadId: thread.id,
       direction: "INBOUND",
       body: Body,
-      status: "RECEIVED" as Prisma.MessageStatus, // ✅ enum type
+      status: "RECEIVED" as MsgStatus,
       toNumber: To ?? null,
       fromNumber: From ?? null,
       externalSid: Sid ?? null,
