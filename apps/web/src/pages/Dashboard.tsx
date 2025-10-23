@@ -1,9 +1,8 @@
-// apps/web/src/pages/Dashboard.tsx
 import { useEffect, useMemo, useState } from "react";
 import "./dashboard-ios.css";
 import {
   getLeads,
-  Lead,
+  type Lead,
   logout,
   listWorkflows,
   startThread,
@@ -12,6 +11,7 @@ import {
 import { NavLink, useNavigate } from "react-router-dom";
 import CopilotModal from "../components/CopilotModal";
 
+/* ---------------- icons / small bits ---------------- */
 const OutlineIcon = ({
   d,
   size = 18,
@@ -50,17 +50,36 @@ const CopyBtn = ({ value }: { value?: string | null }) => (
   </button>
 );
 
-/* ---------- tiny utils ---------- */
+/* ---------------- helpers ---------------- */
 function normalizePhone(input: string): string {
   const digits = (input || "").replace(/\D+/g, "");
   if (digits.length === 10) return `+1${digits}`;
   if (digits.startsWith("1") && digits.length === 11) return `+${digits}`;
   if (digits.startsWith("+")) return digits;
-  return `+${digits}`; // best effort
+  return `+${digits}`;
 }
 
-/* ---------- quick start box (appears only when showNew = true) ---------- */
-function NewConversationBox({ onClose }: { onClose: () => void }) {
+// Hide seeded sample rows that ship with the demo
+function isSampleLead(l: Lead) {
+  const n = (l.name || "").toLowerCase();
+  const e = (l.email || "").toLowerCase();
+  return (
+    n === "test lead" ||
+    n === "demo lead" ||
+    e === "lead@example.com" ||
+    e === "demo@example.com" ||
+    e.endsWith("@example.com")
+  );
+}
+
+/* ---------------- New conversation popover ---------------- */
+function NewConversationPopover({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated?: () => void;
+}) {
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
   const [wf, setWf] = useState<string>("");
@@ -87,59 +106,94 @@ function NewConversationBox({ onClose }: { onClose: () => void }) {
         workflowId: wf || undefined,
       });
       setStatus("Created!");
-      onClose(); // hide after success
+      onCreated?.();
+      onClose();
     } catch (e: any) {
       setStatus(e?.message || "Failed to create conversation.");
     }
   }
 
   return (
-    <div className="search" style={{ display: "block", paddingTop: 10, paddingBottom: 10 }}>
-      <div style={{ display: "grid", gap: 8, width: "100%" }}>
-        <input
-          className="input"
-          placeholder="Your test number (e.g. +15551234567)"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-        />
-        <input
-          className="input"
-          placeholder="Name (optional)"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <select
-          className="input"
-          value={wf}
-          onChange={(e) => setWf(e.target.value)}
-          aria-label="Workflow"
-        >
-          <option value="">(none)</option>
-          {workflows.map((w) => (
-            <option key={w.id} value={w.id}>
-              {w.name}
-            </option>
-          ))}
-        </select>
+    <>
+      {/* backdrop */}
+      <div
+        onClick={onClose}
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: "rgba(0,0,0,.08)",
+          zIndex: 25,
+        }}
+      />
+      {/* card */}
+      <div
+        className="u-card"
+        style={{
+          position: "absolute",
+          left: 12,
+          right: 12,
+          top: 56, // just under list header
+          zIndex: 30,
+          padding: 12,
+          borderRadius: 12,
+        }}
+      >
+        <div style={{ display: "grid", gap: 8 }}>
+          <input
+            className="input"
+            placeholder="Your test number (e.g. +15551234567)"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+          />
+          <input
+            className="input"
+            placeholder="Name (optional)"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <select
+            className="input"
+            value={wf}
+            onChange={(e) => setWf(e.target.value)}
+            aria-label="Workflow"
+          >
+            <option value="">(none)</option>
+            {workflows.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name}
+              </option>
+            ))}
+          </select>
 
-        <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn-primary" onClick={create}>Create</button>
-          <button className="btn-outline" onClick={onClose}>Cancel</button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn-primary" onClick={create}>
+              Create
+            </button>
+            <button className="btn-outline" onClick={onClose}>
+              Cancel
+            </button>
+          </div>
+
+          {status ? (
+            <div
+              className="hint"
+              style={{ color: status.includes("Failed") ? "#e5484d" : "inherit" }}
+            >
+              {status}
+            </div>
+          ) : (
+            <div className="hint">
+              Tip: use your own number to test. Messages appear once your webhook
+              ingests inbound.
+            </div>
+          )}
         </div>
-
-        {status ? (
-          <div className="hint" style={{ color: status.includes("Failed") ? "#e5484d" : "inherit" }}>
-            {status}
-          </div>
-        ) : (
-          <div className="hint">
-            Tip: use your own number to test. Messages will appear here once your backend webhook + send route are wired.
-          </div>
-        )}
       </div>
-    </div>
+    </>
   );
 }
+
+/* ======================================================================== */
 
 export default function Dashboard() {
   const nav = useNavigate();
@@ -150,8 +204,6 @@ export default function Dashboard() {
   const [draft, setDraft] = useState("");
   const [railOpen, setRailOpen] = useState(true);
   const [copilotOpen, setCopilotOpen] = useState(false);
-
-  // show quick-start only when + New is pressed
   const [showNew, setShowNew] = useState(false);
 
   const [theme, setTheme] = useState<"light" | "dark">(
@@ -166,30 +218,40 @@ export default function Dashboard() {
     (async () => {
       try {
         const list = await getLeads();
-        setLeads(list);
-        if (!selectedId && list.length) setSelectedId(list[0].id);
+        setLeads(list || []);
       } catch (e) {
         console.error(e);
+        setLeads([]);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const selected = useMemo(
-    () => leads.find((l) => String(l.id) === String(selectedId)) || null,
-    [leads, selectedId]
-  );
+  // Hide seeded sample/demo rows
+  const realLeads = useMemo(() => leads.filter((l) => !isSampleLead(l)), [leads]);
+
+  // pick a default if nothing selected yet
+  useEffect(() => {
+    if (!selectedId && realLeads.length) setSelectedId(realLeads[0].id);
+    // if the selected one becomes filtered out, clear it
+    if (selectedId && !realLeads.find((l) => String(l.id) === String(selectedId))) {
+      setSelectedId(realLeads[0]?.id ?? null);
+    }
+  }, [realLeads, selectedId]);
+
+  const selected =
+    realLeads.find((l) => String(l.id) === String(selectedId)) || null;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return leads;
-    return leads.filter(
+    const base = realLeads;
+    if (!q) return base;
+    return base.filter(
       (l) =>
-        l.name.toLowerCase().includes(q) ||
-        l.email.toLowerCase().includes(q) ||
+        (l.name || "").toLowerCase().includes(q) ||
+        (l.email || "").toLowerCase().includes(q) ||
         (l.phone ?? "").toLowerCase().includes(q)
     );
-  }, [query, leads]);
+  }, [query, realLeads]);
 
   const [menuOpen, setMenuOpen] = useState(false);
   function closeMenuSoon() {
@@ -255,7 +317,6 @@ export default function Dashboard() {
         {/* LEFT RAIL */}
         <aside className={`rail ${railOpen ? "" : "collapsed"} matte`}>
           <nav>
-            {/* Conversations (was Contacts) → /dashboard */}
             <NavLink
               to="/dashboard"
               className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`}
@@ -300,18 +361,30 @@ export default function Dashboard() {
         </aside>
 
         {/* LIST */}
-        <section className="panel list">
+        <section className="panel list" style={{ position: "relative" }}>
           <div className="list-head">
             <div className="h">Conversations</div>
             <div className="list-head-actions">
-              <button className="btn-outline sm" onClick={() => setShowNew(true)}>+ New</button>
+              <button
+                className="btn-outline sm"
+                onClick={() => setShowNew(true)}
+                title="Start a new conversation"
+              >
+                + New
+              </button>
             </div>
           </div>
 
-          {/* Quick-start appears ONLY when + New is clicked */}
-          {showNew && <NewConversationBox onClose={() => setShowNew(false)} />}
+          {showNew && (
+            <NewConversationPopover
+              onClose={() => setShowNew(false)}
+              onCreated={() => {
+                // optional: refresh your leads after creating if your server creates a lead
+                // (not required if your startThread doesn't create lead records)
+              }}
+            />
+          )}
 
-          {/* Search + rows */}
           <div className="search">
             <OutlineIcon d="M11 19a8 8 0 1 1 5.29-14.29L21 9l-4 4" />
             <input
@@ -340,13 +413,17 @@ export default function Dashboard() {
                 </div>
               </li>
             ))}
-            {!filtered.length && <li className="row">No matches</li>}
+            {!filtered.length && (
+              <li className="row">
+                <span className="hint">No conversations yet.</span>
+              </li>
+            )}
           </ul>
         </section>
 
-        {/* THREAD – no fake/demo bubbles */}
+        {/* THREAD (empty state only until backend is wired) */}
         <section className="panel thread">
-          <div className="thread-title">
+          <div className="thread-title" style={{ paddingTop: 6 }}>
             <div className="who">
               <div className="avatar">
                 {(selected?.name || "T").slice(0, 1).toUpperCase()}
@@ -359,10 +436,10 @@ export default function Dashboard() {
           </div>
 
           <div className="messages" key={selected?.id ?? "none"}>
-            <div className="bubble" style={{ opacity: 0.75 }}>
+            <div className="bubble" style={{ opacity: 0.8 }}>
               Messages will appear here once you start texting.
               <div className="stamp">
-                Use “+ New” to text your own number, and wire your webhook to ingest inbound.
+                Use “+ New” to text your own number. Wire your webhook to ingest inbound.
               </div>
             </div>
           </div>
@@ -397,7 +474,7 @@ export default function Dashboard() {
         </section>
 
         {/* DETAILS */}
-        <aside className="panel details">
+        <aside className="panel details" style={{ paddingTop: 2 }}>
           <div className="section">
             <div className="section-title">Personal Info</div>
             <div className="kv">
