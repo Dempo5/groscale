@@ -1,119 +1,148 @@
-// apps/server/src/routes/messages.ts
 import { Router } from "express";
-// ESM-style import needs explicit extension under moduleResolution node16/nodenext:
-import { prisma } from "../prisma.js";
+import twilio from "twilio";
+import { prisma } from "../prisma"; // make sure this exports a singleton PrismaClient
 
 const r = Router();
+const tw = twilio(process.env.TWILIO_ACCOUNT_SID!, process.env.TWILIO_AUTH_TOKEN!);
 
-/* -------------------------------------------
-   Start a new thread (by phone) BEFORE /:id
--------------------------------------------- */
-r.post("/start", async (req, res) => {
-  try {
-    const ownerId = (req as any).user?.id || "system";
-    const { phone, name, leadId, firstMessage } = req.body || {};
-    if (!phone) return res.status(400).json({ ok: false, error: "phone required" });
-
-    // Create or find the lead
-    const lead =
-      leadId
-        ? await prisma.lead.findUnique({ where: { id: leadId } })
-        : await prisma.lead.create({
-            data: { name: name || phone, email: null, phone, ownerId },
-          });
-
-    if (!lead) return res.status(404).json({ ok: false, error: "lead not found" });
-
-    const thread = await prisma.messageThread.create({
-      data: { ownerId, leadId: lead.id },
-    });
-
-    if (firstMessage && String(firstMessage).trim() !== "") {
-      await prisma.message.create({
-        data: {
-          threadId: thread.id,
-          direction: "OUTBOUND",
-          body: String(firstMessage),
-          status: "QUEUED",
-        },
-      });
-      // enqueue SMS send here if desired
-    }
-
-    return res.json({ ok: true, thread });
-  } catch (err: any) {
-    return res.status(500).json({ ok: false, error: err?.message || "server error" });
-  }
-});
-
-/* -------------------------------------------
-   Send message in an existing thread
--------------------------------------------- */
+// POST /api/messages/send { threadId, body }
 r.post("/send", async (req, res) => {
-  try {
-    const { threadId, body } = req.body || {};
-    if (!threadId || !body) {
-      return res.status(400).json({ ok: false, error: "threadId/body required" });
-    }
+  const { threadId, body } = req.body || {};
+  if (!threadId || !body) {
+    return res.status(400).json({ ok: false, error: "threadId and body required" });
+  }
 
-    const msg = await prisma.message.create({
-      data: { threadId, direction: "OUTBOUND", body: String(body), status: "QUEUED" },
+  // 1) find thread + lead
+  const thread = await prisma.messageThread.findUnique({
+    where: { id: threadId },
+    include: { lead: true },
+  });
+  if (!thread) return res.status(404).json({ ok: false, error: "thread not found" });
+  if (!thread.lead?.phone) return res.status(400).json({ ok: false, error: "lead has no phone" });
+
+  const to = thread.lead.phone;
+  // decide the 'from' – from DB number or env fallback
+  const from =
+    thread.phoneNumberSid
+      ? (await prisma.phoneNumber.findUnique({ where: { sid: thread.phoneNumberSid } }))?.number
+      : process.env.TWILIO_FROM;
+
+  if (!from) return res.status(400).json({ ok: false, error: "no FROM number configured" });
+
+  // 2) create our local message
+  const msg = await prisma.message.create({
+    data: {
+      threadId: thread.id,
+      direction: "OUTBOUND",
+      body,
+      status: "QUEUED",
+      toNumber: to,
+      fromNumber: from,
+    },
+  });
+
+  // 3) send via Twilio (with status callback to update)
+  const statusCallback = `${process.env.PUBLIC_BASE_URL}/api/messages/status-callback`;
+
+  try {
+    const twRes = await tw.messages.create({
+      to,
+      from,
+      body,
+      statusCallback,
     });
 
-    // enqueue SMS send here if desired
+    // store SID immediately
+    await prisma.message.update({
+      where: { id: msg.id },
+      data: { externalSid: twRes.sid, status: "SENT" },
+    });
+
+    // touch thread timestamp
+    await prisma.messageThread.update({
+      where: { id: thread.id },
+      data: { lastMessageAt: new Date() },
+    });
+
     return res.json({ ok: true, id: msg.id });
-  } catch (err: any) {
-    return res.status(500).json({ ok: false, error: err?.message || "server error" });
+  } catch (e: any) {
+    await prisma.message.update({
+      where: { id: msg.id },
+      data: { status: "FAILED", error: e?.message?.slice(0, 500) ?? "send failed" },
+    });
+    return res.status(500).json({ ok: false, error: e?.message || "Twilio send failed" });
   }
 });
 
-/* -------------------------------------------
-   List threads (for current owner)
--------------------------------------------- */
-r.get("/threads", async (req, res) => {
-  try {
-    const ownerId = (req as any).user?.id || "system";
+/**
+ * Twilio status webhook to keep delivery states fresh.
+ * Configure the Messaging Status Callback to point here:
+ *   PUBLIC_BASE_URL + /api/messages/status-callback
+ */
+r.post("/status-callback", async (req, res) => {
+  // Twilio posts application/x-www-form-urlencoded
+  const sid = (req.body.MessageSid || req.body.SmsSid) as string | undefined;
+  const twStatus = (req.body.MessageStatus || "").toLowerCase(); // queued/sent/delivered/failed/undelivered
 
-    const rows = await prisma.messageThread.findMany({
-      where: { ownerId },
-      orderBy: { lastMessageAt: "desc" },
-      include: { lead: { select: { name: true, email: true, phone: true } } },
+  if (sid) {
+    let status: "QUEUED" | "SENT" | "DELIVERED" | "FAILED" = "SENT";
+    if (twStatus === "delivered") status = "DELIVERED";
+    else if (twStatus === "failed" || twStatus === "undelivered") status = "FAILED";
+    else if (twStatus === "queued" || twStatus === "accepted") status = "QUEUED";
+    else if (twStatus === "sent") status = "SENT";
+
+    await prisma.message.updateMany({
+      where: { externalSid: sid },
+      data: { status },
     });
-
-    const data = rows.map((t: (typeof rows)[number]) => ({
-      id: t.id,
-      ownerId: t.ownerId,
-      leadId: t.leadId,
-      leadName: t.lead?.name ?? null,
-      leadEmail: t.lead?.email ?? null,
-      leadPhone: t.lead?.phone ?? null,
-      phoneNumberSid: t.phoneNumberSid,
-      lastMessageAt: t.lastMessageAt,
-    }));
-
-    return res.json({ ok: true, data });
-  } catch (err: any) {
-    return res.status(500).json({ ok: false, error: err?.message || "server error" });
   }
+  res.type("text/plain").send("OK");
 });
 
-/* -------------------------------------------
-   Get messages in a thread
-   (provide both /thread/:threadId and legacy /:threadId)
--------------------------------------------- */
-async function getThreadHandler(req: any, res: any) {
-  try {
-    const threadId = req.params.threadId;
-    const data = await prisma.message.findMany({
-      where: { threadId },
-      orderBy: { createdAt: "asc" },
-    });
-    return res.json({ ok: true, data });
-  } catch (err: any) {
-    return res.status(500).json({ ok: false, error: err?.message || "server error" });
+/**
+ * Optional: Twilio inbound webhook to create threads/messages on incoming texts.
+ * Set your Messaging *Request URL* to: PUBLIC_BASE_URL + /api/messages/inbound
+ */
+r.post("/inbound", async (req, res) => {
+  // x-www-form-urlencoded fields from Twilio
+  const from = req.body.From as string;
+  const to = req.body.To as string;
+  const body = (req.body.Body as string) || "";
+
+  // find or create a lead and thread for this From
+  let lead = await prisma.lead.findFirst({ where: { phone: from } });
+  if (!lead) {
+    lead = await prisma.lead.create({ data: { phone: from, name: from, email: null, ownerId: "system" } });
   }
-}
-r.get("/thread/:threadId", getThreadHandler);
-r.get("/:threadId", getThreadHandler); // backward compat (make sure this stays AFTER /start and /send)
+
+  let thread = await prisma.messageThread.findFirst({
+    where: { leadId: lead.id },
+    orderBy: { lastMessageAt: "desc" },
+  });
+  if (!thread) {
+    thread = await prisma.messageThread.create({
+      data: { leadId: lead.id, ownerId: "system" },
+    });
+  }
+
+  await prisma.message.create({
+    data: {
+      threadId: thread.id,
+      direction: "INBOUND",
+      body,
+      status: "RECEIVED",
+      toNumber: to,
+      fromNumber: from,
+    },
+  });
+
+  await prisma.messageThread.update({
+    where: { id: thread.id },
+    data: { lastMessageAt: new Date() },
+  });
+
+  // Twilio expects a valid TwiML or a 200; a blank 200 is fine if you don't auto-reply
+  res.type("text/xml").send("<Response/>");
+});
 
 export default r;
