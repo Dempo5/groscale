@@ -9,9 +9,9 @@ import numbersRouter from "./routes/numbers.js";
 import workflowsRouter from "./routes/workflows.js";
 import copilotRouter from "./routes/copilot.js";
 import tagsRouter from "./routes/tags.js";
-import messagesRouter from "./routes/messages.js"; // keep only if the file exists
-import twilioRouter from "./routes/twilio.js";     // keep only if the file exists
-import debugMsgs from "./routes/messages.debug.js";
+import messagesRouter from "./routes/messages.js";  // real API
+import twilioRouter from "./routes/twilio.js";      // webhooks (urlencoded)
+import debugMsgs from "./routes/messages.debug.js"; // debug/dev helpers
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
 
@@ -61,12 +61,12 @@ app.set("trust proxy", true);
 app.use(express.json({ limit: "2mb" }));
 app.use(corsGuard);
 
-// ---------- Health ----------
+/* ---------- Health ---------- */
 app.get("/health", (_req, res) => {
   res.status(200).json({ ok: true, ts: Date.now() });
 });
 
-// ---------- API routes ----------
+/* ---------- API routes ---------- */
 app.use("/api/auth", authRoute);
 app.use("/api/uploads", uploadsRouter);
 app.use("/api/numbers", numbersRouter);
@@ -74,18 +74,22 @@ app.use("/api/workflows", workflowsRouter);
 app.use("/api/copilot", copilotRouter);
 app.use("/api/tags", tagsRouter);
 
-// Optional (only if the files exist)
-// messages uses JSON body
+// Messages API (JSON body)
 app.use("/api/messages", messagesRouter);
 
-// Twilio webhooks need urlencoded parsing (not JSON).
-// If your twilio route does its own parsing, you can remove the middleware here.
-app.use("/api/twilio",
-  express.urlencoded({ extended: false }),  // keeps signature verification possible
+// Twilio webhooks need urlencoded parsing (not JSON)
+app.use(
+  "/api/twilio",
+  express.urlencoded({ extended: false }),
   twilioRouter
 );
 
-// ---------- Demo ----------
+// Debug/dev-only message endpoints (mounted BEFORE 404)
+if (process.env.NODE_ENV !== "production") {
+  app.use("/api/messages", debugMsgs);
+}
+
+/* ---------- Demo ---------- */
 app.get("/api/leads", (_req, res) => {
   res.json([
     { id: 1, name: "Test Lead", email: "lead@example.com" },
@@ -93,7 +97,7 @@ app.get("/api/leads", (_req, res) => {
   ]);
 });
 
-// ---------- Root ----------
+/* ---------- Root ---------- */
 app.get("/", (_req, res) => {
   res.type("text").send(`GroScale API is running ✅
 
@@ -105,23 +109,23 @@ POST /api/uploads/import
 GET  /api/leads
 GET  /api/workflows
 GET  /api/tags
-POST /api/messages/send     (if implemented)
-POST /api/twilio/inbound    (Twilio webhook)
+GET  /api/messages/threads
+POST /api/messages/start
+POST /api/messages/send
+POST /api/twilio/inbound
 POST /api/copilot/draft`);
 });
 
-// ---------- 404 ----------
+/* ---------- 404 ---------- */
 app.use((_req, res) => res.status(404).json({ error: "Not found" }));
 
-// ---------- Error handler ----------
+/* ---------- Error handler ---------- */
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   const code = typeof err?.status === "number" ? err.status : 500;
   res.status(code).json({ error: err?.message || "Server error" });
 });
 
-// ---------- Start ----------
+/* ---------- Start ---------- */
 app.listen(PORT, () => {
   console.log(`🚀 GroScales API running on port ${PORT}`);
 });
-
-app.use("/api/messages", express.json(), debugMsgs);
