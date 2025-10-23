@@ -1,11 +1,11 @@
 // apps/server/src/routes/twilio.ts
 import { Router, type Request } from "express";
 import { prisma } from "../prisma.js";
+import { Prisma } from "@prisma/client";
 
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || "";
 let twilioValidate: ((...args: any[]) => boolean) | null = null;
 
-/** Lazy-load Twilio's request validator if token present */
 async function ensureValidator() {
   if (!TWILIO_AUTH_TOKEN || twilioValidate) return twilioValidate;
   const mod = await import("twilio");
@@ -15,9 +15,7 @@ async function ensureValidator() {
 
 const r = Router();
 
-/* ------------------------------------------------------------------ */
-/* utils                                                              */
-/* ------------------------------------------------------------------ */
+/* ---------------- utils ---------------- */
 
 function getFirst<T = string>(v: any): T | undefined {
   if (v == null) return undefined;
@@ -33,28 +31,24 @@ function asE164(input?: string): string | undefined {
   return input.startsWith("+") ? input : `+${digits}`;
 }
 
-/** Optional signature check (only if TWILIO_AUTH_TOKEN is present) */
 async function verifyTwilio(req: Request): Promise<boolean> {
-  if (!TWILIO_AUTH_TOKEN) return true; // disabled
+  if (!TWILIO_AUTH_TOKEN) return true;
   const validator = await ensureValidator();
   if (!validator) return true;
 
   const sig = (req.headers["x-twilio-signature"] as string) || "";
-  // Recreate absolute URL Twilio targeted (your proxy forwards it)
   const base =
     (process.env.SERVER_BASE_URL || process.env.PUBLIC_BASE_URL || "").replace(
       /\/+$/,
       ""
     ) || "";
   const url = `${base}${req.originalUrl}`;
-  // validator needs a plain object (body is already urlencoded -> object)
   const ok = (twilioValidate as any)(TWILIO_AUTH_TOKEN, sig, url, req.body);
   return !!ok;
 }
 
-/* ------------------------------------------------------------------ */
-/* Delivery Status Callback                                            */
-/* ------------------------------------------------------------------ */
+/* ---------------- status callback ---------------- */
+
 r.post("/status", async (req, res) => {
   if (!(await verifyTwilio(req))) return res.sendStatus(403);
 
@@ -69,7 +63,7 @@ r.post("/status", async (req, res) => {
     getFirst<string>(req.body?.SmsStatus) ||
     "";
 
-  const statusMap: Record<string, string> = {
+  const statusMap: Record<string, Prisma.MessageStatus> = {
     queued: "QUEUED",
     accepted: "QUEUED",
     sending: "SENT",
@@ -80,19 +74,20 @@ r.post("/status", async (req, res) => {
     undelivered: "FAILED",
     received: "RECEIVED",
   };
-  const norm = statusMap[raw.toLowerCase()] || "SENT";
+
+  const norm: Prisma.MessageStatus =
+    statusMap[raw.toLowerCase()] || "SENT";
 
   await prisma.message.updateMany({
     where: { externalSid: sid },
-    data: { status: norm },
+    data: { status: norm }, // ✅ enum type
   });
 
   return res.sendStatus(204);
 });
 
-/* ------------------------------------------------------------------ */
-/* Inbound SMS/MMS                                                     */
-/* ------------------------------------------------------------------ */
+/* ---------------- inbound SMS/MMS ---------------- */
+
 r.post("/inbound", async (req, res) => {
   if (!(await verifyTwilio(req))) return res.sendStatus(403);
 
@@ -105,16 +100,14 @@ r.post("/inbound", async (req, res) => {
     undefined;
 
   if (!From || !Body.trim()) {
-    // Nothing we can do—ack with empty TwiML so Twilio stops retrying.
     return res.type("text/xml").send("<Response/>");
   }
 
-  // Find or create the lead by inbound phone
   let lead = await prisma.lead.findFirst({ where: { phone: From } });
   if (!lead) {
     lead = await prisma.lead.create({
       data: {
-        ownerId: "system", // adjust if you support multi-tenant owner routing
+        ownerId: "system",
         name: From,
         phone: From,
         email: null,
@@ -122,7 +115,6 @@ r.post("/inbound", async (req, res) => {
     });
   }
 
-  // Use the most recent thread for this lead or create one
   let thread = await prisma.messageThread.findFirst({
     where: { leadId: lead.id },
     orderBy: { lastMessageAt: "desc" },
@@ -133,14 +125,12 @@ r.post("/inbound", async (req, res) => {
     });
   }
 
-  // Idempotency: if Twilio provided a SID and we’ve already stored it, skip insert
   if (Sid) {
     const dup = await prisma.message.findFirst({
       where: { externalSid: Sid },
       select: { id: true },
     });
     if (dup) {
-      // Still update thread timestamp so UI floats this thread
       await prisma.messageThread.update({
         where: { id: thread.id },
         data: { lastMessageAt: new Date() },
@@ -154,7 +144,7 @@ r.post("/inbound", async (req, res) => {
       threadId: thread.id,
       direction: "INBOUND",
       body: Body,
-      status: "RECEIVED",
+      status: "RECEIVED" as Prisma.MessageStatus, // ✅ enum type
       toNumber: To ?? null,
       fromNumber: From ?? null,
       externalSid: Sid ?? null,
@@ -166,7 +156,6 @@ r.post("/inbound", async (req, res) => {
     data: { lastMessageAt: new Date() },
   });
 
-  // Acknowledge with empty TwiML
   return res.type("text/xml").send("<Response/>");
 });
 
