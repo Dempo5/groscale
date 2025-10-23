@@ -279,3 +279,6 @@ export async function sendMessageToThread(threadId: string, body: string) {
     body: JSON.stringify({ threadId, body }),
   });
 }
+export async function sendMessage(threadId: string, body: string) {
+  return sendMessageToThread(threadId, body);
+}
