@@ -1,6 +1,6 @@
 // src/routes/messages.ts
 import { Router } from "express";
-import prisma from "../prisma.js"; // your prisma client
+import { prisma } from "../prisma";
 
 const r = Router();
 
