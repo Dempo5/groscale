@@ -6,6 +6,7 @@ import {
   listWorkflows,
   startThread,
   listThreads,
+  sendMessage,               // ⬅️ added
   // (optional) getThreadMessages
   type Workflow,
 } from "../lib/api";
@@ -99,7 +100,7 @@ function NewConversationBox({
         name: name.trim() || undefined,
         workflowId: wf || undefined,
       });
-      // `startThread` returns the MessageThread; adapt to ThreadRow shape:
+      // Coerce to ThreadRow shape
       const t: ThreadRow = {
         id: (created as any).id ?? (created as any).thread?.id ?? "",
         ownerId: (created as any).ownerId ?? (created as any).thread?.ownerId ?? "system",
@@ -167,6 +168,9 @@ export default function Dashboard() {
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);       // ⬅️ added
+  const [notice, setNotice] = useState("");            // ⬅️ added
+
   const [railOpen, setRailOpen] = useState(true);
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [showNew, setShowNew] = useState(false);
@@ -210,6 +214,23 @@ export default function Dashboard() {
     () => threads.find((t) => t.id === selectedThreadId) || null,
     [threads, selectedThreadId]
   );
+
+  // SEND HANDLER
+  async function handleSend() {
+    const text = draft.trim();
+    if (!text || !selectedThreadId) return;
+    setSending(true);
+    setNotice("");
+    try {
+      await sendMessage(selectedThreadId, text); // POST /api/messages/send
+      setDraft("");
+      setNotice("Queued to send. Delivery will update after your webhook processes.");
+    } catch (e: any) {
+      setNotice(e?.message || "Failed to send.");
+    } finally {
+      setSending(false);
+    }
+  }
 
   const [menuOpen, setMenuOpen] = useState(false);
   const closeMenuSoon = () => setTimeout(() => setMenuOpen(false), 100);
@@ -368,7 +389,7 @@ export default function Dashboard() {
           </ul>
         </section>
 
-        {/* THREAD (no fake bubbles anymore) */}
+        {/* THREAD */}
         <section className="panel thread">
           <div className="thread-title">
             <div className="who">
@@ -391,6 +412,7 @@ export default function Dashboard() {
               <br />
               (Wire your outbound send + inbound webhook to populate this thread.)
             </div>
+            {notice && <div className="hint" style={{ marginTop: 8 }}>{notice}</div>}
           </div>
 
           <div className="composer">
@@ -398,7 +420,13 @@ export default function Dashboard() {
               placeholder="Send a message…"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              disabled
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              disabled={!selectedThreadId || sending}
             />
             <button className="btn-outline" onClick={() => nav("/templates")} title="Open templates">
               Templates
@@ -408,13 +436,17 @@ export default function Dashboard() {
               <OutlineIcon d="M5 12l4 4L19 6" />
               Copilot
             </button>
-            <button className="btn-primary" disabled>
-              Send
+            <button
+              className="btn-primary"
+              onClick={handleSend}
+              disabled={!draft.trim() || !selectedThreadId || sending}
+            >
+              {sending ? "Sending…" : "Send"}
             </button>
           </div>
         </section>
 
-        {/* DETAILS (unchanged) */}
+        {/* DETAILS */}
         <aside className="panel details">
           <div className="section">
             <div className="section-title">Personal Info</div>
