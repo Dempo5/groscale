@@ -6,8 +6,7 @@ import {
   listWorkflows,
   startThread,
   listThreads,
-  sendMessage,               // ⬅️ added
-  // (optional) getThreadMessages
+  sendMessage,              // ✅ single import
   type Workflow,
 } from "../lib/api";
 import { NavLink, useNavigate } from "react-router-dom";
@@ -48,7 +47,7 @@ const CopyBtn = ({ value }: { value?: string | null }) => (
   </button>
 );
 
-/* ---------------- types (lightweight to avoid build breaks) ---------------- */
+/* ---------------- types (lightweight) ---------------- */
 type ThreadRow = {
   id: string;
   ownerId: string;
@@ -168,8 +167,8 @@ export default function Dashboard() {
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);       // ⬅️ added
-  const [notice, setNotice] = useState("");            // ⬅️ added
+  const [sending, setSending] = useState(false);
+  const [notice, setNotice] = useState("");
 
   const [railOpen, setRailOpen] = useState(true);
   const [copilotOpen, setCopilotOpen] = useState(false);
@@ -183,7 +182,7 @@ export default function Dashboard() {
     localStorage.setItem("gs_theme", theme);
   }, [theme]);
 
-  // Load real threads
+  // Load threads
   useEffect(() => {
     (async () => {
       try {
@@ -215,14 +214,16 @@ export default function Dashboard() {
     [threads, selectedThreadId]
   );
 
-  // SEND HANDLER
+  // ---- SEND HANDLER (inside component) ----
+  const canSend = () => !!selectedThreadId && draft.trim().length > 0;
+
   async function handleSend() {
+    if (!canSend()) return;
     const text = draft.trim();
-    if (!text || !selectedThreadId) return;
     setSending(true);
     setNotice("");
     try {
-      await sendMessage(selectedThreadId, text); // POST /api/messages/send
+      await sendMessage(selectedThreadId!, text); // POST /api/messages/send
       setDraft("");
       setNotice("Queued to send. Delivery will update after your webhook processes.");
     } catch (e: any) {
@@ -340,7 +341,6 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* This inline box just pushes the list/search down */}
           {showNew && (
             <NewConversationBox
               onCancel={() => setShowNew(false)}
