@@ -210,3 +210,12 @@ model Template {
 
   @@unique([ownerId, name])
 }
+model MessageThread {
+  id             String   @id @default(cuid())
+  ownerId        String
+  leadId         String
+  lead           Lead     @relation(fields: [leadId], references: [id])
+  lastMessageAt  DateTime?
+  workflowId     String?  // ← add this
+  // ...
+}
