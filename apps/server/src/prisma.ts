@@ -1,13 +1,12 @@
-// Singleton Prisma client used across routes (safe for ESM + hot reload)
+// prisma.ts
 import { PrismaClient } from "@prisma/client";
 
-// @ts-ignore - attach to global to avoid multiple clients in dev
-const g = globalThis as unknown as { __prisma?: PrismaClient };
+const _prisma = new PrismaClient();
 
-export const prisma =
-  g.__prisma ??
-  new PrismaClient({
-    log: process.env.NODE_ENV === "production" ? [] : ["warn", "error"],
-  });
+/** Use a global in dev to avoid creating multiple clients on hot-reload */
+export const prisma: PrismaClient =
+  (globalThis as any).prisma ?? _prisma;
 
-if (process.env.NODE_ENV !== "production") g.__prisma = prisma;
+if (process.env.NODE_ENV !== "production") {
+  (globalThis as any).prisma = prisma;
+}
