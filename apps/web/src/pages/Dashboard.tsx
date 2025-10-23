@@ -1,26 +1,23 @@
+// apps/web/src/pages/Dashboard.tsx
 import { useEffect, useMemo, useState } from "react";
 import "./dashboard-ios.css";
 import {
-  getLeads,
-  type Lead,
   logout,
   listWorkflows,
   startThread,
+  listThreads,
+  // (optional) getThreadMessages
   type Workflow,
 } from "../lib/api";
 import { NavLink, useNavigate } from "react-router-dom";
 import CopilotModal from "../components/CopilotModal";
 
-/* ---------------- icons / small bits ---------------- */
+/* ---------------- small UI helpers ---------------- */
 const OutlineIcon = ({
   d,
   size = 18,
   stroke = "currentColor",
-}: {
-  d: string;
-  size?: number;
-  stroke?: string;
-}) => (
+}: { d: string; size?: number; stroke?: string }) => (
   <svg
     width={size}
     height={size}
@@ -50,7 +47,19 @@ const CopyBtn = ({ value }: { value?: string | null }) => (
   </button>
 );
 
-/* ---------------- helpers ---------------- */
+/* ---------------- types (lightweight to avoid build breaks) ---------------- */
+type ThreadRow = {
+  id: string;
+  ownerId: string;
+  leadId: string;
+  leadName?: string | null;
+  leadEmail?: string | null;
+  leadPhone?: string | null;
+  phoneNumberSid?: string | null;
+  lastMessageAt?: string | null;
+};
+
+/* ---------------- utils ---------------- */
 function normalizePhone(input: string): string {
   const digits = (input || "").replace(/\D+/g, "");
   if (digits.length === 10) return `+1${digits}`;
@@ -59,26 +68,13 @@ function normalizePhone(input: string): string {
   return `+${digits}`;
 }
 
-// Hide seeded sample rows that ship with the demo
-function isSampleLead(l: Lead) {
-  const n = (l.name || "").toLowerCase();
-  const e = (l.email || "").toLowerCase();
-  return (
-    n === "test lead" ||
-    n === "demo lead" ||
-    e === "lead@example.com" ||
-    e === "demo@example.com" ||
-    e.endsWith("@example.com")
-  );
-}
-
-/* ---------------- New conversation popover ---------------- */
-function NewConversationPopover({
-  onClose,
+/* ---------------- inline “+ New” box (pushes list down) ---------------- */
+function NewConversationBox({
   onCreated,
+  onCancel,
 }: {
-  onClose: () => void;
-  onCreated?: () => void;
+  onCreated: (t: ThreadRow) => void;
+  onCancel: () => void;
 }) {
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
@@ -87,12 +83,10 @@ function NewConversationPopover({
   const [status, setStatus] = useState<string>("");
 
   useEffect(() => {
-    listWorkflows()
-      .then((ws) => setWorkflows(ws || []))
-      .catch(() => setWorkflows([]));
+    listWorkflows().then((ws) => setWorkflows(ws || [])).catch(() => setWorkflows([]));
   }, []);
 
-  async function create() {
+  async function handleCreate() {
     setStatus("");
     const n = normalizePhone(phone);
     if (!n || n === "+") {
@@ -100,44 +94,31 @@ function NewConversationPopover({
       return;
     }
     try {
-      await startThread({
+      const created = await startThread({
         phone: n,
         name: name.trim() || undefined,
         workflowId: wf || undefined,
       });
-      setStatus("Created!");
-      onCreated?.();
-      onClose();
+      // `startThread` returns the MessageThread; adapt to ThreadRow shape:
+      const t: ThreadRow = {
+        id: (created as any).id ?? (created as any).thread?.id ?? "",
+        ownerId: (created as any).ownerId ?? (created as any).thread?.ownerId ?? "system",
+        leadId: (created as any).leadId ?? (created as any).thread?.leadId ?? "",
+        leadName: (created as any).leadName ?? null,
+        leadEmail: (created as any).leadEmail ?? null,
+        leadPhone: (created as any).leadPhone ?? (name ? null : n) ?? null,
+        phoneNumberSid: (created as any).phoneNumberSid ?? null,
+        lastMessageAt: (created as any).lastMessageAt ?? null,
+      };
+      onCreated(t);
     } catch (e: any) {
       setStatus(e?.message || "Failed to create conversation.");
     }
   }
 
   return (
-    <>
-      {/* backdrop */}
-      <div
-        onClick={onClose}
-        style={{
-          position: "absolute",
-          inset: 0,
-          background: "rgba(0,0,0,.08)",
-          zIndex: 25,
-        }}
-      />
-      {/* card */}
-      <div
-        className="u-card"
-        style={{
-          position: "absolute",
-          left: 12,
-          right: 12,
-          top: 56, // just under list header
-          zIndex: 30,
-          padding: 12,
-          borderRadius: 12,
-        }}
-      >
+    <div style={{ padding: "10px 10px 0 10px" }}>
+      <div className="u-card" style={{ padding: 10 }}>
         <div style={{ display: "grid", gap: 8 }}>
           <input
             className="input"
@@ -151,55 +132,39 @@ function NewConversationPopover({
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
-          <select
-            className="input"
-            value={wf}
-            onChange={(e) => setWf(e.target.value)}
-            aria-label="Workflow"
-          >
+          <select className="input" value={wf} onChange={(e) => setWf(e.target.value)}>
             <option value="">(none)</option>
             {workflows.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.name}
-              </option>
+              <option key={w.id} value={w.id}>{w.name}</option>
             ))}
           </select>
 
           <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn-primary" onClick={create}>
-              Create
-            </button>
-            <button className="btn-outline" onClick={onClose}>
-              Cancel
-            </button>
+            <button className="btn-primary" onClick={handleCreate}>Create</button>
+            <button className="btn-outline" onClick={onCancel}>Cancel</button>
           </div>
 
           {status ? (
-            <div
-              className="hint"
-              style={{ color: status.includes("Failed") ? "#e5484d" : "inherit" }}
-            >
-              {status}
-            </div>
+            <div className="hint" style={{ color: "#e5484d" }}>{status}</div>
           ) : (
             <div className="hint">
-              Tip: use your own number to test. Messages appear once your webhook
-              ingests inbound.
+              Tip: use your own number to test. Messages will appear in the middle column once your webhook ingests inbound.
             </div>
           )}
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
-/* ======================================================================== */
-
+/* ====================================================================== */
+/*                               MAIN PAGE                                */
+/* ====================================================================== */
 export default function Dashboard() {
   const nav = useNavigate();
 
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [selectedId, setSelectedId] = useState<string | number | null>(null);
+  const [threads, setThreads] = useState<ThreadRow[]>([]);
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [railOpen, setRailOpen] = useState(true);
@@ -214,49 +179,40 @@ export default function Dashboard() {
     localStorage.setItem("gs_theme", theme);
   }, [theme]);
 
+  // Load real threads
   useEffect(() => {
     (async () => {
       try {
-        const list = await getLeads();
-        setLeads(list || []);
+        const res = await listThreads();
+        const list: ThreadRow[] = Array.isArray((res as any)) ? (res as any)
+          : Array.isArray((res as any)?.threads) ? (res as any).threads
+          : Array.isArray((res as any)?.data) ? (res as any).data
+          : [];
+        setThreads(list);
+        if (!selectedThreadId && list.length) setSelectedThreadId(list[0].id);
       } catch (e) {
         console.error(e);
-        setLeads([]);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Hide seeded sample/demo rows
-  const realLeads = useMemo(() => leads.filter((l) => !isSampleLead(l)), [leads]);
-
-  // pick a default if nothing selected yet
-  useEffect(() => {
-    if (!selectedId && realLeads.length) setSelectedId(realLeads[0].id);
-    // if the selected one becomes filtered out, clear it
-    if (selectedId && !realLeads.find((l) => String(l.id) === String(selectedId))) {
-      setSelectedId(realLeads[0]?.id ?? null);
-    }
-  }, [realLeads, selectedId]);
-
-  const selected =
-    realLeads.find((l) => String(l.id) === String(selectedId)) || null;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const base = realLeads;
-    if (!q) return base;
-    return base.filter(
-      (l) =>
-        (l.name || "").toLowerCase().includes(q) ||
-        (l.email || "").toLowerCase().includes(q) ||
-        (l.phone ?? "").toLowerCase().includes(q)
-    );
-  }, [query, realLeads]);
+    if (!q) return threads;
+    return threads.filter((t) => {
+      const a = `${t.leadName || ""} ${t.leadEmail || ""} ${t.leadPhone || ""}`.toLowerCase();
+      return a.includes(q);
+    });
+  }, [threads, query]);
+
+  const selected = useMemo(
+    () => threads.find((t) => t.id === selectedThreadId) || null,
+    [threads, selectedThreadId]
+  );
 
   const [menuOpen, setMenuOpen] = useState(false);
-  function closeMenuSoon() {
-    setTimeout(() => setMenuOpen(false), 100);
-  }
+  const closeMenuSoon = () => setTimeout(() => setMenuOpen(false), 100);
 
   return (
     <div className="p-shell matte">
@@ -288,9 +244,7 @@ export default function Dashboard() {
               <div className="menu" role="menu" onBlur={closeMenuSoon}>
                 <button
                   className="menu-item"
-                  onClick={() =>
-                    setTheme((t) => (t === "light" ? "dark" : "light"))
-                  }
+                  onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
                 >
                   <OutlineIcon d="M12 3v18M3 12h18" />
                   {theme === "light" ? "Dark mode" : "Light mode"}
@@ -317,11 +271,7 @@ export default function Dashboard() {
         {/* LEFT RAIL */}
         <aside className={`rail ${railOpen ? "" : "collapsed"} matte`}>
           <nav>
-            <NavLink
-              to="/dashboard"
-              className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`}
-              title="Conversations"
-            >
+            <NavLink to="/dashboard" className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`} title="Conversations">
               <OutlineIcon d="M16 11c1.66 0 3-1.34 3-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zM5 20c0-3.31 2.69-6 6-6h2" />
               {railOpen && <span>Conversations</span>}
             </NavLink>
@@ -360,27 +310,23 @@ export default function Dashboard() {
           </div>
         </aside>
 
-        {/* LIST */}
-        <section className="panel list" style={{ position: "relative" }}>
+        {/* LIST (Conversations) */}
+        <section className="panel list">
           <div className="list-head">
             <div className="h">Conversations</div>
             <div className="list-head-actions">
-              <button
-                className="btn-outline sm"
-                onClick={() => setShowNew(true)}
-                title="Start a new conversation"
-              >
-                + New
-              </button>
+              <button className="btn-outline sm" onClick={() => setShowNew(true)}>+ New</button>
             </div>
           </div>
 
+          {/* This inline box just pushes the list/search down */}
           {showNew && (
-            <NewConversationPopover
-              onClose={() => setShowNew(false)}
-              onCreated={() => {
-                // optional: refresh your leads after creating if your server creates a lead
-                // (not required if your startThread doesn't create lead records)
+            <NewConversationBox
+              onCancel={() => setShowNew(false)}
+              onCreated={(t) => {
+                setThreads((prev) => [t, ...prev.filter((p) => p.id !== t.id)]);
+                setSelectedThreadId(t.id);
+                setShowNew(false);
               }}
             />
           )}
@@ -398,49 +344,52 @@ export default function Dashboard() {
           </div>
 
           <ul className="rows">
-            {filtered.map((l) => (
+            {filtered.map((t) => (
               <li
-                key={String(l.id)}
-                className={`row ${String(l.id) === String(selectedId) ? "selected" : ""}`}
-                onClick={() => setSelectedId(l.id)}
+                key={t.id}
+                className={`row ${t.id === selectedThreadId ? "selected" : ""}`}
+                onClick={() => setSelectedThreadId(t.id)}
               >
                 <div className="avatar">
-                  {(l.name || l.email || "?").slice(0, 1).toUpperCase()}
+                  {(t.leadName || t.leadEmail || t.leadPhone || "?")
+                    .toString()
+                    .slice(0, 1)
+                    .toUpperCase()}
                 </div>
                 <div className="meta">
-                  <div className="name">{l.name || "—"}</div>
-                  <div className="sub">{l.email}</div>
+                  <div className="name">{t.leadName || t.leadPhone || "—"}</div>
+                  <div className="sub">{t.leadEmail || t.leadPhone || ""}</div>
                 </div>
               </li>
             ))}
             {!filtered.length && (
-              <li className="row">
-                <span className="hint">No conversations yet.</span>
-              </li>
+              <li className="row" style={{ opacity: 0.7 }}>No conversations yet.</li>
             )}
           </ul>
         </section>
 
-        {/* THREAD (empty state only until backend is wired) */}
+        {/* THREAD (no fake bubbles anymore) */}
         <section className="panel thread">
-          <div className="thread-title" style={{ paddingTop: 6 }}>
+          <div className="thread-title">
             <div className="who">
               <div className="avatar">
-                {(selected?.name || "T").slice(0, 1).toUpperCase()}
+                {(selected?.leadName || selected?.leadEmail || selected?.leadPhone || "T")
+                  .toString()
+                  .slice(0, 1)
+                  .toUpperCase()}
               </div>
               <div className="who-meta">
-                <div className="who-name">{selected?.name || "—"}</div>
-                <div className="who-sub">{selected?.email}</div>
+                <div className="who-name">{selected?.leadName || "—"}</div>
+                <div className="who-sub">{selected?.leadEmail || selected?.leadPhone || ""}</div>
               </div>
             </div>
           </div>
 
           <div className="messages" key={selected?.id ?? "none"}>
-            <div className="bubble" style={{ opacity: 0.8 }}>
+            <div className="hint">
               Messages will appear here once you start texting.
-              <div className="stamp">
-                Use “+ New” to text your own number. Wire your webhook to ingest inbound.
-              </div>
+              <br />
+              (Wire your outbound send + inbound webhook to populate this thread.)
             </div>
           </div>
 
@@ -451,18 +400,10 @@ export default function Dashboard() {
               onChange={(e) => setDraft(e.target.value)}
               disabled
             />
-            <button
-              className="btn-outline"
-              onClick={() => nav("/templates")}
-              title="Open templates"
-            >
+            <button className="btn-outline" onClick={() => nav("/templates")} title="Open templates">
               Templates
             </button>
-            <button
-              className="btn-copilot"
-              title="AI Copilot"
-              onClick={() => setCopilotOpen(true)}
-            >
+            <button className="btn-copilot" title="AI Copilot" onClick={() => setCopilotOpen(true)}>
               <span className="copilot-static" aria-hidden />
               <OutlineIcon d="M5 12l4 4L19 6" />
               Copilot
@@ -473,60 +414,40 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* DETAILS */}
-        <aside className="panel details" style={{ paddingTop: 2 }}>
+        {/* DETAILS (unchanged) */}
+        <aside className="panel details">
           <div className="section">
             <div className="section-title">Personal Info</div>
             <div className="kv">
               <label>Full name</label>
               <span className="copy-row">
-                <span>{selected?.name || <i className="placeholder">Not provided</i>}</span>
-                <CopyBtn value={selected?.name || undefined} />
-              </span>
-            </div>
-            <div className="kv">
-              <label>First name</label>
-              <span className="copy-row">
-                <span>{(selected?.name || "").split(" ")[0] || <i className="placeholder">Not provided</i>}</span>
-                <CopyBtn value={(selected?.name || "").split(" ")[0] || undefined} />
-              </span>
-            </div>
-            <div className="kv">
-              <label>Last name</label>
-              <span className="copy-row">
-                <span>
-                  {(selected?.name || "").split(" ").slice(1).join(" ") || (
-                    <i className="placeholder">Not provided</i>
-                  )}
-                </span>
-                <CopyBtn value={(selected?.name || "").split(" ").slice(1).join(" ") || undefined} />
+                <span>{selected?.leadName || <i className="placeholder">Not provided</i>}</span>
+                <CopyBtn value={selected?.leadName || undefined} />
               </span>
             </div>
             <div className="kv">
               <label>Email</label>
               <span className="copy-row">
-                <span>{selected?.email || <i className="placeholder">Not provided</i>}</span>
-                <CopyBtn value={selected?.email || undefined} />
+                <span>{selected?.leadEmail || <i className="placeholder">Not provided</i>}</span>
+                <CopyBtn value={selected?.leadEmail || undefined} />
+              </span>
+            </div>
+            <div className="kv">
+              <label>Phone</label>
+              <span className="copy-row">
+                <span>{selected?.leadPhone || <i className="placeholder">Not provided</i>}</span>
+                <CopyBtn value={selected?.leadPhone || undefined} />
               </span>
             </div>
           </div>
 
           <div className="section">
             <div className="section-title">Demographics</div>
-            {[
-              { k: "Phone", v: selected?.phone || "" },
-              { k: "DOB", v: "" },
-              { k: "Age", v: "" },
-              { k: "City", v: "" },
-              { k: "State", v: "" },
-              { k: "ZIP", v: "" },
-              { k: "Household size", v: "" },
-            ].map(({ k, v }) => (
+            {["DOB", "Age", "City", "State", "ZIP", "Household size"].map((k) => (
               <div className="kv" key={k}>
                 <label>{k}</label>
                 <span className="copy-row">
-                  <span>{v || <i className="placeholder">Not provided</i>}</span>
-                  <CopyBtn value={v || undefined} />
+                  <span><i className="placeholder">Not provided</i></span>
                 </span>
               </div>
             ))}
@@ -535,27 +456,9 @@ export default function Dashboard() {
           <div className="section">
             <div className="section-title">Tags</div>
             <div className="tag-row">
-              <button
-                className="tag tag-blue"
-                onClick={() => nav(`/tags?highlight=${encodeURIComponent("new")}`)}
-                title="Open tag: new"
-              >
-                new
-              </button>
-              <button
-                className="tag tag-pink"
-                onClick={() => nav(`/tags?highlight=${encodeURIComponent("follow-up")}`)}
-                title="Open tag: follow-up"
-              >
-                follow-up
-              </button>
-              <button
-                className="tag tag-green"
-                onClick={() => nav(`/tags?highlight=${encodeURIComponent("warm")}`)}
-                title="Open tag: warm"
-              >
-                warm
-              </button>
+              <button className="tag tag-blue" onClick={() => nav(`/tags?highlight=${encodeURIComponent("new")}`)} title="Open tag: new">new</button>
+              <button className="tag tag-pink" onClick={() => nav(`/tags?highlight=${encodeURIComponent("follow-up")}`)} title="Open tag: follow-up">follow-up</button>
+              <button className="tag tag-green" onClick={() => nav(`/tags?highlight=${encodeURIComponent("warm")}`)} title="Open tag: warm">warm</button>
             </div>
           </div>
 
@@ -563,7 +466,7 @@ export default function Dashboard() {
             <div className="section-title">System Info</div>
             {[
               { k: "Quote", v: "" },
-              { k: "Created", v: selected?.createdAt || "" },
+              { k: "Created", v: "" },
             ].map(({ k, v }) => (
               <div className="kv" key={k}>
                 <label>{k}</label>
