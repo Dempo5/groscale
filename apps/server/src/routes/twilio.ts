@@ -2,28 +2,25 @@
 import { Router, type Request } from "express";
 import { prisma } from "../prisma.js";
 
-// ✅ version-proof enum type (works across Prisma versions)
+// version-proof enum
 type MsgStatus = import("@prisma/client").Message["status"];
 
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || "";
 let twilioValidate: ((...args: any[]) => boolean) | null = null;
 
 async function ensureValidator() {
-  if (!TWILIO_AUTH_TOKEN || twilioValidate) return twilioValidate;
+  if (twilioValidate) return twilioValidate;
+  if (!TWILIO_AUTH_TOKEN) return null;
   const mod = await import("twilio");
-  twilioValidate = mod.validateRequest as any;
+  twilioValidate = (mod as any).validateRequest as any;
   return twilioValidate;
 }
 
-const r = Router();
-
-/* ---------------- utils ---------------- */
-
+// --- helpers ---
 function getFirst<T = string>(v: any): T | undefined {
   if (v == null) return undefined;
   return Array.isArray(v) ? (v[0] as T) : (v as T);
 }
-
 function asE164(input?: string): string | undefined {
   if (!input) return undefined;
   const digits = input.replace(/\D+/g, "");
@@ -32,38 +29,37 @@ function asE164(input?: string): string | undefined {
   if (digits.startsWith("1") && digits.length === 11) return `+${digits}`;
   return input.startsWith("+") ? input : `+${digits}`;
 }
-
+function fullUrlFromReq(req: Request) {
+  const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'https';
+  const host  = (req.headers['x-forwarded-host'] as string) || req.get('host') || '';
+  return `${proto}://${host}${req.originalUrl}`;
+}
 async function verifyTwilio(req: Request): Promise<boolean> {
-  if (!TWILIO_AUTH_TOKEN) return true; // skip in dev
+  if (!TWILIO_AUTH_TOKEN) return true; // allow in dev
   const validator = await ensureValidator();
   if (!validator) return true;
-
   const sig = (req.headers["x-twilio-signature"] as string) || "";
   const base =
-    (process.env.SERVER_BASE_URL || process.env.PUBLIC_BASE_URL || "").replace(
-      /\/+$/,
-      ""
-    ) || "";
-  const url = `${base}${req.originalUrl}`;
-  const ok = (twilioValidate as any)(TWILIO_AUTH_TOKEN, sig, url, req.body);
-  return !!ok;
+    (process.env.SERVER_BASE_URL || process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "") || null;
+  const url = base ? `${base}${req.originalUrl}` : fullUrlFromReq(req);
+  return !!(twilioValidate as any)(TWILIO_AUTH_TOKEN, sig, url, req.body);
 }
 
-/* ---------------- status callback ---------------- */
+const r = Router();
 
+/* ------ status callback ------ */
 r.post("/status", async (req, res) => {
   if (!(await verifyTwilio(req))) return res.sendStatus(403);
 
   const sid =
     getFirst<string>(req.body?.MessageSid) ||
-    getFirst<string>(req.body?.SmsSid) ||
-    "";
+    getFirst<string>(req.body?.SmsSid) || "";
+
   if (!sid) return res.sendStatus(204);
 
   const raw =
     getFirst<string>(req.body?.MessageStatus) ||
-    getFirst<string>(req.body?.SmsStatus) ||
-    "";
+    getFirst<string>(req.body?.SmsStatus) || "";
 
   const statusMap: Record<string, MsgStatus> = {
     queued: "QUEUED",
@@ -76,7 +72,6 @@ r.post("/status", async (req, res) => {
     undelivered: "FAILED",
     received: "RECEIVED",
   };
-
   const norm: MsgStatus = statusMap[raw.toLowerCase()] || "SENT";
 
   await prisma.message.updateMany({
@@ -84,21 +79,18 @@ r.post("/status", async (req, res) => {
     data: { status: norm },
   });
 
-  return res.sendStatus(204);
+  res.sendStatus(204);
 });
 
-/* ---------------- inbound SMS/MMS ---------------- */
-
+/* ------ inbound SMS/MMS ------ */
 r.post("/inbound", async (req, res) => {
   if (!(await verifyTwilio(req))) return res.sendStatus(403);
 
   const From = asE164(getFirst<string>(req.body?.From));
-  const To = asE164(getFirst<string>(req.body?.To));
+  const To   = asE164(getFirst<string>(req.body?.To));
   const Body = getFirst<string>(req.body?.Body)?.toString() ?? "";
-  const Sid =
-    getFirst<string>(req.body?.MessageSid) ||
-    getFirst<string>(req.body?.SmsSid) ||
-    undefined;
+  const Sid  = getFirst<string>(req.body?.MessageSid) ||
+               getFirst<string>(req.body?.SmsSid) || undefined;
 
   if (!From || !Body.trim()) {
     return res.type("text/xml").send("<Response/>");
@@ -107,12 +99,7 @@ r.post("/inbound", async (req, res) => {
   let lead = await prisma.lead.findFirst({ where: { phone: From } });
   if (!lead) {
     lead = await prisma.lead.create({
-      data: {
-        ownerId: "system",
-        name: From,
-        phone: From,
-        email: null,
-      },
+      data: { ownerId: "system", name: From, phone: From, email: null },
     });
   }
 
@@ -145,7 +132,7 @@ r.post("/inbound", async (req, res) => {
       threadId: thread.id,
       direction: "INBOUND",
       body: Body,
-      status: "RECEIVED" as MsgStatus,
+      status: "RECEIVED",
       toNumber: To ?? null,
       fromNumber: From ?? null,
       externalSid: Sid ?? null,
@@ -157,7 +144,7 @@ r.post("/inbound", async (req, res) => {
     data: { lastMessageAt: new Date() },
   });
 
-  return res.type("text/xml").send("<Response/>");
+  res.type("text/xml").send("<Response/>");
 });
 
 export default r;
