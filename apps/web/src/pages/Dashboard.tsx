@@ -1,13 +1,15 @@
 // apps/web/src/pages/Dashboard.tsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./dashboard-ios.css";
 import {
   logout,
   listWorkflows,
   startThread,
   listThreads,
-  sendMessage,              // ✅ single import
+  sendMessage,               // ✅ keep
+  getThreadMessages,         // ✅ NEW
   type Workflow,
+  type MessageDTO,           // ✅ type for messages
 } from "../lib/api";
 import { NavLink, useNavigate } from "react-router-dom";
 import CopilotModal from "../components/CopilotModal";
@@ -68,7 +70,7 @@ function normalizePhone(input: string): string {
   return `+${digits}`;
 }
 
-/* ---------------- inline “+ New” box (pushes list down) ---------------- */
+/* ---------------- inline “+ New” box ---------------- */
 function NewConversationBox({
   onCreated,
   onCancel,
@@ -99,7 +101,6 @@ function NewConversationBox({
         name: name.trim() || undefined,
         workflowId: wf || undefined,
       });
-      // Coerce to ThreadRow shape
       const t: ThreadRow = {
         id: (created as any).id ?? (created as any).thread?.id ?? "",
         ownerId: (created as any).ownerId ?? (created as any).thread?.ownerId ?? "system",
@@ -170,6 +171,12 @@ export default function Dashboard() {
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState("");
 
+  // NEW: messages for selected thread
+  const [msgs, setMsgs] = useState<MessageDTO[]>([]);
+  const [loadingMsgs, setLoadingMsgs] = useState(false);
+  const pollRef = useRef<number | null>(null);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+
   const [railOpen, setRailOpen] = useState(true);
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [showNew, setShowNew] = useState(false);
@@ -182,12 +189,13 @@ export default function Dashboard() {
     localStorage.setItem("gs_theme", theme);
   }, [theme]);
 
-  // Load threads
+  // Load threads (once)
   useEffect(() => {
     (async () => {
       try {
         const res = await listThreads();
-        const list: ThreadRow[] = Array.isArray((res as any)) ? (res as any)
+        const list: ThreadRow[] = Array.isArray(res)
+          ? res
           : Array.isArray((res as any)?.threads) ? (res as any).threads
           : Array.isArray((res as any)?.data) ? (res as any).data
           : [];
@@ -199,6 +207,35 @@ export default function Dashboard() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Fetch messages when thread changes
+  useEffect(() => {
+    async function load() {
+      if (!selectedThreadId) { setMsgs([]); return; }
+      setLoadingMsgs(true);
+      try {
+        const data = await getThreadMessages(selectedThreadId);
+        setMsgs(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoadingMsgs(false);
+        // scroll next tick
+        requestAnimationFrame(() => {
+          scrollerRef.current?.scrollTo({ top: 999999, behavior: "smooth" });
+        });
+      }
+    }
+    load();
+
+    // start polling
+    if (pollRef.current) window.clearInterval(pollRef.current);
+    pollRef.current = window.setInterval(load, 4000);
+    return () => {
+      if (pollRef.current) window.clearInterval(pollRef.current);
+      pollRef.current = null;
+    };
+  }, [selectedThreadId]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -214,22 +251,48 @@ export default function Dashboard() {
     [threads, selectedThreadId]
   );
 
-  // ---- SEND HANDLER (inside component) ----
+  // ---- SEND HANDLER ----
   const canSend = () => !!selectedThreadId && draft.trim().length > 0;
 
   async function handleSend() {
     if (!canSend()) return;
     const text = draft.trim();
+
+    // optimistic append for snappy UX
+    const temp: MessageDTO = {
+      id: `tmp_${Date.now()}`,
+      threadId: selectedThreadId!,
+      direction: "OUTBOUND",
+      body: text,
+      status: "QUEUED",
+      createdAt: new Date().toISOString(),
+      error: null,
+      externalSid: null,
+      toNumber: null,
+      fromNumber: null,
+    };
+    setMsgs((m) => [...m, temp]);
+    setDraft("");
     setSending(true);
     setNotice("");
+
     try {
       await sendMessage(selectedThreadId!, text); // POST /api/messages/send
-      setDraft("");
       setNotice("Queued to send. Delivery will update after your webhook processes.");
+      // refresh to pick up real record + status
+      const data = await getThreadMessages(selectedThreadId!);
+      setMsgs(Array.isArray(data) ? data : []);
     } catch (e: any) {
       setNotice(e?.message || "Failed to send.");
+      // mark temp as failed
+      setMsgs((m) =>
+        m.map((mm) => (mm.id === temp.id ? { ...mm, status: "FAILED" } : mm))
+      );
     } finally {
       setSending(false);
+      requestAnimationFrame(() => {
+        scrollerRef.current?.scrollTo({ top: 999999, behavior: "smooth" });
+      });
     }
   }
 
@@ -406,12 +469,56 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="messages" key={selected?.id ?? "none"}>
-            <div className="hint">
-              Messages will appear here once you start texting.
-              <br />
-              (Wire your outbound send + inbound webhook to populate this thread.)
-            </div>
+          <div className="messages" key={selected?.id ?? "none"} ref={scrollerRef}>
+            {/* messages list */}
+            {loadingMsgs && !msgs.length && (
+              <div className="hint">Loading messages…</div>
+            )}
+
+            {!loadingMsgs && msgs.length === 0 && (
+              <div className="hint">
+                Messages will appear here once you start texting.
+                <br />
+                (Wire your outbound send + inbound webhook to populate this thread.)
+              </div>
+            )}
+
+            {msgs.map((m) => (
+              <div
+                key={m.id}
+                className={`m-row ${m.direction === "OUTBOUND" ? "out" : "in"}`}
+                style={{
+                  display: "flex",
+                  justifyContent: m.direction === "OUTBOUND" ? "flex-end" : "flex-start",
+                  margin: "6px 0",
+                }}
+              >
+                <div
+                  className="bubble"
+                  style={{
+                    maxWidth: 560,
+                    padding: "8px 10px",
+                    borderRadius: 10,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    background:
+                      m.direction === "OUTBOUND"
+                        ? "var(--btn-primary-bg, #4f46e5)"
+                        : "var(--panel-bg, #f3f4f6)",
+                    color:
+                      m.direction === "OUTBOUND"
+                        ? "var(--btn-primary-fg, #fff)"
+                        : "var(--fg, #111)",
+                    opacity: m.status === "FAILED" ? 0.6 : 1,
+                    border: m.status === "FAILED" ? "1px solid #e5484d" : "none",
+                  }}
+                  title={`${m.direction} • ${m.status} • ${new Date(m.createdAt).toLocaleString()}`}
+                >
+                  {m.body}
+                </div>
+              </div>
+            ))}
+
             {notice && <div className="hint" style={{ marginTop: 8 }}>{notice}</div>}
           </div>
 
