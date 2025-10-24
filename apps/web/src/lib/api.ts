@@ -282,7 +282,6 @@ export async function sendMessage(threadId: string, body: string) {
 export type LeadTagDTO = {
   leadId: string;
   tagId: string;
-  createdAt: string;
   tag: TagDTO;
 };
 
@@ -291,12 +290,13 @@ export async function getLeadTags(leadId: string): Promise<LeadTagDTO[]> {
   return Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
 }
 
-export async function attachTagToLead(leadId: string, tagId: string): Promise<LeadTagDTO> {
+export async function attachTagToLead(leadId: string, tagId: string): Promise<LeadTagDTO[]> {
   const res = await http<any>(`/api/leads/${leadId}/tags`, {
     method: "POST",
     body: JSON.stringify({ tagId }),
   });
-  return (res?.data ?? res) as LeadTagDTO;
+  // server returns the full list with the *new* tag first
+  return Array.isArray(res?.data) ? res.data : [];
 }
 
 export async function detachTagFromLead(leadId: string, tagId: string): Promise<void> {
