@@ -12,6 +12,8 @@ import tagsRouter from "./routes/tags.js";
 import messagesRouter from "./routes/messages.js";  // real API
 import twilioRouter from "./routes/twilio.js";      // webhooks (urlencoded)
 import debugMsgs from "./routes/messages.debug.js"; // debug/dev helpers
+import leadTagsRouter from "./routes/lead-tags.js";
+
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
 
@@ -73,6 +75,8 @@ app.use("/api/numbers", numbersRouter);
 app.use("/api/workflows", workflowsRouter);
 app.use("/api/copilot", copilotRouter);
 app.use("/api/tags", tagsRouter);
+app.use("/api/leads", leadTagsRouter);
+
 
 // Messages API (JSON body)
 app.use("/api/messages", messagesRouter);
