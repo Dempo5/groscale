@@ -188,6 +188,16 @@ export default function Dashboard() {
 
   const [theme, setTheme] = useState<"light" | "dark">(
     (localStorage.getItem("gs_theme") as "light" | "dark") || "light"
+
+    // Tag data for picker + applied tags on the selected lead
+const [allTags, setAllTags] = useState<TagDTO[]>([]);
+const [leadTags, setLeadTags] = useState<{ tag: TagDTO; createdAt: string }[]>([]);
+const [tagPickerOpen, setTagPickerOpen] = useState(false);
+
+// derive most recent tag color
+const mostRecentColor =
+  leadTags.length && leadTags[0].tag?.color ? leadTags[0].tag.color : null;
+
   );
   useEffect(() => {
     document.body.setAttribute("data-theme", theme);
