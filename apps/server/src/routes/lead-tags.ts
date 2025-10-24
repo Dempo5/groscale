@@ -4,7 +4,6 @@ import { prisma } from "../prisma.js";
 
 const r = Router();
 
-// Helper to shape payload
 const toTagDTO = (t: any) => ({
   id: t.id,
   name: t.name,
@@ -14,13 +13,15 @@ const toTagDTO = (t: any) => ({
   updatedAt: t.updatedAt,
 });
 
-// GET /api/leads/:leadId/tags  -> list applied tags (newest first)
+/**
+ * GET /api/leads/:leadId/tags
+ * List applied tags (no createdAt on join table, so no time-based sort).
+ */
 r.get("/:leadId/tags", async (req: Request, res: Response) => {
   try {
     const { leadId } = req.params;
     const rows = await prisma.leadTag.findMany({
       where: { leadId },
-      orderBy: { createdAt: "desc" },
       include: { tag: true },
     });
 
@@ -29,7 +30,6 @@ r.get("/:leadId/tags", async (req: Request, res: Response) => {
       data: rows.map((lt) => ({
         leadId: lt.leadId,
         tagId: lt.tagId,
-        createdAt: lt.createdAt,
         tag: toTagDTO(lt.tag),
       })),
     });
@@ -38,14 +38,17 @@ r.get("/:leadId/tags", async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/leads/:leadId/tags { tagId }  -> attach tag (idempotent)
+/**
+ * POST /api/leads/:leadId/tags { tagId }
+ * Attach a tag. Since we don’t have timestamps on the join row,
+ * we emulate “latest wins” for the *response* by returning the new tag first.
+ */
 r.post("/:leadId/tags", async (req: Request, res: Response) => {
   try {
     const { leadId } = req.params;
     const tagId = String(req.body?.tagId || "");
     if (!tagId) return res.status(400).json({ ok: false, error: "tagId required" });
 
-    // ensure lead & tag exist
     const [lead, tag] = await Promise.all([
       prisma.lead.findUnique({ where: { id: leadId } }),
       prisma.tag.findUnique({ where: { id: tagId } }),
@@ -53,29 +56,35 @@ r.post("/:leadId/tags", async (req: Request, res: Response) => {
     if (!lead) return res.status(404).json({ ok: false, error: "lead not found" });
     if (!tag) return res.status(404).json({ ok: false, error: "tag not found" });
 
-    // upsert so repeated attaches are safe, but timestamp updates to make it "latest"
-    const lt = await prisma.leadTag.upsert({
+    // idempotent: ensure a single row exists
+    await prisma.leadTag.upsert({
       where: { leadId_tagId: { leadId, tagId } },
       create: { leadId, tagId },
-      update: { createdAt: new Date() }, // move to top as "most recent"
+      update: {},
+    });
+
+    // build response list where the *newly attached* tag is first (so UI can treat it as “latest”)
+    const all = await prisma.leadTag.findMany({
+      where: { leadId },
       include: { tag: true },
     });
 
-    res.json({
-      ok: true,
-      data: {
-        leadId: lt.leadId,
-        tagId: lt.tagId,
-        createdAt: lt.createdAt,
-        tag: toTagDTO(lt.tag),
-      },
-    });
+    const reordered = [
+      { leadId, tagId, tag: toTagDTO(tag) },
+      ...all
+        .filter((x) => !(x.tagId === tagId))
+        .map((x) => ({ leadId: x.leadId, tagId: x.tagId, tag: toTagDTO(x.tag) })),
+    ];
+
+    res.json({ ok: true, data: reordered });
   } catch (e: any) {
     res.status(500).json({ ok: false, error: e?.message || "failed" });
   }
 });
 
-// DELETE /api/leads/:leadId/tags/:tagId  -> detach tag
+/**
+ * DELETE /api/leads/:leadId/tags/:tagId
+ */
 r.delete("/:leadId/tags/:tagId", async (req: Request, res: Response) => {
   try {
     const { leadId, tagId } = req.params;
@@ -84,9 +93,9 @@ r.delete("/:leadId/tags/:tagId", async (req: Request, res: Response) => {
     });
     res.json({ ok: true });
   } catch (e: any) {
-    // make deletes idempotent
-    if (String(e?.code) === "P2025") return res.json({ ok: true });
-    res.status(500).json({ ok: false, error: e?.message || "failed" });
+    // idempotent deletes
+    if (String((e as any)?.code) === "P2025") return res.json({ ok: true });
+    res.status(500).json({ ok: false, error: (e as any)?.message || "failed" });
   }
 });
 
