@@ -483,41 +483,78 @@ export default function Dashboard() {
               </div>
             )}
 
-            {msgs.map((m) => (
-              <div
-                key={m.id}
-                className={`m-row ${m.direction === "OUTBOUND" ? "out" : "in"}`}
-                style={{
-                  display: "flex",
-                  justifyContent: m.direction === "OUTBOUND" ? "flex-end" : "flex-start",
-                  margin: "6px 0",
-                }}
-              >
-                <div
-                  className="bubble"
-                  style={{
-                    maxWidth: 560,
-                    padding: "8px 10px",
-                    borderRadius: 10,
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
-                    background:
-                      m.direction === "OUTBOUND"
-                        ? "var(--btn-primary-bg, #4f46e5)"
-                        : "var(--panel-bg, #f3f4f6)",
-                    color:
-                      m.direction === "OUTBOUND"
-                        ? "var(--btn-primary-fg, #fff)"
-                        : "var(--fg, #111)",
-                    opacity: m.status === "FAILED" ? 0.6 : 1,
-                    border: m.status === "FAILED" ? "1px solid #e5484d" : "none",
-                  }}
-                  title={`${m.direction} • ${m.status} • ${new Date(m.createdAt).toLocaleString()}`}
-                >
-                  {m.body}
-                </div>
-              </div>
-            ))}
+            {/* compute last outbound so we only show one status line like iMessage */}
+{(() => {
+  const lastOutboundId =
+    [...msgs].reverse().find((x) => x.direction === "OUTBOUND")?.id;
+
+  return msgs.map((m) => {
+    const isOut = m.direction === "OUTBOUND";
+
+    // Map DB status -> friendly label
+    const statusLabel = isOut
+      ? m.status === "DELIVERED"
+        ? "Delivered"
+        : m.status === "SENT"
+        ? "Sent"
+        : m.status === "QUEUED"
+        ? "Queued"
+        : m.status === "FAILED"
+        ? "Failed"
+        : m.status
+      : "";
+
+    return (
+      <div
+        key={m.id}
+        className={`m-row ${isOut ? "out" : "in"}`}
+        style={{
+          display: "flex",
+          justifyContent: isOut ? "flex-end" : "flex-start",
+          margin: "6px 0",
+        }}
+      >
+        <div
+          className="bubble"
+          style={{
+            maxWidth: 560,
+            padding: "8px 10px",
+            borderRadius: 10,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            background: isOut
+              ? "var(--btn-primary-bg, #4f46e5)"
+              : "var(--panel-bg, #f3f4f6)",
+            color: isOut ? "var(--btn-primary-fg, #fff)" : "var(--fg, #111)",
+            opacity: m.status === "FAILED" ? 0.6 : 1,
+            border: m.status === "FAILED" ? "1px solid #e5484d" : "none",
+          }}
+          title={`${m.direction} • ${m.status} • ${new Date(
+            m.createdAt
+          ).toLocaleString()}`}
+        >
+          {m.body}
+        </div>
+
+        {/* status line for only the latest outbound */}
+        {isOut && m.id === lastOutboundId && (
+          <div
+            style={{
+              fontSize: 11,
+              opacity: 0.8,
+              marginTop: 4,
+              marginRight: 6,
+              textAlign: "right",
+            }}
+          >
+            {statusLabel}
+          </div>
+        )}
+      </div>
+    );
+  });
+})()}
+
 
             {notice && <div className="hint" style={{ marginTop: 8 }}>{notice}</div>}
           </div>
