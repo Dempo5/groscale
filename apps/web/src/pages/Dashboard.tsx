@@ -6,15 +6,15 @@ import {
   listWorkflows,
   startThread,
   listThreads,
-  sendMessage,               // ✅ keep
-  getThreadMessages,         // ✅ NEW
-  type Workflow,
-  type MessageDTO,           // ✅ type for messages
+  sendMessage,
+  getThreadMessages,
   getTags,
-  type TagDTO,
   getLeadTags,
   attachTagToLead,
   detachTagFromLead,
+  type Workflow,
+  type MessageDTO,
+  type TagDTO,
 } from "../lib/api";
 import { NavLink, useNavigate } from "react-router-dom";
 import CopilotModal from "../components/CopilotModal";
@@ -169,42 +169,41 @@ function NewConversationBox({
 export default function Dashboard() {
   const nav = useNavigate();
 
+  // threads & messages
   const [threads, setThreads] = useState<ThreadRow[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [msgs, setMsgs] = useState<MessageDTO[]>([]);
+  const [loadingMsgs, setLoadingMsgs] = useState(false);
+
+  // compose & UI
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState("");
-
-  // NEW: messages for selected thread
-  const [msgs, setMsgs] = useState<MessageDTO[]>([]);
-  const [loadingMsgs, setLoadingMsgs] = useState(false);
-  const pollRef = useRef<number | null>(null);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const pollRef = useRef<number | null>(null);
 
+  // rails / modals
   const [railOpen, setRailOpen] = useState(true);
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [showNew, setShowNew] = useState(false);
 
+  // theme
   const [theme, setTheme] = useState<"light" | "dark">(
     (localStorage.getItem("gs_theme") as "light" | "dark") || "light"
-
-    // Tag data for picker + applied tags on the selected lead
-const [allTags, setAllTags] = useState<TagDTO[]>([]);
-const [leadTags, setLeadTags] = useState<{ tag: TagDTO; createdAt: string }[]>([]);
-const [tagPickerOpen, setTagPickerOpen] = useState(false);
-
-// derive most recent tag color
-const mostRecentColor =
-  leadTags.length && leadTags[0].tag?.color ? leadTags[0].tag.color : null;
-
   );
   useEffect(() => {
     document.body.setAttribute("data-theme", theme);
     localStorage.setItem("gs_theme", theme);
   }, [theme]);
 
-  // Load threads (once)
+  // tags
+  const [allTags, setAllTags] = useState<TagDTO[]>([]);
+  const [leadTags, setLeadTags] = useState<TagDTO[]>([]);
+  const [tagPickerOpen, setTagPickerOpen] = useState(false);
+  const mostRecentColor = leadTags[0]?.color ?? null;
+
+  /* ---------------- Load once: threads + tag catalog ---------------- */
   useEffect(() => {
     (async () => {
       try {
@@ -219,77 +218,17 @@ const mostRecentColor =
       } catch (e) {
         console.error(e);
       }
+      try {
+        const tags = await getTags();
+        setAllTags(tags);
+      } catch (e) {
+        console.error("failed to load tags", e);
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Fetch messages when thread changes
-  useEffect(() => {
-    async function load() {
-      if (!selectedThreadId) { setMsgs([]); return; }
-      setLoadingMsgs(true);
-      try {
-        const data = await getThreadMessages(selectedThreadId);
-        setMsgs(Array.isArray(data) ? data : []);
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoadingMsgs(false);
-        // scroll next tick
-        requestAnimationFrame(() => {
-          scrollerRef.current?.scrollTo({ top: 999999, behavior: "smooth" });
-        });
-      }
-    }
-    load();
-useEffect(() => {
-  (async () => {
-    try {
-      const res = await listThreads();
-      const list: ThreadRow[] = Array.isArray(res)
-        ? res
-        : Array.isArray((res as any)?.threads) ? (res as any).threads
-        : Array.isArray((res as any)?.data) ? (res as any).data
-        : [];
-      setThreads(list);
-      if (!selectedThreadId && list.length) setSelectedThreadId(list[0].id);
-    } catch (e) {
-      console.error(e);
-    }
-
-    // load tag catalog
-    try {
-      const tags = await getTags();
-      setAllTags(tags);
-    } catch (e) {
-      console.error("failed to load tags", e);
-    }
-  })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, []);
-useEffect(() => {
-  (async () => {
-    if (!selected?.leadId) { setLeadTags([]); return; }
-    try {
-      const rows = await getLeadTags(selected.leadId);
-      // newest first already; keep just what we need
-      setLeadTags(rows.map(r => ({ tag: r.tag, createdAt: r.createdAt })));
-    } catch (e) {
-      console.error("failed to load lead tags", e);
-      setLeadTags([]);
-    }
-  })();
-}, [selected?.leadId]);
-
-    // start polling
-    if (pollRef.current) window.clearInterval(pollRef.current);
-    pollRef.current = window.setInterval(load, 4000);
-    return () => {
-      if (pollRef.current) window.clearInterval(pollRef.current);
-      pollRef.current = null;
-    };
-  }, [selectedThreadId]);
-
+  /* ---------------- derived values ---------------- */
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return threads;
@@ -304,14 +243,53 @@ useEffect(() => {
     [threads, selectedThreadId]
   );
 
-  // ---- SEND HANDLER ----
+  /* ---------------- Load messages whenever thread changes ---------------- */
+  useEffect(() => {
+    async function loadMsgs() {
+      if (!selectedThreadId) { setMsgs([]); return; }
+      setLoadingMsgs(true);
+      try {
+        const data = await getThreadMessages(selectedThreadId);
+        setMsgs(Array.isArray(data) ? data : []);
+      } finally {
+        setLoadingMsgs(false);
+        requestAnimationFrame(() => {
+          scrollerRef.current?.scrollTo({ top: 9e6, behavior: "smooth" });
+        });
+      }
+    }
+    loadMsgs();
+
+    if (pollRef.current) window.clearInterval(pollRef.current);
+    pollRef.current = window.setInterval(loadMsgs, 4000);
+    return () => {
+      if (pollRef.current) window.clearInterval(pollRef.current);
+      pollRef.current = null;
+    };
+  }, [selectedThreadId]);
+
+  /* ---------------- Load applied tags whenever the selected lead changes ---------------- */
+  useEffect(() => {
+    (async () => {
+      if (!selected?.leadId) { setLeadTags([]); return; }
+      try {
+        const rows = await getLeadTags(selected.leadId); // returns [{ leadId, tagId, tag }]
+        setLeadTags(rows.map((r) => r.tag));            // keep just TagDTO; newest should be first after attach
+      } catch (e) {
+        console.error("failed to load lead tags", e);
+        setLeadTags([]);
+      }
+    })();
+  }, [selected?.leadId]);
+
+  /* ---------------- send handler ---------------- */
   const canSend = () => !!selectedThreadId && draft.trim().length > 0;
 
   async function handleSend() {
     if (!canSend()) return;
     const text = draft.trim();
 
-    // optimistic append for snappy UX
+    // optimistic append
     const temp: MessageDTO = {
       id: `tmp_${Date.now()}`,
       threadId: selectedThreadId!,
@@ -330,21 +308,17 @@ useEffect(() => {
     setNotice("");
 
     try {
-      await sendMessage(selectedThreadId!, text); // POST /api/messages/send
+      await sendMessage(selectedThreadId!, text);
       setNotice("Queued to send. Delivery will update after your webhook processes.");
-      // refresh to pick up real record + status
       const data = await getThreadMessages(selectedThreadId!);
       setMsgs(Array.isArray(data) ? data : []);
     } catch (e: any) {
       setNotice(e?.message || "Failed to send.");
-      // mark temp as failed
-      setMsgs((m) =>
-        m.map((mm) => (mm.id === temp.id ? { ...mm, status: "FAILED" } : mm))
-      );
+      setMsgs((m) => m.map((mm) => (mm.id === temp.id ? { ...mm, status: "FAILED" } : mm)));
     } finally {
       setSending(false);
       requestAnimationFrame(() => {
-        scrollerRef.current?.scrollTo({ top: 999999, behavior: "smooth" });
+        scrollerRef.current?.scrollTo({ top: 9e6, behavior: "smooth" });
       });
     }
   }
@@ -510,10 +484,9 @@ useEffect(() => {
           <div className="thread-title">
             <div className="who">
               <div
-  className="avatar"
-  style={mostRecentColor ? { background: mostRecentColor, color: "#fff" } : undefined}
->
-
+                className="avatar"
+                style={mostRecentColor ? { background: mostRecentColor, color: "#fff" } : undefined}
+              >
                 {(selected?.leadName || selected?.leadEmail || selected?.leadPhone || "T")
                   .toString()
                   .slice(0, 1)
@@ -527,10 +500,7 @@ useEffect(() => {
           </div>
 
           <div className="messages" key={selected?.id ?? "none"} ref={scrollerRef}>
-            {/* messages list */}
-            {loadingMsgs && !msgs.length && (
-              <div className="hint">Loading messages…</div>
-            )}
+            {loadingMsgs && !msgs.length && <div className="hint">Loading messages…</div>}
 
             {!loadingMsgs && msgs.length === 0 && (
               <div className="hint">
@@ -540,78 +510,72 @@ useEffect(() => {
               </div>
             )}
 
-            {/* compute last outbound so we only show one status line like iMessage */}
-{(() => {
-  const lastOutboundId =
-    [...msgs].reverse().find((x) => x.direction === "OUTBOUND")?.id;
+            {/* single status line for the latest outbound */}
+            {(() => {
+              const lastOutboundId =
+                [...msgs].reverse().find((x) => x.direction === "OUTBOUND")?.id;
 
-  return msgs.map((m) => {
-    const isOut = m.direction === "OUTBOUND";
+              return msgs.map((m) => {
+                const isOut = m.direction === "OUTBOUND";
+                const statusLabel = isOut
+                  ? m.status === "DELIVERED"
+                    ? "Delivered"
+                    : m.status === "SENT"
+                    ? "Sent"
+                    : m.status === "QUEUED"
+                    ? "Queued"
+                    : m.status === "FAILED"
+                    ? "Failed"
+                    : m.status
+                  : "";
 
-    // Map DB status -> friendly label
-    const statusLabel = isOut
-      ? m.status === "DELIVERED"
-        ? "Delivered"
-        : m.status === "SENT"
-        ? "Sent"
-        : m.status === "QUEUED"
-        ? "Queued"
-        : m.status === "FAILED"
-        ? "Failed"
-        : m.status
-      : "";
+                return (
+                  <div
+                    key={m.id}
+                    className={`m-row ${isOut ? "out" : "in"}`}
+                    style={{
+                      display: "flex",
+                      justifyContent: isOut ? "flex-end" : "flex-start",
+                      margin: "6px 0",
+                    }}
+                  >
+                    <div
+                      className="bubble"
+                      style={{
+                        maxWidth: 560,
+                        padding: "8px 10px",
+                        borderRadius: 10,
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-word",
+                        background: isOut
+                          ? "var(--btn-primary-bg, #4f46e5)"
+                          : "var(--panel-bg, #f3f4f6)",
+                        color: isOut ? "var(--btn-primary-fg, #fff)" : "var(--fg, #111)",
+                        opacity: m.status === "FAILED" ? 0.6 : 1,
+                        border: m.status === "FAILED" ? "1px solid #e5484d" : "none",
+                      }}
+                      title={`${m.direction} • ${m.status} • ${new Date(m.createdAt).toLocaleString()}`}
+                    >
+                      {m.body}
+                    </div>
 
-    return (
-      <div
-        key={m.id}
-        className={`m-row ${isOut ? "out" : "in"}`}
-        style={{
-          display: "flex",
-          justifyContent: isOut ? "flex-end" : "flex-start",
-          margin: "6px 0",
-        }}
-      >
-        <div
-          className="bubble"
-          style={{
-            maxWidth: 560,
-            padding: "8px 10px",
-            borderRadius: 10,
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
-            background: isOut
-              ? "var(--btn-primary-bg, #4f46e5)"
-              : "var(--panel-bg, #f3f4f6)",
-            color: isOut ? "var(--btn-primary-fg, #fff)" : "var(--fg, #111)",
-            opacity: m.status === "FAILED" ? 0.6 : 1,
-            border: m.status === "FAILED" ? "1px solid #e5484d" : "none",
-          }}
-          title={`${m.direction} • ${m.status} • ${new Date(
-            m.createdAt
-          ).toLocaleString()}`}
-        >
-          {m.body}
-        </div>
-
-        {/* status line for only the latest outbound */}
-        {isOut && m.id === lastOutboundId && (
-          <div
-            style={{
-              fontSize: 11,
-              opacity: 0.8,
-              marginTop: 4,
-              marginRight: 6,
-              textAlign: "right",
-            }}
-          >
-            {statusLabel}
-          </div>
-        )}
-      </div>
-    );
-  });
-})()}
-
+                    {isOut && m.id === lastOutboundId && (
+                      <div
+                        style={{
+                          fontSize: 11,
+                          opacity: 0.8,
+                          marginTop: 4,
+                          marginRight: 6,
+                          textAlign: "right",
+                        }}
+                      >
+                        {statusLabel}
+                      </div>
+                    )}
+                  </div>
+                );
+              });
+            })()}
 
             {notice && <div className="hint" style={{ marginTop: 8 }}>{notice}</div>}
           </div>
@@ -675,144 +639,149 @@ useEffect(() => {
           </div>
 
           <div className="section">
-            <div className="section-title">Demographics</div>
-            {["DOB", "Age", "City", "State", "ZIP", "Household size"].map((k) => (
-              <div className="kv" key={k}>
-                <label>{k}</label>
-                <span className="copy-row">
-                  <span><i className="placeholder">Not provided</i></span>
-                </span>
-              </div>
-            ))}
-          </div>
-
-         <div className="section">
-  <div className="section-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-    <span>Tags</span>
-    <button
-      className="btn-outline sm"
-      onClick={() => setTagPickerOpen(true)}
-      disabled={!selected?.leadId}
-      title="Attach a tag"
-    >
-      + Tag
-    </button>
-  </div>
-
-  {/* Applied tags list */}
-  <div className="tag-row" style={{ flexWrap: "wrap", gap: 8 }}>
-    {leadTags.length ? (
-      leadTags.map(({ tag }) => (
-        <span
-          key={tag.id}
-          className="tag"
-          style={{
-            background: tag.color ?? "#eef2ff",
-            color: tag.color ? "#fff" : "#374151",
-            borderRadius: 999,
-            padding: "4px 8px",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-          }}
-          title={tag.name}
-        >
-          {tag.name}
-          <button
-            aria-label={`Remove ${tag.name}`}
-            onClick={async () => {
-              if (!selected?.leadId) return;
-              await detachTagFromLead(selected.leadId, tag.id);
-              const rows = await getLeadTags(selected.leadId);
-              setLeadTags(rows.map(r => ({ tag: r.tag, createdAt: r.createdAt })));
-            }}
-            style={{
-              border: 0,
-              background: "transparent",
-              color: "inherit",
-              cursor: "pointer",
-              fontWeight: 700,
-              lineHeight: 1,
-            }}
-            title="Remove"
-          >
-            ×
-          </button>
-        </span>
-      ))
-    ) : (
-      <i className="placeholder">No tags</i>
-    )}
-  </div>
-
-  {/* Tiny picker modal (inline lightweight) */}
-  {tagPickerOpen && (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,.35)",
-        display: "grid",
-        placeItems: "center",
-        zIndex: 50,
-      }}
-      onClick={() => setTagPickerOpen(false)}
-    >
-      <div
-        className="u-card"
-        style={{ width: 360, maxWidth: "90vw", padding: 12 }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div style={{ fontWeight: 700, marginBottom: 8 }}>Add a tag</div>
-        <div style={{ maxHeight: 280, overflow: "auto" }}>
-          {allTags.length ? (
-            allTags.map((t) => (
+            <div
+              className="section-title"
+              style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
+            >
+              <span>Tags</span>
               <button
-                key={t.id}
-                className="row"
-                style={{
-                  width: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  padding: "6px 8px",
-                }}
-                onClick={async () => {
-                  if (!selected?.leadId) return;
-                  await attachTagToLead(selected.leadId, t.id);
-                  const rows = await getLeadTags(selected.leadId);
-                  setLeadTags(rows.map(r => ({ tag: r.tag, createdAt: r.createdAt })));
-                  setTagPickerOpen(false);
-                }}
+                className="btn-outline sm"
+                onClick={() => setTagPickerOpen(true)}
+                disabled={!selected?.leadId}
+                title="Attach a tag"
               >
-                <span
-                  className="dot"
-                  style={{
-                    width: 12,
-                    height: 12,
-                    borderRadius: 999,
-                    background: t.color ?? "#e5e7eb",
-                    border: "1px solid #e5e7eb",
-                  }}
-                />
-                <span style={{ flex: 1, textAlign: "left" }}>{t.name}</span>
+                + Tag
               </button>
-            ))
-          ) : (
-            <div className="hint" style={{ padding: 8 }}>
-              No tags yet. <a onClick={() => { setTagPickerOpen(false); nav("/tags"); }} style={{ cursor: "pointer" }}>Create one</a>.
             </div>
-          )}
-        </div>
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 10 }}>
-          <button className="btn-outline" onClick={() => setTagPickerOpen(false)}>Close</button>
-          <button className="btn" onClick={() => nav("/tags")}>Open Tags page</button>
-        </div>
-      </div>
-    </div>
-  )}
-</div>
 
+            {/* Applied tags */}
+            <div className="tag-row" style={{ flexWrap: "wrap", gap: 8 }}>
+              {leadTags.length ? (
+                leadTags.map((tag) => (
+                  <span
+                    key={tag.id}
+                    className="tag"
+                    style={{
+                      background: tag.color ?? "#eef2ff",
+                      color: tag.color ? "#fff" : "#374151",
+                      borderRadius: 999,
+                      padding: "4px 8px",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                    title={tag.name}
+                  >
+                    {tag.name}
+                    <button
+                      aria-label={`Remove ${tag.name}`}
+                      onClick={async () => {
+                        if (!selected?.leadId) return;
+                        await detachTagFromLead(selected.leadId, tag.id);
+                        const rows = await getLeadTags(selected.leadId);
+                        setLeadTags(rows.map((r) => r.tag));
+                      }}
+                      style={{
+                        border: 0,
+                        background: "transparent",
+                        color: "inherit",
+                        cursor: "pointer",
+                        fontWeight: 700,
+                        lineHeight: 1,
+                      }}
+                      title="Remove"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))
+              ) : (
+                <i className="placeholder">No tags</i>
+              )}
+            </div>
+
+            {/* Tag picker modal */}
+            {tagPickerOpen && (
+              <div
+                style={{
+                  position: "fixed",
+                  inset: 0,
+                  background: "rgba(0,0,0,.35)",
+                  display: "grid",
+                  placeItems: "center",
+                  zIndex: 50,
+                }}
+                onClick={() => setTagPickerOpen(false)}
+              >
+                <div
+                  className="u-card"
+                  style={{ width: 360, maxWidth: "90vw", padding: 12 }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div style={{ fontWeight: 700, marginBottom: 8 }}>Add a tag</div>
+                  <div style={{ maxHeight: 280, overflow: "auto" }}>
+                    {allTags.length ? (
+                      allTags.map((t) => (
+                        <button
+                          key={t.id}
+                          className="row"
+                          style={{
+                            width: "100%",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 10,
+                            padding: "6px 8px",
+                          }}
+                          onClick={async () => {
+                            if (!selected?.leadId) return;
+                            await attachTagToLead(selected.leadId, t.id);
+                            const rows = await getLeadTags(selected.leadId);
+                            // server reorders with the newly added tag first
+                            setLeadTags(rows.map((r) => r.tag));
+                            setTagPickerOpen(false);
+                          }}
+                        >
+                          <span
+                            className="dot"
+                            style={{
+                              width: 12,
+                              height: 12,
+                              borderRadius: 999,
+                              background: t.color ?? "#e5e7eb",
+                              border: "1px solid #e5e7eb",
+                            }}
+                          />
+                          <span style={{ flex: 1, textAlign: "left" }}>{t.name}</span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="hint" style={{ padding: 8 }}>
+                        No tags yet.{" "}
+                        <a
+                          onClick={() => {
+                            setTagPickerOpen(false);
+                            nav("/tags");
+                          }}
+                          style={{ cursor: "pointer" }}
+                        >
+                          Create one
+                        </a>
+                        .
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 10 }}>
+                    <button className="btn-outline" onClick={() => setTagPickerOpen(false)}>
+                      Close
+                    </button>
+                    <button className="btn" onClick={() => nav("/tags")}>
+                      Open Tags page
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="section">
             <div className="section-title">System Info</div>
