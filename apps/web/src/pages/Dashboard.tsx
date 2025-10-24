@@ -242,6 +242,44 @@ const mostRecentColor =
       }
     }
     load();
+useEffect(() => {
+  (async () => {
+    try {
+      const res = await listThreads();
+      const list: ThreadRow[] = Array.isArray(res)
+        ? res
+        : Array.isArray((res as any)?.threads) ? (res as any).threads
+        : Array.isArray((res as any)?.data) ? (res as any).data
+        : [];
+      setThreads(list);
+      if (!selectedThreadId && list.length) setSelectedThreadId(list[0].id);
+    } catch (e) {
+      console.error(e);
+    }
+
+    // load tag catalog
+    try {
+      const tags = await getTags();
+      setAllTags(tags);
+    } catch (e) {
+      console.error("failed to load tags", e);
+    }
+  })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
+useEffect(() => {
+  (async () => {
+    if (!selected?.leadId) { setLeadTags([]); return; }
+    try {
+      const rows = await getLeadTags(selected.leadId);
+      // newest first already; keep just what we need
+      setLeadTags(rows.map(r => ({ tag: r.tag, createdAt: r.createdAt })));
+    } catch (e) {
+      console.error("failed to load lead tags", e);
+      setLeadTags([]);
+    }
+  })();
+}, [selected?.leadId]);
 
     // start polling
     if (pollRef.current) window.clearInterval(pollRef.current);
@@ -471,7 +509,11 @@ const mostRecentColor =
         <section className="panel thread">
           <div className="thread-title">
             <div className="who">
-              <div className="avatar">
+              <div
+  className="avatar"
+  style={mostRecentColor ? { background: mostRecentColor, color: "#fff" } : undefined}
+>
+
                 {(selected?.leadName || selected?.leadEmail || selected?.leadPhone || "T")
                   .toString()
                   .slice(0, 1)
@@ -644,14 +686,133 @@ const mostRecentColor =
             ))}
           </div>
 
-          <div className="section">
-            <div className="section-title">Tags</div>
-            <div className="tag-row">
-              <button className="tag tag-blue" onClick={() => nav(`/tags?highlight=${encodeURIComponent("new")}`)} title="Open tag: new">new</button>
-              <button className="tag tag-pink" onClick={() => nav(`/tags?highlight=${encodeURIComponent("follow-up")}`)} title="Open tag: follow-up">follow-up</button>
-              <button className="tag tag-green" onClick={() => nav(`/tags?highlight=${encodeURIComponent("warm")}`)} title="Open tag: warm">warm</button>
+         <div className="section">
+  <div className="section-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <span>Tags</span>
+    <button
+      className="btn-outline sm"
+      onClick={() => setTagPickerOpen(true)}
+      disabled={!selected?.leadId}
+      title="Attach a tag"
+    >
+      + Tag
+    </button>
+  </div>
+
+  {/* Applied tags list */}
+  <div className="tag-row" style={{ flexWrap: "wrap", gap: 8 }}>
+    {leadTags.length ? (
+      leadTags.map(({ tag }) => (
+        <span
+          key={tag.id}
+          className="tag"
+          style={{
+            background: tag.color ?? "#eef2ff",
+            color: tag.color ? "#fff" : "#374151",
+            borderRadius: 999,
+            padding: "4px 8px",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+          title={tag.name}
+        >
+          {tag.name}
+          <button
+            aria-label={`Remove ${tag.name}`}
+            onClick={async () => {
+              if (!selected?.leadId) return;
+              await detachTagFromLead(selected.leadId, tag.id);
+              const rows = await getLeadTags(selected.leadId);
+              setLeadTags(rows.map(r => ({ tag: r.tag, createdAt: r.createdAt })));
+            }}
+            style={{
+              border: 0,
+              background: "transparent",
+              color: "inherit",
+              cursor: "pointer",
+              fontWeight: 700,
+              lineHeight: 1,
+            }}
+            title="Remove"
+          >
+            ×
+          </button>
+        </span>
+      ))
+    ) : (
+      <i className="placeholder">No tags</i>
+    )}
+  </div>
+
+  {/* Tiny picker modal (inline lightweight) */}
+  {tagPickerOpen && (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,.35)",
+        display: "grid",
+        placeItems: "center",
+        zIndex: 50,
+      }}
+      onClick={() => setTagPickerOpen(false)}
+    >
+      <div
+        className="u-card"
+        style={{ width: 360, maxWidth: "90vw", padding: 12 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ fontWeight: 700, marginBottom: 8 }}>Add a tag</div>
+        <div style={{ maxHeight: 280, overflow: "auto" }}>
+          {allTags.length ? (
+            allTags.map((t) => (
+              <button
+                key={t.id}
+                className="row"
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "6px 8px",
+                }}
+                onClick={async () => {
+                  if (!selected?.leadId) return;
+                  await attachTagToLead(selected.leadId, t.id);
+                  const rows = await getLeadTags(selected.leadId);
+                  setLeadTags(rows.map(r => ({ tag: r.tag, createdAt: r.createdAt })));
+                  setTagPickerOpen(false);
+                }}
+              >
+                <span
+                  className="dot"
+                  style={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: 999,
+                    background: t.color ?? "#e5e7eb",
+                    border: "1px solid #e5e7eb",
+                  }}
+                />
+                <span style={{ flex: 1, textAlign: "left" }}>{t.name}</span>
+              </button>
+            ))
+          ) : (
+            <div className="hint" style={{ padding: 8 }}>
+              No tags yet. <a onClick={() => { setTagPickerOpen(false); nav("/tags"); }} style={{ cursor: "pointer" }}>Create one</a>.
             </div>
-          </div>
+          )}
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 10 }}>
+          <button className="btn-outline" onClick={() => setTagPickerOpen(false)}>Close</button>
+          <button className="btn" onClick={() => nav("/tags")}>Open Tags page</button>
+        </div>
+      </div>
+    </div>
+  )}
+</div>
+
 
           <div className="section">
             <div className="section-title">System Info</div>
