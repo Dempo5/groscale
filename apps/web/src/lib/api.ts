@@ -200,7 +200,7 @@ export async function updateTag(id: string, patch: Partial<{ name: string; color
 }
 export async function deleteTag(id: string): Promise<void> { await http<{ ok: boolean }>(`/api/tags/${id}`, { method: "DELETE" }); }
 
-// apps/web/src/lib/api.ts (add)
+/* ---------------- simple test send ---------------- */
 export async function sendTestSMS(to: string, body: string, leadId?: string) {
   return fetch(`${BASE}/api/messages/send`, {
     method: "POST",
@@ -210,7 +210,7 @@ export async function sendTestSMS(to: string, body: string, leadId?: string) {
   }).then(r => r.json());
 }
 
-// ===== Messaging (threads & messages) =====
+/* ===== Messaging (threads & messages) ===== */
 export type MessageDir = "OUTBOUND" | "INBOUND";
 export type MessageStatus = "QUEUED" | "SENT" | "DELIVERED" | "FAILED" | "RECEIVED";
 
@@ -241,7 +241,6 @@ export type MessageDTO = {
 // List all threads (left column)
 export async function listThreads(): Promise<MessageThreadDTO[]> {
   const res = await http<any>("/api/messages/threads");
-  // backend may return {ok, data} or just array
   return Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
 }
 
@@ -251,11 +250,11 @@ export async function getThreadMessages(threadId: string): Promise<MessageDTO[]>
   return Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
 }
 
-// Start a thread by phone (optionally provide a name or an existing leadId)
+// Start a thread by phone
 export async function startThread(input: {
   phone: string;
   name?: string;
-  workflowId?: string; // ✅ add this line
+  workflowId?: string;
 }) {
   return fetch(`${BASE}/api/messages/start`, {
     method: "POST",
@@ -264,13 +263,10 @@ export async function startThread(input: {
     body: JSON.stringify(input),
   }).then(async (r) => {
     const data = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      throw new Error(data?.error || data?.message || `${r.status} ${r.statusText}`);
-    }
+    if (!r.ok) throw new Error(data?.error || data?.message || `${r.status} ${r.statusText}`);
     return data;
   });
 }
-
 
 // Send message into an existing thread
 export async function sendMessageToThread(threadId: string, body: string) {
