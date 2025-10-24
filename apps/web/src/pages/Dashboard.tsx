@@ -10,6 +10,11 @@ import {
   getThreadMessages,         // ✅ NEW
   type Workflow,
   type MessageDTO,           // ✅ type for messages
+  getTags,
+  type TagDTO,
+  getLeadTags,
+  attachTagToLead,
+  detachTagFromLead,
 } from "../lib/api";
 import { NavLink, useNavigate } from "react-router-dom";
 import CopilotModal from "../components/CopilotModal";
