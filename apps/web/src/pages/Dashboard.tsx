@@ -1,5 +1,4 @@
 // apps/web/src/pages/Dashboard.tsx
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./dashboard-ios.css";
 import {
@@ -59,7 +58,7 @@ const CopyBtn = ({ value }: { value?: string | null }) => (
   </button>
 );
 
-/* ---------------- types ---------------- */
+/* ---------------- types (lightweight) ---------------- */
 type ThreadRow = {
   id: string;
   ownerId: string;
@@ -80,7 +79,7 @@ function normalizePhone(input: string): string {
   return `+${digits}`;
 }
 
-/* ---------------- inline “+ New conversation” box ---------------- */
+/* ---------------- inline “+ New” box ---------------- */
 function NewConversationBox({
   onCreated,
   onCancel,
@@ -113,7 +112,6 @@ function NewConversationBox({
         name: name.trim() || undefined,
         workflowId: wf || undefined,
       });
-
       const t: ThreadRow = {
         id: (created as any).id ?? (created as any).thread?.id ?? "",
         ownerId:
@@ -195,50 +193,72 @@ function NewConversationBox({
 export default function Dashboard() {
   const nav = useNavigate();
 
-  // threads / selection
+  // threads + selection
   const [threads, setThreads] = useState<ThreadRow[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(
     null
   );
 
-  // messages in current thread
+  // search, composer, UX
+  const [query, setQuery] = useState("");
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [notice, setNotice] = useState("");
+
+  // messages for selected thread
   const [msgs, setMsgs] = useState<MessageDTO[]>([]);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
+  const pollRef = useRef<number | null>(null);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
 
-  // tagging
+  // tag system
   const [allTags, setAllTags] = useState<TagDTO[]>([]);
-  // newest-first list of { tag: TagDTO, createdAt: string }
+  // leadTags = list of { tag: TagDTO, createdAt: string }
   const [leadTags, setLeadTags] = useState<
     { tag: TagDTO; createdAt: string }[]
   >([]);
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
 
-  // ui state
-  const [query, setQuery] = useState("");
-  const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
-  const [notice, setNotice] = useState("");
   const [railOpen, setRailOpen] = useState(true);
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [showNew, setShowNew] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
 
-  // dark/light
+  // theme
   const [theme, setTheme] = useState<"light" | "dark">(
     (localStorage.getItem("gs_theme") as "light" | "dark") || "light"
   );
-
-  // refs
-  const pollRef = useRef<number | null>(null);
-  const scrollerRef = useRef<HTMLDivElement | null>(null);
-
-  // keep theme on body
   useEffect(() => {
     document.body.setAttribute("data-theme", theme);
     localStorage.setItem("gs_theme", theme);
   }, [theme]);
 
-  // load threads + all possible tags once on mount
+  /* ------------ helpers to load lead tags with enforced sort ------------ */
+  async function refreshLeadTags(leadId: string | undefined | null) {
+    if (!leadId) {
+      setLeadTags([]);
+      return;
+    }
+    try {
+      const rows = await getLeadTags(leadId);
+      // force newest-first
+      const sorted = rows
+        .map((r: any) => ({
+          tag: r.tag as TagDTO,
+          createdAt: r.createdAt,
+        }))
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() -
+            new Date(a.createdAt).getTime()
+        );
+      setLeadTags(sorted);
+    } catch (e) {
+      console.error("failed to load lead tags", e);
+      setLeadTags([]);
+    }
+  }
+
+  /* ---------------------- load threads & tag catalog --------------------- */
   useEffect(() => {
     (async () => {
       try {
@@ -251,13 +271,13 @@ export default function Dashboard() {
           ? (res as any).data
           : [];
         setThreads(list);
-        if (!selectedThreadId && list.length) {
+        if (!selectedThreadId && list.length)
           setSelectedThreadId(list[0].id);
-        }
       } catch (e) {
         console.error(e);
       }
 
+      // pull all possible tags (for +Tag picker)
       try {
         const tags = await getTags();
         setAllTags(tags || []);
@@ -268,46 +288,26 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // figure out which thread is selected
+  /* ---------------- compute 'selected' thread + avatar color ------------- */
   const selected = useMemo(
     () => threads.find((t) => t.id === selectedThreadId) || null,
     [threads, selectedThreadId]
   );
 
-  // helper: refresh this lead's tags
-  async function refreshLeadTags(leadId: string | undefined | null) {
-    if (!leadId) {
-      setLeadTags([]);
-      return;
-    }
-    try {
-      const rows = await getLeadTags(leadId);
-      // assume backend already returns newest first;
-      // if not, you could sort by createdAt desc here.
-      setLeadTags(
-        rows.map((r: any) => ({
-          tag: r.tag,
-          createdAt: r.createdAt,
-        }))
-      );
-    } catch (e) {
-      console.error("failed to load lead tags", e);
-      setLeadTags([]);
-    }
-  }
+  // compute most recent tag color ANY TIME leadTags changes
+  const mostRecentColor = useMemo(() => {
+    if (!leadTags.length) return null;
+    const newest = leadTags[0]; // because we sort newest-first
+    return newest?.tag?.color ?? null;
+  }, [leadTags]);
 
-  // whenever selected thread changes:
-  // - load its messages
-  // - start polling for messages
-  // - load its tags
+  /* -------- load messages + load that lead's tags whenever selection changes -------- */
   useEffect(() => {
-    async function loadMsgsAndTags() {
+    async function loadMsgs() {
       if (!selectedThreadId) {
         setMsgs([]);
-        setLeadTags([]);
         return;
       }
-
       setLoadingMsgs(true);
       try {
         const data = await getThreadMessages(selectedThreadId);
@@ -323,24 +323,14 @@ export default function Dashboard() {
           });
         });
       }
-
-      // tag refresh based on selected.leadId
-      await refreshLeadTags(selected?.leadId);
     }
 
-    loadMsgsAndTags();
+    loadMsgs();
+    refreshLeadTags(selected?.leadId ?? null);
 
-    // start polling just messages for live status / inbound
+    // polling messages
     if (pollRef.current) window.clearInterval(pollRef.current);
-    pollRef.current = window.setInterval(async () => {
-      if (!selectedThreadId) return;
-      try {
-        const data = await getThreadMessages(selectedThreadId);
-        setMsgs(Array.isArray(data) ? data : []);
-      } catch (err) {
-        console.error(err);
-      }
-    }, 4000);
+    pollRef.current = window.setInterval(loadMsgs, 4000);
 
     return () => {
       if (pollRef.current) window.clearInterval(pollRef.current);
@@ -349,33 +339,27 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedThreadId, selected?.leadId]);
 
-  // filter list by search box
-  const filtered = useMemo(() => {
-    const k = query.trim().toLowerCase();
-    if (!k) return threads;
+  /* ---------------- filtered thread list by search box ---------------- */
+  const filteredThreads = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return threads;
     return threads.filter((t) => {
-      const hay = `${t.leadName || ""} ${t.leadEmail || ""} ${
+      const a = `${t.leadName || ""} ${t.leadEmail || ""} ${
         t.leadPhone || ""
       }`.toLowerCase();
-      return hay.includes(k);
+      return a.includes(q);
     });
   }, [threads, query]);
 
-  // derived "most recent color" for avatar styling
-  // we assume newest tag is index 0 of leadTags
-  const mostRecentColor =
-    leadTags.length && leadTags[0]?.tag?.color
-      ? leadTags[0].tag.color
-      : null;
-
-  // SEND
-  const canSend = () => !!selectedThreadId && draft.trim().length > 0;
+  /* ---------------- SEND HANDLER ---------------- */
+  const canSend = () =>
+    !!selectedThreadId && draft.trim().length > 0;
 
   async function handleSend() {
     if (!canSend()) return;
     const text = draft.trim();
 
-    // optimistic bubble
+    // optimistic message so it feels instant
     const temp: MessageDTO = {
       id: `tmp_${Date.now()}`,
       threadId: selectedThreadId!,
@@ -398,7 +382,7 @@ export default function Dashboard() {
       setNotice(
         "Queued to send. Delivery will update after your webhook processes."
       );
-      // refresh w/ real record
+      // hard refresh messages so we get real id + status
       const data = await getThreadMessages(selectedThreadId!);
       setMsgs(Array.isArray(data) ? data : []);
     } catch (e: any) {
@@ -419,9 +403,12 @@ export default function Dashboard() {
     }
   }
 
-  // menu helpers
-  const closeMenuSoon = () => setTimeout(() => setMenuOpen(false), 100);
+  /* ---------------- menu ---------------- */
+  const [menuOpen, setMenuOpen] = useState(false);
+  const closeMenuSoon = () =>
+    setTimeout(() => setMenuOpen(false), 100);
 
+  /* ---------------- render ---------------- */
   return (
     <div className="p-shell matte">
       {/* TOP BAR */}
@@ -436,7 +423,6 @@ export default function Dashboard() {
         </button>
 
         <div className="brand-center">GroScales</div>
-        <div className="brand-center">GroScales</div>
 
         <div className="top-actions">
           <div className="profile">
@@ -447,17 +433,7 @@ export default function Dashboard() {
               aria-expanded={menuOpen}
               title="Account"
             >
-              {/* top right user avatar */}
-              <div
-                className="avatar small"
-                style={
-                  mostRecentColor
-                    ? { background: mostRecentColor, color: "#fff" }
-                    : undefined
-                }
-              >
-                U
-              </div>
+              <div className="avatar small">U</div>
             </button>
             {menuOpen && (
               <div className="menu" role="menu" onBlur={closeMenuSoon}>
@@ -491,7 +467,7 @@ export default function Dashboard() {
       <main
         className={`p-work grid ${railOpen ? "rail-open" : "rail-closed"}`}
       >
-        {/* LEFT RAIL NAV */}
+        {/* LEFT RAIL */}
         <aside className={`rail ${railOpen ? "" : "collapsed"} matte`}>
           <nav>
             <NavLink
@@ -569,7 +545,7 @@ export default function Dashboard() {
           </div>
         </aside>
 
-        {/* CONVERSATION LIST */}
+        {/* LIST (Conversations) */}
         <section className="panel list">
           <div className="list-head">
             <div className="h">Conversations</div>
@@ -587,7 +563,10 @@ export default function Dashboard() {
             <NewConversationBox
               onCancel={() => setShowNew(false)}
               onCreated={(t) => {
-                setThreads((prev) => [t, ...prev.filter((p) => p.id !== t.id)]);
+                setThreads((prev) => [
+                  t,
+                  ...prev.filter((p) => p.id !== t.id),
+                ]);
                 setSelectedThreadId(t.id);
                 setShowNew(false);
               }}
@@ -611,42 +590,45 @@ export default function Dashboard() {
           </div>
 
           <ul className="rows">
-            {filtered.map((t) => {
-              // if this is the selected thread, use mostRecentColor for its avatar
-              const isSel = t.id === selectedThreadId;
-              const avatarStyle =
-                isSel && mostRecentColor
-                  ? { background: mostRecentColor, color: "#fff" }
-                  : undefined;
-
-              return (
-                <li
-                  key={t.id}
-                  className={`row ${isSel ? "selected" : ""}`}
-                  onClick={() => setSelectedThreadId(t.id)}
+            {filteredThreads.map((t) => (
+              <li
+                key={t.id}
+                className={`row ${
+                  t.id === selectedThreadId ? "selected" : ""
+                }`}
+                onClick={() => setSelectedThreadId(t.id)}
+              >
+                <div
+                  className="avatar"
+                  style={
+                    // if this row is the selected row, show live color
+                    t.id === selectedThreadId && mostRecentColor
+                      ? {
+                          background: mostRecentColor,
+                          color: "#fff",
+                        }
+                      : undefined
+                  }
                 >
-                  <div className="avatar" style={avatarStyle}>
-                    {(t.leadName ||
-                      t.leadEmail ||
-                      t.leadPhone ||
-                      "?")
-                      .toString()
-                      .slice(0, 1)
-                      .toUpperCase()}
+                  {(t.leadName ||
+                    t.leadEmail ||
+                    t.leadPhone ||
+                    "?")
+                    .toString()
+                    .slice(0, 1)
+                    .toUpperCase()}
+                </div>
+                <div className="meta">
+                  <div className="name">
+                    {t.leadName || t.leadPhone || "—"}
                   </div>
-                  <div className="meta">
-                    <div className="name">
-                      {t.leadName || t.leadPhone || "—"}
-                    </div>
-                    <div className="sub">
-                      {t.leadEmail || t.leadPhone || ""}
-                    </div>
+                  <div className="sub">
+                    {t.leadEmail || t.leadPhone || ""}
                   </div>
-                </li>
-              );
-            })}
-
-            {!filtered.length && (
+                </div>
+              </li>
+            ))}
+            {!filteredThreads.length && (
               <li className="row" style={{ opacity: 0.7 }}>
                 No conversations yet.
               </li>
@@ -654,7 +636,7 @@ export default function Dashboard() {
           </ul>
         </section>
 
-        {/* THREAD VIEW */}
+        {/* THREAD */}
         <section className="panel thread">
           <div className="thread-title">
             <div className="who">
@@ -690,6 +672,7 @@ export default function Dashboard() {
             key={selected?.id ?? "none"}
             ref={scrollerRef}
           >
+            {/* messages list */}
             {loadingMsgs && !msgs.length && (
               <div className="hint">Loading messages…</div>
             )}
@@ -703,7 +686,7 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* iMessage-style status: only last outbound gets label */}
+            {/* Figure out last outbound so we show its status label like iMessage */}
             {(() => {
               const lastOutboundId = [...msgs]
                 .reverse()
@@ -712,6 +695,7 @@ export default function Dashboard() {
               return msgs.map((m) => {
                 const isOut = m.direction === "OUTBOUND";
 
+                // map internal states to friendly text
                 const statusLabel = isOut
                   ? m.status === "DELIVERED"
                     ? "Delivered"
@@ -764,6 +748,7 @@ export default function Dashboard() {
                       {m.body}
                     </div>
 
+                    {/* Only show label under the newest outbound */}
                     {isOut && m.id === lastOutboundId && (
                       <div
                         style={{
@@ -817,10 +802,7 @@ export default function Dashboard() {
               title="AI Copilot"
               onClick={() => setCopilotOpen(true)}
             >
-              <span
-                className="copilot-static"
-                aria-hidden
-              />
+              <span className="copilot-static" aria-hidden />
               <OutlineIcon d="M5 12l4 4L19 6" />
               Copilot
             </button>
@@ -836,25 +818,20 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* RIGHT DETAILS PANEL */}
+        {/* DETAILS */}
         <aside className="panel details">
-          {/* Personal Info */}
+          {/* PERSONAL INFO */}
           <div className="section">
             <div className="section-title">Personal Info</div>
-
             <div className="kv">
               <label>Full name</label>
               <span className="copy-row">
                 <span>
                   {selected?.leadName || (
-                    <i className="placeholder">
-                      Not provided
-                    </i>
+                    <i className="placeholder">Not provided</i>
                   )}
                 </span>
-                <CopyBtn
-                  value={selected?.leadName || undefined}
-                />
+                <CopyBtn value={selected?.leadName || undefined} />
               </span>
             </div>
 
@@ -863,14 +840,10 @@ export default function Dashboard() {
               <span className="copy-row">
                 <span>
                   {selected?.leadEmail || (
-                    <i className="placeholder">
-                      Not provided
-                    </i>
+                    <i className="placeholder">Not provided</i>
                   )}
                 </span>
-                <CopyBtn
-                  value={selected?.leadEmail || undefined}
-                />
+                <CopyBtn value={selected?.leadEmail || undefined} />
               </span>
             </div>
 
@@ -879,19 +852,15 @@ export default function Dashboard() {
               <span className="copy-row">
                 <span>
                   {selected?.leadPhone || (
-                    <i className="placeholder">
-                      Not provided
-                    </i>
+                    <i className="placeholder">Not provided</i>
                   )}
                 </span>
-                <CopyBtn
-                  value={selected?.leadPhone || undefined}
-                />
+                <CopyBtn value={selected?.leadPhone || undefined} />
               </span>
             </div>
           </div>
 
-          {/* Demographics (restored) */}
+          {/* DEMOGRAPHICS */}
           <div className="section">
             <div className="section-title">Demographics</div>
             {[
@@ -901,21 +870,19 @@ export default function Dashboard() {
               "State",
               "ZIP",
               "Household size",
-            ].map((k) => (
-              <div className="kv" key={k}>
-                <label>{k}</label>
+            ].map((label) => (
+              <div className="kv" key={label}>
+                <label>{label}</label>
                 <span className="copy-row">
                   <span>
-                    <i className="placeholder">
-                      Not provided
-                    </i>
+                    <i className="placeholder">Not provided</i>
                   </span>
                 </span>
               </div>
             ))}
           </div>
 
-          {/* Tags */}
+          {/* TAGS */}
           <div className="section">
             <div
               className="section-title"
@@ -936,7 +903,7 @@ export default function Dashboard() {
               </button>
             </div>
 
-            {/* current tags */}
+            {/* Current tags */}
             <div
               className="tag-row"
               style={{ flexWrap: "wrap", gap: 8 }}
@@ -948,9 +915,7 @@ export default function Dashboard() {
                     className="tag"
                     style={{
                       background: tag.color ?? "#eef2ff",
-                      color: tag.color
-                        ? "#fff"
-                        : "#374151",
+                      color: tag.color ? "#fff" : "#374151",
                       borderRadius: 999,
                       padding: "4px 8px",
                       display: "inline-flex",
@@ -968,14 +933,11 @@ export default function Dashboard() {
                           selected.leadId,
                           tag.id
                         );
-                        await refreshLeadTags(
-                          selected.leadId
-                        );
+                        await refreshLeadTags(selected.leadId);
                       }}
                       style={{
                         border: 0,
-                        background:
-                          "transparent",
+                        background: "transparent",
                         color: "inherit",
                         cursor: "pointer",
                         fontWeight: 700,
@@ -998,15 +960,12 @@ export default function Dashboard() {
                 style={{
                   position: "fixed",
                   inset: 0,
-                  background:
-                    "rgba(0,0,0,.35)",
+                  background: "rgba(0,0,0,.35)",
                   display: "grid",
                   placeItems: "center",
                   zIndex: 50,
                 }}
-                onClick={() =>
-                  setTagPickerOpen(false)
-                }
+                onClick={() => setTagPickerOpen(false)}
               >
                 <div
                   className="u-card"
@@ -1026,120 +985,93 @@ export default function Dashboard() {
                     Add a tag
                   </div>
 
-                    <div
-                      style={{
-                        maxHeight: 280,
-                        overflow: "auto",
-                      }}
-                    >
-                      {allTags.length ? (
-                        allTags.map((t) => (
-                          <button
-                            key={t.id}
-                            className="row"
-                            style={{
-                              width: "100%",
-                              display: "flex",
-                              alignItems:
-                                "center",
-                              gap: 10,
-                              padding:
-                                "6px 8px",
-                            }}
-                            onClick={async () => {
-                              if (
-                                !selected?.leadId
-                              )
-                                return;
-                              await attachTagToLead(
-                                selected.leadId,
-                                t.id
-                              );
-                              await refreshLeadTags(
-                                selected.leadId
-                              );
-                              setTagPickerOpen(
-                                false
-                              );
-                            }}
-                          >
-                            <span
-                              className="dot"
-                              style={{
-                                width: 12,
-                                height: 12,
-                                borderRadius: 999,
-                                background:
-                                  t.color ??
-                                  "#e5e7eb",
-                                border: "1px solid #e5e7eb",
-                              }}
-                            />
-                            <span
-                              style={{
-                                flex: 1,
-                                textAlign:
-                                  "left",
-                              }}
-                            >
-                              {t.name}
-                            </span>
-                          </button>
-                        ))
-                      ) : (
-                        <div
-                          className="hint"
+                  <div
+                    style={{
+                      maxHeight: 280,
+                      overflow: "auto",
+                    }}
+                  >
+                    {allTags.length ? (
+                      allTags.map((t) => (
+                        <button
+                          key={t.id}
+                          className="row"
                           style={{
-                            padding: 8,
+                            width: "100%",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 10,
+                            padding: "6px 8px",
+                          }}
+                          onClick={async () => {
+                            if (!selected?.leadId) return;
+                            await attachTagToLead(
+                              selected.leadId,
+                              t.id
+                            );
+                            await refreshLeadTags(selected.leadId);
+                            setTagPickerOpen(false);
                           }}
                         >
-                          No tags yet.{" "}
-                          <a
+                          <span
+                            className="dot"
                             style={{
-                              cursor:
-                                "pointer",
+                              width: 12,
+                              height: 12,
+                              borderRadius: 999,
+                              background:
+                                t.color ?? "#e5e7eb",
+                              border:
+                                "1px solid #e5e7eb",
                             }}
-                            onClick={() => {
-                              setTagPickerOpen(
-                                false
-                              );
-                              nav("/tags");
+                          />
+                          <span
+                            style={{
+                              flex: 1,
+                              textAlign: "left",
                             }}
                           >
-                            Create one
-                          </a>
-                          .
-                        </div>
-                      )}
-                    </div>
+                            {t.name}
+                          </span>
+                        </button>
+                      ))
+                    ) : (
+                      <div
+                        className="hint"
+                        style={{ padding: 8 }}
+                      >
+                        No tags yet.{" "}
+                        <a
+                          onClick={() => {
+                            setTagPickerOpen(false);
+                            nav("/tags");
+                          }}
+                          style={{ cursor: "pointer" }}
+                        >
+                          Create one
+                        </a>
+                        .
+                      </div>
+                    )}
+                  </div>
 
                   <div
                     style={{
                       display: "flex",
-                      justifyContent:
-                        "flex-end",
+                      justifyContent: "flex-end",
                       gap: 8,
                       marginTop: 10,
                     }}
                   >
                     <button
                       className="btn-outline"
-                      onClick={() =>
-                        setTagPickerOpen(
-                          false
-                        )
-                      }
+                      onClick={() => setTagPickerOpen(false)}
                     >
                       Close
                     </button>
                     <button
                       className="btn"
-                      onClick={() => {
-                        setTagPickerOpen(
-                          false
-                        );
-                        nav("/tags");
-                      }}
+                      onClick={() => nav("/tags")}
                     >
                       Open Tags page
                     </button>
@@ -1149,11 +1081,9 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* System Info */}
+          {/* SYSTEM INFO */}
           <div className="section">
-            <div className="section-title">
-              System Info
-            </div>
+            <div className="section-title">System Info</div>
             {[
               { k: "Quote", v: "" },
               { k: "Created", v: "" },
