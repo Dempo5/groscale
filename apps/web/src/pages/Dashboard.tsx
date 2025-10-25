@@ -24,11 +24,7 @@ const OutlineIcon = ({
   d,
   size = 18,
   stroke = "currentColor",
-}: {
-  d: string;
-  size?: number;
-  stroke?: string;
-}) => (
+}: { d: string; size?: number; stroke?: string }) => (
   <svg
     width={size}
     height={size}
@@ -58,7 +54,7 @@ const CopyBtn = ({ value }: { value?: string | null }) => (
   </button>
 );
 
-/* ---------------- types (lightweight) ---------------- */
+/* ---------------- types ---------------- */
 type ThreadRow = {
   id: string;
   ownerId: string;
@@ -79,7 +75,7 @@ function normalizePhone(input: string): string {
   return `+${digits}`;
 }
 
-/* ---------------- inline “+ New” box ---------------- */
+/* ---------------- "+ New conversation" box ---------------- */
 function NewConversationBox({
   onCreated,
   onCancel,
@@ -119,7 +115,9 @@ function NewConversationBox({
           (created as any).thread?.ownerId ??
           "system",
         leadId:
-          (created as any).leadId ?? (created as any).thread?.leadId ?? "",
+          (created as any).leadId ??
+          (created as any).thread?.leadId ??
+          "",
         leadName: (created as any).leadName ?? null,
         leadEmail: (created as any).leadEmail ?? null,
         leadPhone:
@@ -177,8 +175,8 @@ function NewConversationBox({
             </div>
           ) : (
             <div className="hint">
-              Tip: use your own number to test. Messages will appear in the
-              middle column once your webhook ingests inbound.
+              Tip: use your own number to test. Messages will appear in
+              the middle column once your webhook ingests inbound.
             </div>
           )}
         </div>
@@ -188,7 +186,7 @@ function NewConversationBox({
 }
 
 /* ====================================================================== */
-/*                               MAIN PAGE                                */
+/*                                 PAGE                                   */
 /* ====================================================================== */
 export default function Dashboard() {
   const nav = useNavigate();
@@ -199,29 +197,21 @@ export default function Dashboard() {
     null
   );
 
-  // search, composer, UX
-  const [query, setQuery] = useState("");
+  // messaging state
+  const [msgs, setMsgs] = useState<MessageDTO[]>([]);
+  const [loadingMsgs, setLoadingMsgs] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState("");
-
-  // messages for selected thread
-  const [msgs, setMsgs] = useState<MessageDTO[]>([]);
-  const [loadingMsgs, setLoadingMsgs] = useState(false);
   const pollRef = useRef<number | null>(null);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
 
-  // tag system
-  const [allTags, setAllTags] = useState<TagDTO[]>([]);
-  // leadTags = list of { tag: TagDTO, createdAt: string }
-  const [leadTags, setLeadTags] = useState<
-    { tag: TagDTO; createdAt: string }[]
-  >([]);
-  const [tagPickerOpen, setTagPickerOpen] = useState(false);
-
+  // UI chrome
+  const [query, setQuery] = useState("");
   const [railOpen, setRailOpen] = useState(true);
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [showNew, setShowNew] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // theme
   const [theme, setTheme] = useState<"light" | "dark">(
@@ -232,33 +222,27 @@ export default function Dashboard() {
     localStorage.setItem("gs_theme", theme);
   }, [theme]);
 
-  /* ------------ helpers to load lead tags with enforced sort ------------ */
-  async function refreshLeadTags(leadId: string | undefined | null) {
-    if (!leadId) {
-      setLeadTags([]);
-      return;
-    }
-    try {
-      const rows = await getLeadTags(leadId);
-      // force newest-first
-      const sorted = rows
-        .map((r: any) => ({
-          tag: r.tag as TagDTO,
-          createdAt: r.createdAt,
-        }))
-        .sort(
-          (a, b) =>
-            new Date(b.createdAt).getTime() -
-            new Date(a.createdAt).getTime()
-        );
-      setLeadTags(sorted);
-    } catch (e) {
-      console.error("failed to load lead tags", e);
-      setLeadTags([]);
-    }
-  }
+  // tagging state
+  const [allTags, setAllTags] = useState<TagDTO[]>([]);
+  // leadTags is newest-first: [{ tag: TagDTO, createdAt: ISO }]
+  const [leadTags, setLeadTags] = useState<
+    { tag: TagDTO; createdAt: string }[]
+  >([]);
+  const [tagPickerOpen, setTagPickerOpen] = useState(false);
 
-  /* ---------------------- load threads & tag catalog --------------------- */
+  // derive most recent tag's color (we assume leadTags[0] = newest)
+  const mostRecentColor =
+    leadTags.length && leadTags[0]?.tag?.color
+      ? leadTags[0].tag.color
+      : null;
+
+  // helper to get currently selected thread row
+  const selected = useMemo(
+    () => threads.find((t) => t.id === selectedThreadId) || null,
+    [threads, selectedThreadId]
+  );
+
+  /* ---------------- initial load ---------------- */
   useEffect(() => {
     (async () => {
       try {
@@ -277,7 +261,6 @@ export default function Dashboard() {
         console.error(e);
       }
 
-      // pull all possible tags (for +Tag picker)
       try {
         const tags = await getTags();
         setAllTags(tags || []);
@@ -288,20 +271,7 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ---------------- compute 'selected' thread + avatar color ------------- */
-  const selected = useMemo(
-    () => threads.find((t) => t.id === selectedThreadId) || null,
-    [threads, selectedThreadId]
-  );
-
-  // compute most recent tag color ANY TIME leadTags changes
-  const mostRecentColor = useMemo(() => {
-    if (!leadTags.length) return null;
-    const newest = leadTags[0]; // because we sort newest-first
-    return newest?.tag?.color ?? null;
-  }, [leadTags]);
-
-  /* -------- load messages + load that lead's tags whenever selection changes -------- */
+  /* ---------------- fetch messages & poll ---------------- */
   useEffect(() => {
     async function loadMsgs() {
       if (!selectedThreadId) {
@@ -326,9 +296,8 @@ export default function Dashboard() {
     }
 
     loadMsgs();
-    refreshLeadTags(selected?.leadId ?? null);
 
-    // polling messages
+    // poll messages every 4s
     if (pollRef.current) window.clearInterval(pollRef.current);
     pollRef.current = window.setInterval(loadMsgs, 4000);
 
@@ -336,11 +305,41 @@ export default function Dashboard() {
       if (pollRef.current) window.clearInterval(pollRef.current);
       pollRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedThreadId, selected?.leadId]);
+  }, [selectedThreadId]);
 
-  /* ---------------- filtered thread list by search box ---------------- */
-  const filteredThreads = useMemo(() => {
+  /* ---------------- fetch lead tags when selected lead changes ---------------- */
+  useEffect(() => {
+    async function loadLeadTags() {
+      if (!selected?.leadId) {
+        setLeadTags([]);
+        return;
+      }
+      try {
+        const rows = await getLeadTags(selected.leadId);
+        // rows might not be sorted; force newest-first by createdAt
+        const sorted = [...rows].sort(
+          (a: any, b: any) =>
+            new Date(b.createdAt).getTime() -
+            new Date(a.createdAt).getTime()
+        );
+        // normalize to {tag, createdAt}
+        setLeadTags(
+          sorted.map((r: any) => ({
+            tag: r.tag,
+            createdAt: r.createdAt,
+          }))
+        );
+      } catch (e) {
+        console.error("failed to load lead tags", e);
+        setLeadTags([]);
+      }
+    }
+
+    loadLeadTags();
+  }, [selected?.leadId]);
+
+  /* ---------------- filtering for left list ---------------- */
+  const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return threads;
     return threads.filter((t) => {
@@ -351,7 +350,7 @@ export default function Dashboard() {
     });
   }, [threads, query]);
 
-  /* ---------------- SEND HANDLER ---------------- */
+  /* ---------------- send handler ---------------- */
   const canSend = () =>
     !!selectedThreadId && draft.trim().length > 0;
 
@@ -359,7 +358,7 @@ export default function Dashboard() {
     if (!canSend()) return;
     const text = draft.trim();
 
-    // optimistic message so it feels instant
+    // optimistic bubble
     const temp: MessageDTO = {
       id: `tmp_${Date.now()}`,
       threadId: selectedThreadId!,
@@ -382,7 +381,7 @@ export default function Dashboard() {
       setNotice(
         "Queued to send. Delivery will update after your webhook processes."
       );
-      // hard refresh messages so we get real id + status
+      // refresh real msgs
       const data = await getThreadMessages(selectedThreadId!);
       setMsgs(Array.isArray(data) ? data : []);
     } catch (e: any) {
@@ -403,12 +402,37 @@ export default function Dashboard() {
     }
   }
 
-  /* ---------------- menu ---------------- */
-  const [menuOpen, setMenuOpen] = useState(false);
+  /* ---------------- tag actions ---------------- */
+  async function refreshLeadTags() {
+    if (!selected?.leadId) {
+      setLeadTags([]);
+      return;
+    }
+    try {
+      const rows = await getLeadTags(selected.leadId);
+      const sorted = [...rows].sort(
+        (a: any, b: any) =>
+          new Date(b.createdAt).getTime() -
+          new Date(a.createdAt).getTime()
+      );
+      setLeadTags(
+        sorted.map((r: any) => ({
+          tag: r.tag,
+          createdAt: r.createdAt,
+        }))
+      );
+    } catch (e) {
+      console.error("failed to reload tags", e);
+    }
+  }
+
+  /* ---------------- menu close helper ---------------- */
   const closeMenuSoon = () =>
     setTimeout(() => setMenuOpen(false), 100);
 
-  /* ---------------- render ---------------- */
+  /* ================================================================== */
+  /* RENDER */
+  /* ================================================================== */
   return (
     <div className="p-shell matte">
       {/* TOP BAR */}
@@ -433,7 +457,20 @@ export default function Dashboard() {
               aria-expanded={menuOpen}
               title="Account"
             >
-              <div className="avatar small">U</div>
+              {/* top-right avatar ALSO reflects most recent tag color */}
+              <div
+                className="avatar small"
+                style={
+                  mostRecentColor
+                    ? {
+                        background: mostRecentColor,
+                        color: "#fff",
+                      }
+                    : undefined
+                }
+              >
+                U
+              </div>
             </button>
             {menuOpen && (
               <div className="menu" role="menu" onBlur={closeMenuSoon}>
@@ -444,7 +481,9 @@ export default function Dashboard() {
                   }
                 >
                   <OutlineIcon d="M12 3v18M3 12h18" />
-                  {theme === "light" ? "Dark mode" : "Light mode"}
+                  {theme === "light"
+                    ? "Dark mode"
+                    : "Light mode"}
                 </button>
                 <div className="menu-sep" />
                 <button
@@ -465,10 +504,14 @@ export default function Dashboard() {
 
       {/* WORK AREA */}
       <main
-        className={`p-work grid ${railOpen ? "rail-open" : "rail-closed"}`}
+        className={`p-work grid ${
+          railOpen ? "rail-open" : "rail-closed"
+        }`}
       >
-        {/* LEFT RAIL */}
-        <aside className={`rail ${railOpen ? "" : "collapsed"} matte`}>
+        {/* LEFT RAIL NAV */}
+        <aside
+          className={`rail ${railOpen ? "" : "collapsed"} matte`}
+        >
           <nav>
             <NavLink
               to="/dashboard"
@@ -545,7 +588,7 @@ export default function Dashboard() {
           </div>
         </aside>
 
-        {/* LIST (Conversations) */}
+        {/* CONVO LIST */}
         <section className="panel list">
           <div className="list-head">
             <div className="h">Conversations</div>
@@ -590,7 +633,7 @@ export default function Dashboard() {
           </div>
 
           <ul className="rows">
-            {filteredThreads.map((t) => (
+            {filtered.map((t) => (
               <li
                 key={t.id}
                 className={`row ${
@@ -598,11 +641,11 @@ export default function Dashboard() {
                 }`}
                 onClick={() => setSelectedThreadId(t.id)}
               >
+                {/* LEFT LIST avatar also uses mostRecentColor */}
                 <div
                   className="avatar"
                   style={
-                    // if this row is the selected row, show live color
-                    t.id === selectedThreadId && mostRecentColor
+                    mostRecentColor
                       ? {
                           background: mostRecentColor,
                           color: "#fff",
@@ -628,15 +671,18 @@ export default function Dashboard() {
                 </div>
               </li>
             ))}
-            {!filteredThreads.length && (
-              <li className="row" style={{ opacity: 0.7 }}>
+            {!filtered.length && (
+              <li
+                className="row"
+                style={{ opacity: 0.7 }}
+              >
                 No conversations yet.
               </li>
             )}
           </ul>
         </section>
 
-        {/* THREAD */}
+        {/* MESSAGE THREAD */}
         <section className="panel thread">
           <div className="thread-title">
             <div className="who">
@@ -644,7 +690,10 @@ export default function Dashboard() {
                 className="avatar"
                 style={
                   mostRecentColor
-                    ? { background: mostRecentColor, color: "#fff" }
+                    ? {
+                        background: mostRecentColor,
+                        color: "#fff",
+                      }
                     : undefined
                 }
               >
@@ -661,7 +710,9 @@ export default function Dashboard() {
                   {selected?.leadName || "—"}
                 </div>
                 <div className="who-sub">
-                  {selected?.leadEmail || selected?.leadPhone || ""}
+                  {selected?.leadEmail ||
+                    selected?.leadPhone ||
+                    ""}
                 </div>
               </div>
             </div>
@@ -672,7 +723,6 @@ export default function Dashboard() {
             key={selected?.id ?? "none"}
             ref={scrollerRef}
           >
-            {/* messages list */}
             {loadingMsgs && !msgs.length && (
               <div className="hint">Loading messages…</div>
             )}
@@ -681,12 +731,12 @@ export default function Dashboard() {
               <div className="hint">
                 Messages will appear here once you start texting.
                 <br />
-                (Wire your outbound send + inbound webhook to populate
-                this thread.)
+                (Wire your outbound send + inbound webhook to
+                populate this thread.)
               </div>
             )}
 
-            {/* Figure out last outbound so we show its status label like iMessage */}
+            {/* render bubbles */}
             {(() => {
               const lastOutboundId = [...msgs]
                 .reverse()
@@ -695,7 +745,6 @@ export default function Dashboard() {
               return msgs.map((m) => {
                 const isOut = m.direction === "OUTBOUND";
 
-                // map internal states to friendly text
                 const statusLabel = isOut
                   ? m.status === "DELIVERED"
                     ? "Delivered"
@@ -735,33 +784,38 @@ export default function Dashboard() {
                           ? "var(--btn-primary-fg, #fff)"
                           : "var(--fg, #111)",
                         opacity:
-                          m.status === "FAILED" ? 0.6 : 1,
+                          m.status === "FAILED"
+                            ? 0.6
+                            : 1,
                         border:
                           m.status === "FAILED"
                             ? "1px solid #e5484d"
                             : "none",
                       }}
-                      title={`${m.direction} • ${m.status} • ${new Date(
+                      title={`${m.direction} • ${
+                        m.status
+                      } • ${new Date(
                         m.createdAt
                       ).toLocaleString()}`}
                     >
                       {m.body}
                     </div>
 
-                    {/* Only show label under the newest outbound */}
-                    {isOut && m.id === lastOutboundId && (
-                      <div
-                        style={{
-                          fontSize: 11,
-                          opacity: 0.8,
-                          marginTop: 4,
-                          marginRight: 6,
-                          textAlign: "right",
-                        }}
-                      >
-                        {statusLabel}
-                      </div>
-                    )}
+                    {/* Only show status line under the most recent outbound */}
+                    {isOut &&
+                      m.id === lastOutboundId && (
+                        <div
+                          style={{
+                            fontSize: 11,
+                            opacity: 0.8,
+                            marginTop: 4,
+                            marginRight: 6,
+                            textAlign: "right",
+                          }}
+                        >
+                          {statusLabel}
+                        </div>
+                      )}
                   </div>
                 );
               });
@@ -802,7 +856,10 @@ export default function Dashboard() {
               title="AI Copilot"
               onClick={() => setCopilotOpen(true)}
             >
-              <span className="copilot-static" aria-hidden />
+              <span
+                className="copilot-static"
+                aria-hidden
+              />
               <OutlineIcon d="M5 12l4 4L19 6" />
               Copilot
             </button>
@@ -810,7 +867,9 @@ export default function Dashboard() {
               className="btn-primary"
               onClick={handleSend}
               disabled={
-                !draft.trim() || !selectedThreadId || sending
+                !draft.trim() ||
+                !selectedThreadId ||
+                sending
               }
             >
               {sending ? "Sending…" : "Send"}
@@ -818,7 +877,7 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* DETAILS */}
+        {/* RIGHT PANEL (details) */}
         <aside className="panel details">
           {/* PERSONAL INFO */}
           <div className="section">
@@ -828,41 +887,61 @@ export default function Dashboard() {
               <span className="copy-row">
                 <span>
                   {selected?.leadName || (
-                    <i className="placeholder">Not provided</i>
+                    <i className="placeholder">
+                      Not provided
+                    </i>
                   )}
                 </span>
-                <CopyBtn value={selected?.leadName || undefined} />
+                <CopyBtn
+                  value={
+                    selected?.leadName || undefined
+                  }
+                />
               </span>
             </div>
-
             <div className="kv">
               <label>Email</label>
               <span className="copy-row">
                 <span>
                   {selected?.leadEmail || (
-                    <i className="placeholder">Not provided</i>
+                    <i className="placeholder">
+                      Not provided
+                    </i>
                   )}
                 </span>
-                <CopyBtn value={selected?.leadEmail || undefined} />
+                <CopyBtn
+                  value={
+                    selected?.leadEmail ||
+                    undefined
+                  }
+                />
               </span>
             </div>
-
             <div className="kv">
               <label>Phone</label>
               <span className="copy-row">
                 <span>
                   {selected?.leadPhone || (
-                    <i className="placeholder">Not provided</i>
+                    <i className="placeholder">
+                      Not provided
+                    </i>
                   )}
                 </span>
-                <CopyBtn value={selected?.leadPhone || undefined} />
+                <CopyBtn
+                  value={
+                    selected?.leadPhone ||
+                    undefined
+                  }
+                />
               </span>
             </div>
           </div>
 
           {/* DEMOGRAPHICS */}
           <div className="section">
-            <div className="section-title">Demographics</div>
+            <div className="section-title">
+              Demographics
+            </div>
             {[
               "DOB",
               "Age",
@@ -870,12 +949,14 @@ export default function Dashboard() {
               "State",
               "ZIP",
               "Household size",
-            ].map((label) => (
-              <div className="kv" key={label}>
-                <label>{label}</label>
+            ].map((k) => (
+              <div className="kv" key={k}>
+                <label>{k}</label>
                 <span className="copy-row">
                   <span>
-                    <i className="placeholder">Not provided</i>
+                    <i className="placeholder">
+                      Not provided
+                    </i>
                   </span>
                 </span>
               </div>
@@ -888,14 +969,17 @@ export default function Dashboard() {
               className="section-title"
               style={{
                 display: "flex",
-                justifyContent: "space-between",
+                justifyContent:
+                  "space-between",
                 alignItems: "center",
               }}
             >
               <span>Tags</span>
               <button
                 className="btn-outline sm"
-                onClick={() => setTagPickerOpen(true)}
+                onClick={() =>
+                  setTagPickerOpen(true)
+                }
                 disabled={!selected?.leadId}
                 title="Attach a tag"
               >
@@ -903,10 +987,13 @@ export default function Dashboard() {
               </button>
             </div>
 
-            {/* Current tags */}
+            {/* applied tags */}
             <div
               className="tag-row"
-              style={{ flexWrap: "wrap", gap: 8 }}
+              style={{
+                flexWrap: "wrap",
+                gap: 8,
+              }}
             >
               {leadTags.length ? (
                 leadTags.map(({ tag }) => (
@@ -914,32 +1001,49 @@ export default function Dashboard() {
                     key={tag.id}
                     className="tag"
                     style={{
-                      background: tag.color ?? "#eef2ff",
-                      color: tag.color ? "#fff" : "#374151",
+                      background:
+                        tag.color ??
+                        "#eef2ff",
+                      color: tag.color
+                        ? "#fff"
+                        : "#374151",
                       borderRadius: 999,
-                      padding: "4px 8px",
-                      display: "inline-flex",
-                      alignItems: "center",
+                      padding:
+                        "4px 8px",
+                      display:
+                        "inline-flex",
+                      alignItems:
+                        "center",
                       gap: 6,
+                      fontSize: 12,
+                      fontWeight: 500,
                     }}
-                    title={tag.name}
+                    title={
+                      tag.name
+                    }
                   >
                     {tag.name}
                     <button
                       aria-label={`Remove ${tag.name}`}
                       onClick={async () => {
-                        if (!selected?.leadId) return;
+                        if (
+                          !selected?.leadId
+                        )
+                          return;
                         await detachTagFromLead(
                           selected.leadId,
                           tag.id
                         );
-                        await refreshLeadTags(selected.leadId);
+                        await refreshLeadTags();
                       }}
                       style={{
                         border: 0,
-                        background: "transparent",
-                        color: "inherit",
-                        cursor: "pointer",
+        background:
+          "transparent",
+                        color:
+                          "inherit",
+                        cursor:
+                          "pointer",
                         fontWeight: 700,
                         lineHeight: 1,
                       }}
@@ -950,31 +1054,47 @@ export default function Dashboard() {
                   </span>
                 ))
               ) : (
-                <i className="placeholder">No tags</i>
+                <i className="placeholder">
+                  No tags
+                </i>
               )}
             </div>
 
-            {/* tag picker modal */}
+            {/* picker modal */}
             {tagPickerOpen && (
               <div
                 style={{
-                  position: "fixed",
+                  position:
+                    "fixed",
                   inset: 0,
-                  background: "rgba(0,0,0,.35)",
-                  display: "grid",
-                  placeItems: "center",
+                  background:
+                    "rgba(0,0,0,.35)",
+                  display:
+                    "grid",
+                  placeItems:
+                    "center",
                   zIndex: 50,
                 }}
-                onClick={() => setTagPickerOpen(false)}
+                onClick={() =>
+                  setTagPickerOpen(false)
+                }
               >
                 <div
                   className="u-card"
                   style={{
                     width: 360,
-                    maxWidth: "90vw",
+                    maxWidth:
+                      "90vw",
                     padding: 12,
+                    background:
+                      "#fff",
+                    borderRadius: 12,
+                    boxShadow:
+                      "0 20px 40px rgba(0,0,0,.18)",
                   }}
-                  onClick={(e) => e.stopPropagation()}
+                  onClick={(e) =>
+                    e.stopPropagation()
+                  }
                 >
                   <div
                     style={{
@@ -984,7 +1104,6 @@ export default function Dashboard() {
                   >
                     Add a tag
                   </div>
-
                   <div
                     style={{
                       maxHeight: 280,
@@ -992,61 +1111,90 @@ export default function Dashboard() {
                     }}
                   >
                     {allTags.length ? (
-                      allTags.map((t) => (
-                        <button
-                          key={t.id}
-                          className="row"
-                          style={{
-                            width: "100%",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 10,
-                            padding: "6px 8px",
-                          }}
-                          onClick={async () => {
-                            if (!selected?.leadId) return;
-                            await attachTagToLead(
-                              selected.leadId,
+                      allTags.map(
+                        (t) => (
+                          <button
+                            key={
                               t.id
-                            );
-                            await refreshLeadTags(selected.leadId);
-                            setTagPickerOpen(false);
-                          }}
-                        >
-                          <span
-                            className="dot"
+                            }
+                            className="row"
                             style={{
-                              width: 12,
-                              height: 12,
-                              borderRadius: 999,
-                              background:
-                                t.color ?? "#e5e7eb",
-                              border:
-                                "1px solid #e5e7eb",
+                              width:
+                                "100%",
+                              display:
+                                "flex",
+                              alignItems:
+                                "center",
+                              gap: 10,
+                              padding:
+                                "6px 8px",
+                              cursor:
+                                "pointer",
                             }}
-                          />
-                          <span
-                            style={{
-                              flex: 1,
-                              textAlign: "left",
+                            onClick={async () => {
+                              if (
+                                !selected?.leadId
+                              )
+                                return;
+                              await attachTagToLead(
+                                selected.leadId,
+                                t.id
+                              );
+                              await refreshLeadTags();
+                              setTagPickerOpen(
+                                false
+                              );
                             }}
                           >
-                            {t.name}
-                          </span>
-                        </button>
-                      ))
+                            <span
+                              className="dot"
+                              style={{
+                                width: 12,
+                                height: 12,
+                                borderRadius:
+                                  999,
+                                background:
+                                  t.color ??
+                                  "#e5e7eb",
+                                border:
+                                  "1px solid #e5e7eb",
+                              }}
+                            />
+                            <span
+                              style={{
+                                flex: 1,
+                                textAlign:
+                                  "left",
+                              }}
+                            >
+                              {
+                                t.name
+                              }
+                            </span>
+                          </button>
+                        )
+                      )
                     ) : (
                       <div
                         className="hint"
-                        style={{ padding: 8 }}
+                        style={{
+                          padding: 8,
+                        }}
                       >
                         No tags yet.{" "}
                         <a
                           onClick={() => {
-                            setTagPickerOpen(false);
-                            nav("/tags");
+                            setTagPickerOpen(
+                              false
+                            );
+                            nav(
+                              "/tags"
+                            );
                           }}
-                          style={{ cursor: "pointer" }}
+                          style={{
+                            cursor:
+                              "pointer",
+                          }}
                         >
                           Create one
                         </a>
@@ -1054,26 +1202,37 @@ export default function Dashboard() {
                       </div>
                     )}
                   </div>
-
                   <div
                     style={{
-                      display: "flex",
-                      justifyContent: "flex-end",
+                      display:
+                        "flex",
+                      justifyContent:
+                        "flex-end",
                       gap: 8,
                       marginTop: 10,
                     }}
                   >
                     <button
                       className="btn-outline"
-                      onClick={() => setTagPickerOpen(false)}
+                      onClick={() =>
+                        setTagPickerOpen(
+                          false
+                        )
+                      }
                     >
                       Close
                     </button>
                     <button
                       className="btn"
-                      onClick={() => nav("/tags")}
+                      onClick={() => {
+                        setTagPickerOpen(
+                          false
+                        );
+                        nav("/tags");
+                      }}
                     >
-                      Open Tags page
+                      Open Tags
+                      page
                     </button>
                   </div>
                 </div>
@@ -1083,22 +1242,32 @@ export default function Dashboard() {
 
           {/* SYSTEM INFO */}
           <div className="section">
-            <div className="section-title">System Info</div>
+            <div className="section-title">
+              System Info
+            </div>
             {[
               { k: "Quote", v: "" },
               { k: "Created", v: "" },
             ].map(({ k, v }) => (
-              <div className="kv" key={k}>
+              <div
+                className="kv"
+                key={k}
+              >
                 <label>{k}</label>
                 <span className="copy-row">
                   <span>
                     {v || (
                       <i className="placeholder">
-                        Not provided
+                        Not
+                        provided
                       </i>
                     )}
                   </span>
-                  <CopyBtn value={v || undefined} />
+                  <CopyBtn
+                    value={
+                      v || undefined
+                    }
+                  />
                 </span>
               </div>
             ))}
@@ -1108,7 +1277,9 @@ export default function Dashboard() {
 
       <CopilotModal
         open={copilotOpen}
-        onClose={() => setCopilotOpen(false)}
+        onClose={() =>
+          setCopilotOpen(false)
+        }
       />
     </div>
   );
