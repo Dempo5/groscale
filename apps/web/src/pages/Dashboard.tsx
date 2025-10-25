@@ -1,4 +1,5 @@
 // apps/web/src/pages/Dashboard.tsx
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./dashboard-ios.css";
 import {
@@ -24,7 +25,11 @@ const OutlineIcon = ({
   d,
   size = 18,
   stroke = "currentColor",
-}: { d: string; size?: number; stroke?: string }) => (
+}: {
+  d: string;
+  size?: number;
+  stroke?: string;
+}) => (
   <svg
     width={size}
     height={size}
@@ -54,7 +59,7 @@ const CopyBtn = ({ value }: { value?: string | null }) => (
   </button>
 );
 
-/* ---------------- types (lightweight) ---------------- */
+/* ---------------- types ---------------- */
 type ThreadRow = {
   id: string;
   ownerId: string;
@@ -75,7 +80,7 @@ function normalizePhone(input: string): string {
   return `+${digits}`;
 }
 
-/* ---------------- inline “+ New” box ---------------- */
+/* ---------------- inline “+ New conversation” box ---------------- */
 function NewConversationBox({
   onCreated,
   onCancel,
@@ -90,7 +95,9 @@ function NewConversationBox({
   const [status, setStatus] = useState<string>("");
 
   useEffect(() => {
-    listWorkflows().then((ws) => setWorkflows(ws || [])).catch(() => setWorkflows([]));
+    listWorkflows()
+      .then((ws) => setWorkflows(ws || []))
+      .catch(() => setWorkflows([]));
   }, []);
 
   async function handleCreate() {
@@ -106,13 +113,19 @@ function NewConversationBox({
         name: name.trim() || undefined,
         workflowId: wf || undefined,
       });
+
       const t: ThreadRow = {
         id: (created as any).id ?? (created as any).thread?.id ?? "",
-        ownerId: (created as any).ownerId ?? (created as any).thread?.ownerId ?? "system",
-        leadId: (created as any).leadId ?? (created as any).thread?.leadId ?? "",
+        ownerId:
+          (created as any).ownerId ??
+          (created as any).thread?.ownerId ??
+          "system",
+        leadId:
+          (created as any).leadId ?? (created as any).thread?.leadId ?? "",
         leadName: (created as any).leadName ?? null,
         leadEmail: (created as any).leadEmail ?? null,
-        leadPhone: (created as any).leadPhone ?? (name ? null : n) ?? null,
+        leadPhone:
+          (created as any).leadPhone ?? (name ? null : n) ?? null,
         phoneNumberSid: (created as any).phoneNumberSid ?? null,
         lastMessageAt: (created as any).lastMessageAt ?? null,
       };
@@ -138,23 +151,36 @@ function NewConversationBox({
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
-          <select className="input" value={wf} onChange={(e) => setWf(e.target.value)}>
+          <select
+            className="input"
+            value={wf}
+            onChange={(e) => setWf(e.target.value)}
+          >
             <option value="">(none)</option>
             {workflows.map((w) => (
-              <option key={w.id} value={w.id}>{w.name}</option>
+              <option key={w.id} value={w.id}>
+                {w.name}
+              </option>
             ))}
           </select>
 
           <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn-primary" onClick={handleCreate}>Create</button>
-            <button className="btn-outline" onClick={onCancel}>Cancel</button>
+            <button className="btn-primary" onClick={handleCreate}>
+              Create
+            </button>
+            <button className="btn-outline" onClick={onCancel}>
+              Cancel
+            </button>
           </div>
 
           {status ? (
-            <div className="hint" style={{ color: "#e5484d" }}>{status}</div>
+            <div className="hint" style={{ color: "#e5484d" }}>
+              {status}
+            </div>
           ) : (
             <div className="hint">
-              Tip: use your own number to test. Messages will appear in the middle column once your webhook ingests inbound.
+              Tip: use your own number to test. Messages will appear in the
+              middle column once your webhook ingests inbound.
             </div>
           )}
         </div>
@@ -169,58 +195,72 @@ function NewConversationBox({
 export default function Dashboard() {
   const nav = useNavigate();
 
-  // threads & messages
+  // threads / selection
   const [threads, setThreads] = useState<ThreadRow[]>([]);
-  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(
+    null
+  );
+
+  // messages in current thread
   const [msgs, setMsgs] = useState<MessageDTO[]>([]);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
 
-  // compose & UI
+  // tagging
+  const [allTags, setAllTags] = useState<TagDTO[]>([]);
+  // newest-first list of { tag: TagDTO, createdAt: string }
+  const [leadTags, setLeadTags] = useState<
+    { tag: TagDTO; createdAt: string }[]
+  >([]);
+  const [tagPickerOpen, setTagPickerOpen] = useState(false);
+
+  // ui state
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState("");
-  const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const pollRef = useRef<number | null>(null);
-
-  // rails / modals
   const [railOpen, setRailOpen] = useState(true);
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [showNew, setShowNew] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
-  // theme
+  // dark/light
   const [theme, setTheme] = useState<"light" | "dark">(
     (localStorage.getItem("gs_theme") as "light" | "dark") || "light"
   );
+
+  // refs
+  const pollRef = useRef<number | null>(null);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+
+  // keep theme on body
   useEffect(() => {
     document.body.setAttribute("data-theme", theme);
     localStorage.setItem("gs_theme", theme);
   }, [theme]);
 
-  // tags
-  const [allTags, setAllTags] = useState<TagDTO[]>([]);
-  const [leadTags, setLeadTags] = useState<TagDTO[]>([]);
-  const [tagPickerOpen, setTagPickerOpen] = useState(false);
-  const mostRecentColor = leadTags[0]?.color ?? null;
-
-  /* ---------------- Load once: threads + tag catalog ---------------- */
+  // load threads + all possible tags once on mount
   useEffect(() => {
     (async () => {
       try {
         const res = await listThreads();
         const list: ThreadRow[] = Array.isArray(res)
           ? res
-          : Array.isArray((res as any)?.threads) ? (res as any).threads
-          : Array.isArray((res as any)?.data) ? (res as any).data
+          : Array.isArray((res as any)?.threads)
+          ? (res as any).threads
+          : Array.isArray((res as any)?.data)
+          ? (res as any).data
           : [];
         setThreads(list);
-        if (!selectedThreadId && list.length) setSelectedThreadId(list[0].id);
+        if (!selectedThreadId && list.length) {
+          setSelectedThreadId(list[0].id);
+        }
       } catch (e) {
         console.error(e);
       }
+
       try {
         const tags = await getTags();
-        setAllTags(tags);
+        setAllTags(tags || []);
       } catch (e) {
         console.error("failed to load tags", e);
       }
@@ -228,68 +268,114 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ---------------- derived values ---------------- */
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return threads;
-    return threads.filter((t) => {
-      const a = `${t.leadName || ""} ${t.leadEmail || ""} ${t.leadPhone || ""}`.toLowerCase();
-      return a.includes(q);
-    });
-  }, [threads, query]);
-
+  // figure out which thread is selected
   const selected = useMemo(
     () => threads.find((t) => t.id === selectedThreadId) || null,
     [threads, selectedThreadId]
   );
 
-  /* ---------------- Load messages whenever thread changes ---------------- */
+  // helper: refresh this lead's tags
+  async function refreshLeadTags(leadId: string | undefined | null) {
+    if (!leadId) {
+      setLeadTags([]);
+      return;
+    }
+    try {
+      const rows = await getLeadTags(leadId);
+      // assume backend already returns newest first;
+      // if not, you could sort by createdAt desc here.
+      setLeadTags(
+        rows.map((r: any) => ({
+          tag: r.tag,
+          createdAt: r.createdAt,
+        }))
+      );
+    } catch (e) {
+      console.error("failed to load lead tags", e);
+      setLeadTags([]);
+    }
+  }
+
+  // whenever selected thread changes:
+  // - load its messages
+  // - start polling for messages
+  // - load its tags
   useEffect(() => {
-    async function loadMsgs() {
-      if (!selectedThreadId) { setMsgs([]); return; }
+    async function loadMsgsAndTags() {
+      if (!selectedThreadId) {
+        setMsgs([]);
+        setLeadTags([]);
+        return;
+      }
+
       setLoadingMsgs(true);
       try {
         const data = await getThreadMessages(selectedThreadId);
         setMsgs(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error(err);
       } finally {
         setLoadingMsgs(false);
         requestAnimationFrame(() => {
-          scrollerRef.current?.scrollTo({ top: 9e6, behavior: "smooth" });
+          scrollerRef.current?.scrollTo({
+            top: 999999,
+            behavior: "smooth",
+          });
         });
       }
-    }
-    loadMsgs();
 
+      // tag refresh based on selected.leadId
+      await refreshLeadTags(selected?.leadId);
+    }
+
+    loadMsgsAndTags();
+
+    // start polling just messages for live status / inbound
     if (pollRef.current) window.clearInterval(pollRef.current);
-    pollRef.current = window.setInterval(loadMsgs, 4000);
+    pollRef.current = window.setInterval(async () => {
+      if (!selectedThreadId) return;
+      try {
+        const data = await getThreadMessages(selectedThreadId);
+        setMsgs(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error(err);
+      }
+    }, 4000);
+
     return () => {
       if (pollRef.current) window.clearInterval(pollRef.current);
       pollRef.current = null;
     };
-  }, [selectedThreadId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedThreadId, selected?.leadId]);
 
-  /* ---------------- Load applied tags whenever the selected lead changes ---------------- */
-  useEffect(() => {
-    (async () => {
-      if (!selected?.leadId) { setLeadTags([]); return; }
-      try {
-        const rows = await getLeadTags(selected.leadId); // returns [{ leadId, tagId, tag }]
-        setLeadTags(rows.map((r) => r.tag));            // keep just TagDTO; newest should be first after attach
-      } catch (e) {
-        console.error("failed to load lead tags", e);
-        setLeadTags([]);
-      }
-    })();
-  }, [selected?.leadId]);
+  // filter list by search box
+  const filtered = useMemo(() => {
+    const k = query.trim().toLowerCase();
+    if (!k) return threads;
+    return threads.filter((t) => {
+      const hay = `${t.leadName || ""} ${t.leadEmail || ""} ${
+        t.leadPhone || ""
+      }`.toLowerCase();
+      return hay.includes(k);
+    });
+  }, [threads, query]);
 
-  /* ---------------- send handler ---------------- */
+  // derived "most recent color" for avatar styling
+  // we assume newest tag is index 0 of leadTags
+  const mostRecentColor =
+    leadTags.length && leadTags[0]?.tag?.color
+      ? leadTags[0].tag.color
+      : null;
+
+  // SEND
   const canSend = () => !!selectedThreadId && draft.trim().length > 0;
 
   async function handleSend() {
     if (!canSend()) return;
     const text = draft.trim();
 
-    // optimistic append
+    // optimistic bubble
     const temp: MessageDTO = {
       id: `tmp_${Date.now()}`,
       threadId: selectedThreadId!,
@@ -309,21 +395,31 @@ export default function Dashboard() {
 
     try {
       await sendMessage(selectedThreadId!, text);
-      setNotice("Queued to send. Delivery will update after your webhook processes.");
+      setNotice(
+        "Queued to send. Delivery will update after your webhook processes."
+      );
+      // refresh w/ real record
       const data = await getThreadMessages(selectedThreadId!);
       setMsgs(Array.isArray(data) ? data : []);
     } catch (e: any) {
       setNotice(e?.message || "Failed to send.");
-      setMsgs((m) => m.map((mm) => (mm.id === temp.id ? { ...mm, status: "FAILED" } : mm)));
+      setMsgs((m) =>
+        m.map((mm) =>
+          mm.id === temp.id ? { ...mm, status: "FAILED" } : mm
+        )
+      );
     } finally {
       setSending(false);
       requestAnimationFrame(() => {
-        scrollerRef.current?.scrollTo({ top: 9e6, behavior: "smooth" });
+        scrollerRef.current?.scrollTo({
+          top: 999999,
+          behavior: "smooth",
+        });
       });
     }
   }
 
-  const [menuOpen, setMenuOpen] = useState(false);
+  // menu helpers
   const closeMenuSoon = () => setTimeout(() => setMenuOpen(false), 100);
 
   return (
@@ -340,6 +436,7 @@ export default function Dashboard() {
         </button>
 
         <div className="brand-center">GroScales</div>
+        <div className="brand-center">GroScales</div>
 
         <div className="top-actions">
           <div className="profile">
@@ -350,13 +447,25 @@ export default function Dashboard() {
               aria-expanded={menuOpen}
               title="Account"
             >
-              <div className="avatar small">U</div>
+              {/* top right user avatar */}
+              <div
+                className="avatar small"
+                style={
+                  mostRecentColor
+                    ? { background: mostRecentColor, color: "#fff" }
+                    : undefined
+                }
+              >
+                U
+              </div>
             </button>
             {menuOpen && (
               <div className="menu" role="menu" onBlur={closeMenuSoon}>
                 <button
                   className="menu-item"
-                  onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
+                  onClick={() =>
+                    setTheme((t) => (t === "light" ? "dark" : "light"))
+                  }
                 >
                   <OutlineIcon d="M12 3v18M3 12h18" />
                   {theme === "light" ? "Dark mode" : "Light mode"}
@@ -379,36 +488,74 @@ export default function Dashboard() {
       </header>
 
       {/* WORK AREA */}
-      <main className={`p-work grid ${railOpen ? "rail-open" : "rail-closed"}`}>
-        {/* LEFT RAIL */}
+      <main
+        className={`p-work grid ${railOpen ? "rail-open" : "rail-closed"}`}
+      >
+        {/* LEFT RAIL NAV */}
         <aside className={`rail ${railOpen ? "" : "collapsed"} matte`}>
           <nav>
-            <NavLink to="/dashboard" className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`} title="Conversations">
+            <NavLink
+              to="/dashboard"
+              className={({ isActive }) =>
+                `rail-item ${isActive ? "active" : ""}`
+              }
+              title="Conversations"
+            >
               <OutlineIcon d="M16 11c1.66 0 3-1.34 3-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zM5 20c0-3.31 2.69-6 6-6h2" />
               {railOpen && <span>Conversations</span>}
             </NavLink>
 
-            <NavLink to="/workflows" className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`} title="Workflows">
+            <NavLink
+              to="/workflows"
+              className={({ isActive }) =>
+                `rail-item ${isActive ? "active" : ""}`
+              }
+              title="Workflows"
+            >
               <OutlineIcon d="M4 6h16M4 12h10M4 18h7" />
               {railOpen && <span>Workflows</span>}
             </NavLink>
 
-            <NavLink to="/phone-numbers" className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`} title="Phone numbers">
+            <NavLink
+              to="/phone-numbers"
+              className={({ isActive }) =>
+                `rail-item ${isActive ? "active" : ""}`
+              }
+              title="Phone numbers"
+            >
               <OutlineIcon d="M6 2h12v20H6zM9 18h6" />
               {railOpen && <span>Phone numbers</span>}
             </NavLink>
 
-            <NavLink to="/tags" className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`} title="Tags">
+            <NavLink
+              to="/tags"
+              className={({ isActive }) =>
+                `rail-item ${isActive ? "active" : ""}`
+              }
+              title="Tags"
+            >
               <OutlineIcon d="M20 12l-8 8-8-8 8-8 8 8z" />
               {railOpen && <span>Tags</span>}
             </NavLink>
 
-            <NavLink to="/templates" className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`} title="Templates">
+            <NavLink
+              to="/templates"
+              className={({ isActive }) =>
+                `rail-item ${isActive ? "active" : ""}`
+              }
+              title="Templates"
+            >
               <OutlineIcon d="M4 4h16v6H4zM4 14h10" />
               {railOpen && <span>Templates</span>}
             </NavLink>
 
-            <NavLink to="/uploads" className={({ isActive }) => `rail-item ${isActive ? "active" : ""}`} title="Uploads">
+            <NavLink
+              to="/uploads"
+              className={({ isActive }) =>
+                `rail-item ${isActive ? "active" : ""}`
+              }
+              title="Uploads"
+            >
               <OutlineIcon d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16" />
               {railOpen && <span>Uploads</span>}
             </NavLink>
@@ -422,12 +569,17 @@ export default function Dashboard() {
           </div>
         </aside>
 
-        {/* LIST (Conversations) */}
+        {/* CONVERSATION LIST */}
         <section className="panel list">
           <div className="list-head">
             <div className="h">Conversations</div>
             <div className="list-head-actions">
-              <button className="btn-outline sm" onClick={() => setShowNew(true)}>+ New</button>
+              <button
+                className="btn-outline sm"
+                onClick={() => setShowNew(true)}
+              >
+                + New
+              </button>
             </div>
           </div>
 
@@ -449,74 +601,117 @@ export default function Dashboard() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
-            <button className="icon-btn" aria-label="Filter" title="Filter">
+            <button
+              className="icon-btn"
+              aria-label="Filter"
+              title="Filter"
+            >
               <OutlineIcon d="M3 5h18M6 12h12M10 19h4" />
             </button>
           </div>
 
           <ul className="rows">
-            {filtered.map((t) => (
-              <li
-                key={t.id}
-                className={`row ${t.id === selectedThreadId ? "selected" : ""}`}
-                onClick={() => setSelectedThreadId(t.id)}
-              >
-                <div className="avatar">
-                  {(t.leadName || t.leadEmail || t.leadPhone || "?")
-                    .toString()
-                    .slice(0, 1)
-                    .toUpperCase()}
-                </div>
-                <div className="meta">
-                  <div className="name">{t.leadName || t.leadPhone || "—"}</div>
-                  <div className="sub">{t.leadEmail || t.leadPhone || ""}</div>
-                </div>
-              </li>
-            ))}
+            {filtered.map((t) => {
+              // if this is the selected thread, use mostRecentColor for its avatar
+              const isSel = t.id === selectedThreadId;
+              const avatarStyle =
+                isSel && mostRecentColor
+                  ? { background: mostRecentColor, color: "#fff" }
+                  : undefined;
+
+              return (
+                <li
+                  key={t.id}
+                  className={`row ${isSel ? "selected" : ""}`}
+                  onClick={() => setSelectedThreadId(t.id)}
+                >
+                  <div className="avatar" style={avatarStyle}>
+                    {(t.leadName ||
+                      t.leadEmail ||
+                      t.leadPhone ||
+                      "?")
+                      .toString()
+                      .slice(0, 1)
+                      .toUpperCase()}
+                  </div>
+                  <div className="meta">
+                    <div className="name">
+                      {t.leadName || t.leadPhone || "—"}
+                    </div>
+                    <div className="sub">
+                      {t.leadEmail || t.leadPhone || ""}
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+
             {!filtered.length && (
-              <li className="row" style={{ opacity: 0.7 }}>No conversations yet.</li>
+              <li className="row" style={{ opacity: 0.7 }}>
+                No conversations yet.
+              </li>
             )}
           </ul>
         </section>
 
-        {/* THREAD */}
+        {/* THREAD VIEW */}
         <section className="panel thread">
           <div className="thread-title">
             <div className="who">
               <div
                 className="avatar"
-                style={mostRecentColor ? { background: mostRecentColor, color: "#fff" } : undefined}
+                style={
+                  mostRecentColor
+                    ? { background: mostRecentColor, color: "#fff" }
+                    : undefined
+                }
               >
-                {(selected?.leadName || selected?.leadEmail || selected?.leadPhone || "T")
+                {(selected?.leadName ||
+                  selected?.leadEmail ||
+                  selected?.leadPhone ||
+                  "T")
                   .toString()
                   .slice(0, 1)
                   .toUpperCase()}
               </div>
               <div className="who-meta">
-                <div className="who-name">{selected?.leadName || "—"}</div>
-                <div className="who-sub">{selected?.leadEmail || selected?.leadPhone || ""}</div>
+                <div className="who-name">
+                  {selected?.leadName || "—"}
+                </div>
+                <div className="who-sub">
+                  {selected?.leadEmail || selected?.leadPhone || ""}
+                </div>
               </div>
             </div>
           </div>
 
-          <div className="messages" key={selected?.id ?? "none"} ref={scrollerRef}>
-            {loadingMsgs && !msgs.length && <div className="hint">Loading messages…</div>}
+          <div
+            className="messages"
+            key={selected?.id ?? "none"}
+            ref={scrollerRef}
+          >
+            {loadingMsgs && !msgs.length && (
+              <div className="hint">Loading messages…</div>
+            )}
 
             {!loadingMsgs && msgs.length === 0 && (
               <div className="hint">
                 Messages will appear here once you start texting.
                 <br />
-                (Wire your outbound send + inbound webhook to populate this thread.)
+                (Wire your outbound send + inbound webhook to populate
+                this thread.)
               </div>
             )}
 
-            {/* single status line for the latest outbound */}
+            {/* iMessage-style status: only last outbound gets label */}
             {(() => {
-              const lastOutboundId =
-                [...msgs].reverse().find((x) => x.direction === "OUTBOUND")?.id;
+              const lastOutboundId = [...msgs]
+                .reverse()
+                .find((x) => x.direction === "OUTBOUND")?.id;
 
               return msgs.map((m) => {
                 const isOut = m.direction === "OUTBOUND";
+
                 const statusLabel = isOut
                   ? m.status === "DELIVERED"
                     ? "Delivered"
@@ -535,7 +730,9 @@ export default function Dashboard() {
                     className={`m-row ${isOut ? "out" : "in"}`}
                     style={{
                       display: "flex",
-                      justifyContent: isOut ? "flex-end" : "flex-start",
+                      justifyContent: isOut
+                        ? "flex-end"
+                        : "flex-start",
                       margin: "6px 0",
                     }}
                   >
@@ -550,11 +747,19 @@ export default function Dashboard() {
                         background: isOut
                           ? "var(--btn-primary-bg, #4f46e5)"
                           : "var(--panel-bg, #f3f4f6)",
-                        color: isOut ? "var(--btn-primary-fg, #fff)" : "var(--fg, #111)",
-                        opacity: m.status === "FAILED" ? 0.6 : 1,
-                        border: m.status === "FAILED" ? "1px solid #e5484d" : "none",
+                        color: isOut
+                          ? "var(--btn-primary-fg, #fff)"
+                          : "var(--fg, #111)",
+                        opacity:
+                          m.status === "FAILED" ? 0.6 : 1,
+                        border:
+                          m.status === "FAILED"
+                            ? "1px solid #e5484d"
+                            : "none",
                       }}
-                      title={`${m.direction} • ${m.status} • ${new Date(m.createdAt).toLocaleString()}`}
+                      title={`${m.direction} • ${m.status} • ${new Date(
+                        m.createdAt
+                      ).toLocaleString()}`}
                     >
                       {m.body}
                     </div>
@@ -577,7 +782,14 @@ export default function Dashboard() {
               });
             })()}
 
-            {notice && <div className="hint" style={{ marginTop: 8 }}>{notice}</div>}
+            {notice && (
+              <div
+                className="hint"
+                style={{ marginTop: 8 }}
+              >
+                {notice}
+              </div>
+            )}
           </div>
 
           <div className="composer">
@@ -593,55 +805,125 @@ export default function Dashboard() {
               }}
               disabled={!selectedThreadId || sending}
             />
-            <button className="btn-outline" onClick={() => nav("/templates")} title="Open templates">
+            <button
+              className="btn-outline"
+              onClick={() => nav("/templates")}
+              title="Open templates"
+            >
               Templates
             </button>
-            <button className="btn-copilot" title="AI Copilot" onClick={() => setCopilotOpen(true)}>
-              <span className="copilot-static" aria-hidden />
+            <button
+              className="btn-copilot"
+              title="AI Copilot"
+              onClick={() => setCopilotOpen(true)}
+            >
+              <span
+                className="copilot-static"
+                aria-hidden
+              />
               <OutlineIcon d="M5 12l4 4L19 6" />
               Copilot
             </button>
             <button
               className="btn-primary"
               onClick={handleSend}
-              disabled={!draft.trim() || !selectedThreadId || sending}
+              disabled={
+                !draft.trim() || !selectedThreadId || sending
+              }
             >
               {sending ? "Sending…" : "Send"}
             </button>
           </div>
         </section>
 
-        {/* DETAILS */}
+        {/* RIGHT DETAILS PANEL */}
         <aside className="panel details">
+          {/* Personal Info */}
           <div className="section">
             <div className="section-title">Personal Info</div>
+
             <div className="kv">
               <label>Full name</label>
               <span className="copy-row">
-                <span>{selected?.leadName || <i className="placeholder">Not provided</i>}</span>
-                <CopyBtn value={selected?.leadName || undefined} />
+                <span>
+                  {selected?.leadName || (
+                    <i className="placeholder">
+                      Not provided
+                    </i>
+                  )}
+                </span>
+                <CopyBtn
+                  value={selected?.leadName || undefined}
+                />
               </span>
             </div>
+
             <div className="kv">
               <label>Email</label>
               <span className="copy-row">
-                <span>{selected?.leadEmail || <i className="placeholder">Not provided</i>}</span>
-                <CopyBtn value={selected?.leadEmail || undefined} />
+                <span>
+                  {selected?.leadEmail || (
+                    <i className="placeholder">
+                      Not provided
+                    </i>
+                  )}
+                </span>
+                <CopyBtn
+                  value={selected?.leadEmail || undefined}
+                />
               </span>
             </div>
+
             <div className="kv">
               <label>Phone</label>
               <span className="copy-row">
-                <span>{selected?.leadPhone || <i className="placeholder">Not provided</i>}</span>
-                <CopyBtn value={selected?.leadPhone || undefined} />
+                <span>
+                  {selected?.leadPhone || (
+                    <i className="placeholder">
+                      Not provided
+                    </i>
+                  )}
+                </span>
+                <CopyBtn
+                  value={selected?.leadPhone || undefined}
+                />
               </span>
             </div>
           </div>
 
+          {/* Demographics (restored) */}
+          <div className="section">
+            <div className="section-title">Demographics</div>
+            {[
+              "DOB",
+              "Age",
+              "City",
+              "State",
+              "ZIP",
+              "Household size",
+            ].map((k) => (
+              <div className="kv" key={k}>
+                <label>{k}</label>
+                <span className="copy-row">
+                  <span>
+                    <i className="placeholder">
+                      Not provided
+                    </i>
+                  </span>
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* Tags */}
           <div className="section">
             <div
               className="section-title"
-              style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
             >
               <span>Tags</span>
               <button
@@ -654,16 +936,21 @@ export default function Dashboard() {
               </button>
             </div>
 
-            {/* Applied tags */}
-            <div className="tag-row" style={{ flexWrap: "wrap", gap: 8 }}>
+            {/* current tags */}
+            <div
+              className="tag-row"
+              style={{ flexWrap: "wrap", gap: 8 }}
+            >
               {leadTags.length ? (
-                leadTags.map((tag) => (
+                leadTags.map(({ tag }) => (
                   <span
                     key={tag.id}
                     className="tag"
                     style={{
                       background: tag.color ?? "#eef2ff",
-                      color: tag.color ? "#fff" : "#374151",
+                      color: tag.color
+                        ? "#fff"
+                        : "#374151",
                       borderRadius: 999,
                       padding: "4px 8px",
                       display: "inline-flex",
@@ -677,13 +964,18 @@ export default function Dashboard() {
                       aria-label={`Remove ${tag.name}`}
                       onClick={async () => {
                         if (!selected?.leadId) return;
-                        await detachTagFromLead(selected.leadId, tag.id);
-                        const rows = await getLeadTags(selected.leadId);
-                        setLeadTags(rows.map((r) => r.tag));
+                        await detachTagFromLead(
+                          selected.leadId,
+                          tag.id
+                        );
+                        await refreshLeadTags(
+                          selected.leadId
+                        );
                       }}
                       style={{
                         border: 0,
-                        background: "transparent",
+                        background:
+                          "transparent",
                         color: "inherit",
                         cursor: "pointer",
                         fontWeight: 700,
@@ -700,81 +992,155 @@ export default function Dashboard() {
               )}
             </div>
 
-            {/* Tag picker modal */}
+            {/* tag picker modal */}
             {tagPickerOpen && (
               <div
                 style={{
                   position: "fixed",
                   inset: 0,
-                  background: "rgba(0,0,0,.35)",
+                  background:
+                    "rgba(0,0,0,.35)",
                   display: "grid",
                   placeItems: "center",
                   zIndex: 50,
                 }}
-                onClick={() => setTagPickerOpen(false)}
+                onClick={() =>
+                  setTagPickerOpen(false)
+                }
               >
                 <div
                   className="u-card"
-                  style={{ width: 360, maxWidth: "90vw", padding: 12 }}
+                  style={{
+                    width: 360,
+                    maxWidth: "90vw",
+                    padding: 12,
+                  }}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div style={{ fontWeight: 700, marginBottom: 8 }}>Add a tag</div>
-                  <div style={{ maxHeight: 280, overflow: "auto" }}>
-                    {allTags.length ? (
-                      allTags.map((t) => (
-                        <button
-                          key={t.id}
-                          className="row"
-                          style={{
-                            width: "100%",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 10,
-                            padding: "6px 8px",
-                          }}
-                          onClick={async () => {
-                            if (!selected?.leadId) return;
-                            await attachTagToLead(selected.leadId, t.id);
-                            const rows = await getLeadTags(selected.leadId);
-                            // server reorders with the newly added tag first
-                            setLeadTags(rows.map((r) => r.tag));
-                            setTagPickerOpen(false);
-                          }}
-                        >
-                          <span
-                            className="dot"
-                            style={{
-                              width: 12,
-                              height: 12,
-                              borderRadius: 999,
-                              background: t.color ?? "#e5e7eb",
-                              border: "1px solid #e5e7eb",
-                            }}
-                          />
-                          <span style={{ flex: 1, textAlign: "left" }}>{t.name}</span>
-                        </button>
-                      ))
-                    ) : (
-                      <div className="hint" style={{ padding: 8 }}>
-                        No tags yet.{" "}
-                        <a
-                          onClick={() => {
-                            setTagPickerOpen(false);
-                            nav("/tags");
-                          }}
-                          style={{ cursor: "pointer" }}
-                        >
-                          Create one
-                        </a>
-                        .
-                      </div>
-                    )}
+                  <div
+                    style={{
+                      fontWeight: 700,
+                      marginBottom: 8,
+                    }}
+                  >
+                    Add a tag
                   </div>
-                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 10 }}>
-                    <button className="btn-outline" onClick={() => setTagPickerOpen(false)}>
+
+                    <div
+                      style={{
+                        maxHeight: 280,
+                        overflow: "auto",
+                      }}
+                    >
+                      {allTags.length ? (
+                        allTags.map((t) => (
+                          <button
+                            key={t.id}
+                            className="row"
+                            style={{
+                              width: "100%",
+                              display: "flex",
+                              alignItems:
+                                "center",
+                              gap: 10,
+                              padding:
+                                "6px 8px",
+                            }}
+                            onClick={async () => {
+                              if (
+                                !selected?.leadId
+                              )
+                                return;
+                              await attachTagToLead(
+                                selected.leadId,
+                                t.id
+                              );
+                              await refreshLeadTags(
+                                selected.leadId
+                              );
+                              setTagPickerOpen(
+                                false
+                              );
+                            }}
+                          >
+                            <span
+                              className="dot"
+                              style={{
+                                width: 12,
+                                height: 12,
+                                borderRadius: 999,
+                                background:
+                                  t.color ??
+                                  "#e5e7eb",
+                                border: "1px solid #e5e7eb",
+                              }}
+                            />
+                            <span
+                              style={{
+                                flex: 1,
+                                textAlign:
+                                  "left",
+                              }}
+                            >
+                              {t.name}
+                            </span>
+                          </button>
+                        ))
+                      ) : (
+                        <div
+                          className="hint"
+                          style={{
+                            padding: 8,
+                          }}
+                        >
+                          No tags yet.{" "}
+                          <a
+                            style={{
+                              cursor:
+                                "pointer",
+                            }}
+                            onClick={() => {
+                              setTagPickerOpen(
+                                false
+                              );
+                              nav("/tags");
+                            }}
+                          >
+                            Create one
+                          </a>
+                          .
+                        </div>
+                      )}
+                    </div>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent:
+                        "flex-end",
+                      gap: 8,
+                      marginTop: 10,
+                    }}
+                  >
+                    <button
+                      className="btn-outline"
+                      onClick={() =>
+                        setTagPickerOpen(
+                          false
+                        )
+                      }
+                    >
                       Close
                     </button>
-                    <button className="btn" onClick={() => nav("/tags")}>
+                    <button
+                      className="btn"
+                      onClick={() => {
+                        setTagPickerOpen(
+                          false
+                        );
+                        nav("/tags");
+                      }}
+                    >
                       Open Tags page
                     </button>
                   </div>
@@ -783,8 +1149,11 @@ export default function Dashboard() {
             )}
           </div>
 
+          {/* System Info */}
           <div className="section">
-            <div className="section-title">System Info</div>
+            <div className="section-title">
+              System Info
+            </div>
             {[
               { k: "Quote", v: "" },
               { k: "Created", v: "" },
@@ -792,7 +1161,13 @@ export default function Dashboard() {
               <div className="kv" key={k}>
                 <label>{k}</label>
                 <span className="copy-row">
-                  <span>{v || <i className="placeholder">Not provided</i>}</span>
+                  <span>
+                    {v || (
+                      <i className="placeholder">
+                        Not provided
+                      </i>
+                    )}
+                  </span>
                   <CopyBtn value={v || undefined} />
                 </span>
               </div>
@@ -801,7 +1176,10 @@ export default function Dashboard() {
         </aside>
       </main>
 
-      <CopilotModal open={copilotOpen} onClose={() => setCopilotOpen(false)} />
+      <CopilotModal
+        open={copilotOpen}
+        onClose={() => setCopilotOpen(false)}
+      />
     </div>
   );
 }
