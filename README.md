@@ -53,7 +53,6 @@ Frontend
 	•	Next.js
 	•	TypeScript
 	•	TailwindCSS and ShadCN UI
-	•	Zustand
 	•	React Query
 
 Backend
@@ -66,5 +65,5 @@ Backend
 Infrastructure
 	•	Vercel for frontend
 	•	Render for backend
-	•	Neon or Railway for Postgres
+	•	Railway for Postgres
 	•	Upstash for caching and rate limits
