@@ -3,6 +3,7 @@ import { Router } from "express";
 import multer from "multer";
 import { parse } from "csv-parse/sync";
 import { prisma } from "../prisma.js";
+import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
 
 const router = Router();
 const upload = multer({
