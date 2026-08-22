@@ -1,8 +1,10 @@
 // apps/server/src/routes/messages.ts
 import { Router } from "express";
 import { prisma } from "../prisma.js";
+import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
 
 const r = Router();
+r.use(requireAuth);
 
 /* -------------------------- helpers & config -------------------------- */
 
@@ -38,7 +40,7 @@ async function ensureTwilio() {
 
 /** List threads for current owner (left rail) */
 r.get("/threads", async (req, res) => {
-  const ownerId = (req as any).user?.id || "system";
+  const ownerId = (req as AuthedRequest).userId!;
   const rows = await prisma.messageThread.findMany({
     where: { ownerId },
     orderBy: { lastMessageAt: "desc" },
@@ -61,17 +63,32 @@ r.get("/threads", async (req, res) => {
 
 /** Get messages inside a thread */
 r.get("/:threadId", async (req, res) => {
+  const ownerId = (req as AuthedRequest).userId!;
   const { threadId } = req.params as { threadId: string };
+
+  const thread = await prisma.messageThread.findFirst({
+    where: {
+      id: threadId,
+      ownerId,
+    },
+    select: { id: true },
+  });
+
+  if (!thread) {
+    return res.status(404).json({ ok: false, error: "Thread not found" });
+  }
+
   const data = await prisma.message.findMany({
     where: { threadId },
     orderBy: { createdAt: "asc" },
   });
+
   res.json({ ok: true, data });
 });
 
 /** Start a thread by phone (creates lead if needed) */
 r.post("/start", async (req, res) => {
-  const ownerId = (req as any).user?.id || "system";
+  const ownerId = (req as AuthedRequest).userId!;
   const { phone, name, leadId, firstMessage } = (req.body ?? {}) as {
     phone?: string;
     name?: string;
