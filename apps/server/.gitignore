@@ -3,6 +3,7 @@ dev.db
 .env
 .env.local
 prisma/migrations/*/steps.json
+generated/prisma/
 
 # optional but nice:
 dist
