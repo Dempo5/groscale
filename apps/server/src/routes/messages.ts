@@ -4,6 +4,7 @@ import { prisma } from "../prisma.js";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
 
 const r = Router();
+
 r.use(requireAuth);
 
 /* -------------------------- helpers & config -------------------------- */
@@ -12,39 +13,56 @@ const TWILIO_SID = process.env.TWILIO_ACCOUNT_SID || "";
 const TWILIO_AUTH = process.env.TWILIO_AUTH_TOKEN || "";
 const TWILIO_MESSAGING_SERVICE_SID =
   process.env.TWILIO_MESSAGING_SERVICE_SID || "";
-const haveTwilio = !!(TWILIO_SID && TWILIO_AUTH && TWILIO_MESSAGING_SERVICE_SID);
+
+const haveTwilio = !!(
+  TWILIO_SID &&
+  TWILIO_AUTH &&
+  TWILIO_MESSAGING_SERVICE_SID
+);
 
 // Public origin for building absolute callback URLs (no trailing slash)
-const SERVER_BASE_URL =
-  (process.env.SERVER_BASE_URL || process.env.PUBLIC_BASE_URL || "").replace(
-    /\/+$/,
-    ""
-  );
+const SERVER_BASE_URL = (
+  process.env.SERVER_BASE_URL ||
+  process.env.PUBLIC_BASE_URL ||
+  ""
+).replace(/\/+$/, "");
 
-// Build absolute URL (falls back to relative if base missing, but Twilio needs absolute)
+// Build absolute URL
 function absUrl(path: string) {
   if (!path.startsWith("/")) path = `/${path}`;
   return SERVER_BASE_URL ? `${SERVER_BASE_URL}${path}` : path;
 }
 
-// Lazy Twilio client (no top-level await)
+// Lazy Twilio client
 let twilioClient: any | null = null;
+
 async function ensureTwilio() {
   if (twilioClient || !haveTwilio) return twilioClient;
+
   const twilioMod = await import("twilio");
   twilioClient = twilioMod.default(TWILIO_SID, TWILIO_AUTH);
+
   return twilioClient;
 }
 
 /* ------------------------------ routes ------------------------------- */
 
-/** List threads for current owner (left rail) */
+/** List threads for current owner */
 r.get("/threads", async (req, res) => {
   const ownerId = (req as AuthedRequest).userId!;
+
   const rows = await prisma.messageThread.findMany({
     where: { ownerId },
     orderBy: { lastMessageAt: "desc" },
-    include: { lead: { select: { name: true, email: true, phone: true } } },
+    include: {
+      lead: {
+        select: {
+          name: true,
+          email: true,
+          phone: true,
+        },
+      },
+    },
   });
 
   const data = rows.map((t) => ({
@@ -66,16 +84,22 @@ r.get("/:threadId", async (req, res) => {
   const ownerId = (req as AuthedRequest).userId!;
   const { threadId } = req.params as { threadId: string };
 
+  // Make sure this thread belongs to the logged-in user
   const thread = await prisma.messageThread.findFirst({
     where: {
       id: threadId,
       ownerId,
     },
-    select: { id: true },
+    select: {
+      id: true,
+    },
   });
 
   if (!thread) {
-    return res.status(404).json({ ok: false, error: "Thread not found" });
+    return res.status(404).json({
+      ok: false,
+      error: "Thread not found",
+    });
   }
 
   const data = await prisma.message.findMany({
@@ -86,9 +110,10 @@ r.get("/:threadId", async (req, res) => {
   res.json({ ok: true, data });
 });
 
-/** Start a thread by phone (creates lead if needed) */
+/** Start a thread by phone */
 r.post("/start", async (req, res) => {
   const ownerId = (req as AuthedRequest).userId!;
+
   const { phone, name, leadId, firstMessage } = (req.body ?? {}) as {
     phone?: string;
     name?: string;
@@ -96,17 +121,47 @@ r.post("/start", async (req, res) => {
     firstMessage?: string;
   };
 
-  if (!phone) return res.status(400).json({ ok: false, error: "phone required" });
+  if (!phone) {
+    return res.status(400).json({
+      ok: false,
+      error: "phone required",
+    });
+  }
 
-  const lead =
-    leadId
-      ? await prisma.lead.findUnique({ where: { id: leadId } })
-      : await prisma.lead.create({
-          data: { name: name || phone, email: null, phone, ownerId },
-        });
+  let lead;
+
+  if (leadId) {
+    // IMPORTANT:
+    // Only allow the logged-in user to use their own lead
+    lead = await prisma.lead.findFirst({
+      where: {
+        id: leadId,
+        ownerId,
+      },
+    });
+
+    if (!lead) {
+      return res.status(404).json({
+        ok: false,
+        error: "Lead not found",
+      });
+    }
+  } else {
+    lead = await prisma.lead.create({
+      data: {
+        name: name || phone,
+        email: null,
+        phone,
+        ownerId,
+      },
+    });
+  }
 
   const thread = await prisma.messageThread.create({
-    data: { ownerId, leadId: lead!.id },
+    data: {
+      ownerId,
+      leadId: lead.id,
+    },
   });
 
   if (firstMessage && firstMessage.trim()) {
@@ -120,28 +175,49 @@ r.post("/start", async (req, res) => {
     });
   }
 
-  res.json({ ok: true, thread });
+  res.json({
+    ok: true,
+    thread,
+  });
 });
 
-/** Send an outbound message into an existing thread (Twilio if configured) */
+/** Send an outbound message into an existing thread */
 r.post("/send", async (req, res) => {
+  const ownerId = (req as AuthedRequest).userId!;
+
   const { threadId, body } = (req.body ?? {}) as {
     threadId?: string;
     body?: string;
   };
+
   if (!threadId || !body || !body.trim()) {
-    return res.status(400).json({ ok: false, error: "threadId/body required" });
+    return res.status(400).json({
+      ok: false,
+      error: "threadId/body required",
+    });
   }
 
-  // Look up destination phone
-  const thread = await prisma.messageThread.findUnique({
-    where: { id: threadId },
-    include: { lead: { select: { phone: true } } },
+  // IMPORTANT:
+  // Find the thread AND verify it belongs to this user
+  const thread = await prisma.messageThread.findFirst({
+    where: {
+      id: threadId,
+      ownerId,
+    },
+    include: {
+      lead: {
+        select: {
+          phone: true,
+        },
+      },
+    },
   });
+
   if (!thread || !thread.lead?.phone) {
-    return res
-      .status(400)
-      .json({ ok: false, error: "thread or lead phone not found" });
+    return res.status(404).json({
+      ok: false,
+      error: "Thread or lead phone not found",
+    });
   }
 
   // Create DB message as QUEUED first
@@ -154,7 +230,7 @@ r.post("/send", async (req, res) => {
     },
   });
 
-  // If Twilio isn’t configured, acknowledge and keep it queued (useful for staging)
+  // If Twilio isn't configured, keep it queued
   if (!haveTwilio) {
     return res.json({
       ok: true,
@@ -163,24 +239,26 @@ r.post("/send", async (req, res) => {
     });
   }
 
-  // Ensure absolute callback URL (fixes “not a valid URL”)
   const statusCallback = absUrl("/api/twilio/status");
 
   try {
     const client = await ensureTwilio();
-    if (!client) throw new Error("Twilio not configured");
+
+    if (!client) {
+      throw new Error("Twilio not configured");
+    }
 
     const msg = await client.messages.create({
-      // Use Messaging Service SID if provided (recommended by Twilio)
       messagingServiceSid: TWILIO_MESSAGING_SERVICE_SID,
       to: thread.lead.phone,
       body: body.trim(),
       statusCallback,
     });
 
-    // Mark as SENT and store Twilio metadata
     await prisma.message.update({
-      where: { id: pending.id },
+      where: {
+        id: pending.id,
+      },
       data: {
         status: "SENT",
         externalSid: msg.sid,
@@ -189,19 +267,35 @@ r.post("/send", async (req, res) => {
       },
     });
 
-    // bump thread last activity
     await prisma.messageThread.update({
-      where: { id: threadId },
-      data: { lastMessageAt: new Date() },
+      where: {
+        id: threadId,
+      },
+      data: {
+        lastMessageAt: new Date(),
+      },
     });
 
-    res.json({ ok: true, id: pending.id, sid: msg.sid });
+    res.json({
+      ok: true,
+      id: pending.id,
+      sid: msg.sid,
+    });
   } catch (err: any) {
     await prisma.message.update({
-      where: { id: pending.id },
-      data: { status: "FAILED", error: err?.message || "send failed" },
+      where: {
+        id: pending.id,
+      },
+      data: {
+        status: "FAILED",
+        error: err?.message || "send failed",
+      },
     });
-    res.status(502).json({ ok: false, error: err?.message || "send failed" });
+
+    res.status(502).json({
+      ok: false,
+      error: err?.message || "send failed",
+    });
   }
 });
 
