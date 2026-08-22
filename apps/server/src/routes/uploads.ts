@@ -75,20 +75,6 @@ function safeJSON<T = any>(v: any): T | undefined {
   }
 }
 
-async function ensureOwner(ownerId: string) {
-  // Makes sure a user exists so Lead.ownerId foreign key never explodes when unauthenticated.
-  await prisma.user.upsert({
-    where: { id: ownerId },
-    update: {},
-    create: {
-      id: ownerId,
-      email: `${ownerId}@local`,
-      name: "System",
-      hashedPassword: "!", // placeholder
-    },
-  });
-}
-
 async function upsertTags(ownerId: string, leadId: string, names: string[]) {
   if (!names?.length) return;
   for (const raw of names) {
@@ -109,14 +95,14 @@ async function upsertTags(ownerId: string, leadId: string, names: string[]) {
 }
 
 /* ---------------- route ---------------- */
-router.post("/import", upload.single("file"), async (req, res) => {
+router.post(
+  "/import",
+  requireAuth,
+  upload.single("file"),
+  async (req: AuthedRequest, res) => {
   if (!req.file) return res.status(400).json({ ok: false, error: "file required" });
 
-  const ownerId =
-    (req as any)?.user?.id ||
-    process.env.DEFAULT_OWNER_ID ||
-    "system";
-  await ensureOwner(ownerId);
+  const ownerId = req.userId!;
 
   const options =
     (safeJSON(req.body?.options) as
