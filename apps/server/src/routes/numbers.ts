@@ -1,38 +1,80 @@
 import { Router } from "express";
 import twilio from "twilio";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../prisma.js";
+import type { AuthedRequest } from "../middleware/auth.js";
 
 const router = Router();
-const prisma = new PrismaClient();
 
 const {
   TWILIO_ACCOUNT_SID,
   TWILIO_AUTH_TOKEN,
   SERVER_BASE_URL,
-  TWILIO_MESSAGING_SERVICE_SID, // optional default MS
+  TWILIO_MESSAGING_SERVICE_SID,
 } = process.env;
 
 if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !SERVER_BASE_URL) {
-  console.warn("[numbers] Missing required envs: TWILIO_* or SERVER_BASE_URL");
+  console.warn(
+    "[numbers] Missing required envs: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or SERVER_BASE_URL"
+  );
 }
 
-const client = twilio(TWILIO_ACCOUNT_SID!, TWILIO_AUTH_TOKEN!);
+function getTwilioClient() {
+  if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
+    throw new Error("Twilio is not configured");
+  }
 
-// helpers ----------------------------------------------------
-const toBool = (v: any) => v === true || v === "true" || v === "1";
+  return twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+}
+
+/* ------------------------------ helpers ------------------------------ */
+
+const toBool = (v: any) =>
+  v === true || v === "true" || v === "1";
+
+function inboundWebhookUrl() {
+  if (!SERVER_BASE_URL) {
+    throw new Error("SERVER_BASE_URL is not configured");
+  }
+
+  const base = SERVER_BASE_URL.replace(/\/+$/, "");
+
+  return `${base}/api/twilio/inbound`;
+}
 
 async function ensureInbound(pnSid: string) {
-  const inbound = `${SERVER_BASE_URL}/api/twilio/webhook/inbound`;
-  await client.incomingPhoneNumbers(pnSid).update({ smsUrl: inbound, smsMethod: "POST" });
+  const client = getTwilioClient();
+
+  await client.incomingPhoneNumbers(pnSid).update({
+    smsUrl: inboundWebhookUrl(),
+    smsMethod: "POST",
+  });
 }
 
-// GET /api/numbers/available --------------------------------
+/* ---------------- GET /api/numbers/available ---------------- */
+
 router.get("/available", async (req, res) => {
   try {
-    const country = (req.query.country as string) || "US";
-    const areaCode = req.query.areaCode as string | undefined;
-    const contains = req.query.contains as string | undefined;
-    const limit = Math.min(parseInt((req.query.limit as string) || "20", 10), 50);
+    const client = getTwilioClient();
+
+    const country =
+      (req.query.country as string) || "US";
+
+    const areaCode =
+      req.query.areaCode as string | undefined;
+
+    const contains =
+      req.query.contains as string | undefined;
+
+    const requestedLimit = parseInt(
+      (req.query.limit as string) || "20",
+      10
+    );
+
+    const limit = Math.min(
+      Number.isFinite(requestedLimit) ? requestedLimit : 20,
+      50
+    );
+
     const sms = toBool(req.query.sms);
     const mms = toBool(req.query.mms);
     const voice = toBool(req.query.voice);
@@ -46,7 +88,10 @@ router.get("/available", async (req, res) => {
       voiceEnabled: voice || undefined,
     };
 
-    const list = await client.availablePhoneNumbers(country).local.list(filter);
+    const list = await client
+      .availablePhoneNumbers(country)
+      .local.list(filter);
+
     const rows = list.map((n: any) => ({
       friendlyName: n.friendlyName,
       phoneNumber: n.phoneNumber as string,
@@ -54,109 +99,233 @@ router.get("/available", async (req, res) => {
       region: n.region,
       isoCountry: n.isoCountry,
       postalCode: n.postalCode,
-      capabilities: n.capabilities, // { sms, mms, voice }
+      capabilities: n.capabilities,
     }));
 
-    res.json({ ok: true, data: rows });
+    res.json({
+      ok: true,
+      data: rows,
+    });
   } catch (e: any) {
     console.error(e);
-    res.status(500).json({ ok: false, error: e.message || "Search failed" });
+
+    res.status(500).json({
+      ok: false,
+      error: e?.message || "Search failed",
+    });
   }
 });
 
-// GET /api/numbers/mine  ------------------------------------
-router.get("/mine", async (_req, res) => {
-  // NOTE: your model uses "purchasedAt" (not createdAt)
-  const rows = await prisma.phoneNumber.findMany({
-    orderBy: { purchasedAt: "desc" },
-  });
-  res.json({ ok: true, data: rows });
+/* ---------------- GET /api/numbers/mine ---------------- */
+
+router.get("/mine", async (req, res) => {
+  try {
+    const ownerId = (req as AuthedRequest).userId!;
+
+    const rows = await prisma.phoneNumber.findMany({
+      where: {
+        ownerId,
+      },
+      orderBy: {
+        purchasedAt: "desc",
+      },
+    });
+
+    res.json({
+      ok: true,
+      data: rows,
+    });
+  } catch (e: any) {
+    console.error(e);
+
+    res.status(500).json({
+      ok: false,
+      error: e?.message || "Failed to load numbers",
+    });
+  }
 });
 
-// POST /api/numbers/default  { sid }
+/* ---------------- POST /api/numbers/default ---------------- */
+/* body: { sid } */
+
 router.post("/default", async (req, res) => {
-  const { sid } = req.body as { sid: string };
-  if (!sid) return res.status(400).json({ ok: false, error: "sid required" });
+  try {
+    const ownerId = (req as AuthedRequest).userId!;
+    const { sid } = req.body as { sid?: string };
 
-  await prisma.$transaction([
-    prisma.phoneNumber.updateMany({ data: { isDefault: false } }),
-    prisma.phoneNumber.update({ where: { sid }, data: { isDefault: true } }),
-  ]);
+    if (!sid) {
+      return res.status(400).json({
+        ok: false,
+        error: "sid required",
+      });
+    }
 
-  res.json({ ok: true });
+    // Make sure this phone number actually belongs to this user.
+    const number = await prisma.phoneNumber.findFirst({
+      where: {
+        sid,
+        ownerId,
+      },
+      select: {
+        sid: true,
+      },
+    });
+
+    if (!number) {
+      return res.status(404).json({
+        ok: false,
+        error: "Phone number not found",
+      });
+    }
+
+    await prisma.$transaction([
+      // Only unset THIS user's defaults.
+      prisma.phoneNumber.updateMany({
+        where: {
+          ownerId,
+        },
+        data: {
+          isDefault: false,
+        },
+      }),
+
+      prisma.phoneNumber.update({
+        where: {
+          sid,
+        },
+        data: {
+          isDefault: true,
+        },
+      }),
+    ]);
+
+    res.json({
+      ok: true,
+    });
+  } catch (e: any) {
+    console.error(e);
+
+    res.status(500).json({
+      ok: false,
+      error: e?.message || "Failed to set default number",
+    });
+  }
 });
 
-// POST /api/numbers/purchase --------------------------------
-// body: { country, phoneNumber, makeDefault?, messagingServiceSid? }
+/* ---------------- POST /api/numbers/purchase ---------------- */
+/*
+  body:
+  {
+    country,
+    phoneNumber,
+    makeDefault?,
+    messagingServiceSid?
+  }
+*/
+
 router.post("/purchase", async (req, res) => {
   try {
+    const ownerId = (req as AuthedRequest).userId!;
+    const client = getTwilioClient();
+
     const {
       country,
       phoneNumber,
       makeDefault,
       messagingServiceSid,
     } = req.body as {
-      country: string;
-      phoneNumber: string;
+      country?: string;
+      phoneNumber?: string;
       makeDefault?: boolean;
       messagingServiceSid?: string;
     };
 
     if (!country || !phoneNumber) {
-      return res.status(400).json({ ok: false, error: "country and phoneNumber required" });
+      return res.status(400).json({
+        ok: false,
+        error: "country and phoneNumber required",
+      });
     }
 
-    // 1) Buy at Twilio
-    const purchased = await client.incomingPhoneNumbers.create({
-      phoneNumber,
-      smsUrl: `${SERVER_BASE_URL}/api/twilio/webhook/inbound`,
-      smsMethod: "POST",
-    });
+    /*
+     * 1. Purchase the number from Twilio.
+     *
+     * IMPORTANT:
+     * Correct webhook is /api/twilio/inbound
+     */
+    const purchased =
+      await client.incomingPhoneNumbers.create({
+        phoneNumber,
+        smsUrl: inboundWebhookUrl(),
+        smsMethod: "POST",
+      });
 
-    // 2) Attach to a Messaging Service (optional)
-    const msid = messagingServiceSid || TWILIO_MESSAGING_SERVICE_SID;
+    /*
+     * 2. Optionally attach it to a Twilio Messaging Service.
+     */
+    const msid =
+      messagingServiceSid ||
+      TWILIO_MESSAGING_SERVICE_SID ||
+      null;
+
     if (msid) {
-      await client.messaging.v1.services(msid)
-        .phoneNumbers
-        .create({ phoneNumberSid: purchased.sid });
-    } else {
-      // still ensure inbound webhook
-      await ensureInbound(purchased.sid);
+      await client.messaging.v1
+        .services(msid)
+        .phoneNumbers.create({
+          phoneNumberSid: purchased.sid,
+        });
     }
 
-    // Optional owner: if you attach auth later, set ownerId from req.user.id
-    const ownerId: string | null = null;
+    /*
+     * Keep the inbound webhook explicitly configured on
+     * the purchased number.
+     */
+    await ensureInbound(purchased.sid);
 
-    // 3) Upsert in DB (shape works whether ownerId is optional or required)
-    const createData: any = {
-      sid: purchased.sid,
-      number: purchased.phoneNumber!,
-      friendlyName: purchased.friendlyName ?? null,
-      capabilities: purchased.capabilities as any,
-      isDefault: !!makeDefault,
-      purchasedAt: new Date(),
-    };
-    if (ownerId) createData.ownerId = ownerId;
-
-    const updateData: any = {
-      number: purchased.phoneNumber!,
-      friendlyName: purchased.friendlyName ?? null,
-      capabilities: purchased.capabilities as any,
-      isDefault: !!makeDefault,
-    };
-    if (ownerId) updateData.ownerId = ownerId;
-
+    /*
+     * 3. Save number AND its actual GroScale owner.
+     */
     const saved = await prisma.phoneNumber.upsert({
-      where: { sid: purchased.sid },
-      create: createData,
-      update: updateData,
+      where: {
+        sid: purchased.sid,
+      },
+
+      create: {
+        sid: purchased.sid,
+        number: purchased.phoneNumber!,
+        friendlyName: purchased.friendlyName ?? null,
+        capabilities: purchased.capabilities as any,
+        ownerId,
+        isDefault: !!makeDefault,
+        purchasedAt: new Date(),
+        messagingServiceSid: msid,
+      },
+
+      update: {
+        number: purchased.phoneNumber!,
+        friendlyName: purchased.friendlyName ?? null,
+        capabilities: purchased.capabilities as any,
+        ownerId,
+        isDefault: !!makeDefault,
+        messagingServiceSid: msid,
+      },
     });
 
-    // 4) If making default, unset others
+    /*
+     * 4. If this number should be the default,
+     * unset ONLY this user's other defaults.
+     */
     if (makeDefault) {
       await prisma.phoneNumber.updateMany({
-        where: { sid: { not: saved.sid } },
-        data: { isDefault: false },
+        where: {
+          ownerId,
+          sid: {
+            not: saved.sid,
+          },
+        },
+        data: {
+          isDefault: false,
+        },
       });
     }
 
@@ -168,11 +337,16 @@ router.post("/purchase", async (req, res) => {
         friendlyName: saved.friendlyName,
         capabilities: saved.capabilities,
         isDefault: saved.isDefault,
+        messagingServiceSid: saved.messagingServiceSid,
       },
     });
   } catch (e: any) {
     console.error(e);
-    res.status(500).json({ ok: false, error: e.message || "Purchase failed" });
+
+    res.status(500).json({
+      ok: false,
+      error: e?.message || "Purchase failed",
+    });
   }
 });
 
