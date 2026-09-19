@@ -137,3 +137,21 @@
 @media (prefers-reduced-motion: reduce) {
   .gs-app * { transition: none !important; }
 }
+
+/* ---------- standard page layout (Phone numbers, Uploads, Tags...) ---------- */
+.gs-page {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  height: 100vh;
+  padding: 10px 10px 10px 0;
+  box-sizing: border-box;
+}
+.gs-page-panel {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  background: var(--gs-surface);
+  border-radius: var(--gs-r-lg);
+  box-shadow: var(--gs-shadow-panel);
+}

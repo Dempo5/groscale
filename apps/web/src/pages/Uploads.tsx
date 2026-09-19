@@ -1,83 +1,22 @@
 // apps/web/src/pages/Uploads.tsx
-import { useRef, useState, useEffect, useMemo } from "react";
+// Upload leads in three steps: pick a file → match columns → see results.
+// Column auto-matching logic carried over from the previous version.
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  listWorkflows,
-  uploadLeadsMapped,
-  type CsvMapping,
-} from "../lib/api";
+import { listWorkflows, uploadLeadsMapped, type CsvMapping } from "../lib/api";
+import "./uploads.css";
 
-/** —— Canonical + synonyms —— */
-const H: Record<string, string> = {
-  firstname: "first",
-  "first name": "first",
-  first: "first",
-  lastname: "last",
-  "last name": "last",
-  last: "last",
-  name: "name",
-  "full name": "name",
-  fullname: "name",
-  "contact name": "name",
-  email: "email",
-  "e-mail": "email",
-  "email address": "email",
-  mail: "email",
-  phone: "phone",
-  "phone number": "phone",
-  mobile: "phone",
-  cell: "phone",
-  telephone: "phone",
-  tel: "phone",
-  "primary ph": "phone",
-  "primary phone": "phone",
-  ph: "phone",
-  phone2: "phone",
-  tags: "tags",
-  label: "tags",
-  labels: "tags",
-  segments: "tags",
-  groups: "tags",
-  lists: "tags",
-  note: "note",
-  notes: "note",
-  comment: "note",
-  comments: "note",
-  memo: "note",
-  dob: "dob",
-  "date of birth": "dob",
-  city: "city",
-  town: "city",
-  state: "state",
-  province: "state",
-  region: "state",
-  zip: "zip",
-  zipcode: "zip",
-  "postal code": "zip",
-  "post code": "zip",
-  address: "address",
-  addr: "address",
-  "street address": "address",
-  street: "address",
-  line1: "address",
-};
-const SYN: Record<string, string[]> = {
+/* ---------------- column matching (from the old page) ---------------- */
+type Field =
+  | "phone" | "first" | "last" | "name" | "email" | "dob"
+  | "zip" | "city" | "state" | "address" | "tags" | "note";
+
+const SYN: Record<Field, string[]> = {
   name: ["name", "full name", "contact name"],
   first: ["first", "first name", "firstname", "given", "fname"],
   last: ["last", "last name", "lastname", "surname", "lname", "family"],
   email: ["email", "e-mail", "email address", "mail"],
-  phone: [
-    "phone",
-    "phone number",
-    "mobile",
-    "cell",
-    "tel",
-    "telephone",
-    "primary ph",
-    "primary phone",
-    "ph",
-    "phone2",
-  ],
+  phone: ["phone", "phone number", "mobile", "cell", "tel", "telephone", "primary ph", "primary phone", "ph", "phone2"],
   tags: ["tags", "label", "labels", "segments", "groups", "lists"],
   note: ["note", "notes", "comment", "comments", "memo"],
   city: ["city", "town"],
@@ -87,677 +26,604 @@ const SYN: Record<string, string[]> = {
   dob: ["dob", "date of birth", "birthdate", "birthday"],
 };
 
-const norm = (s: string) =>
-  s.replace(/\uFEFF/g, "").trim().toLowerCase().replace(/\s+/g, " ");
-const nHeader = (s: string) => H[norm(s)] || s.trim();
-const normKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
-
-const guessDelim = (text: string) =>
-  ([",", ";", "\t", "|"] as const).reduce(
-    (best, c) => {
-      const rows = text.split(/\r?\n/).slice(0, 6);
-      const cnts = rows.map((r) => (r.match(new RegExp(`\\${c}`, "g")) || []).length);
-      const avg = cnts.reduce((a, b) => a + b, 0) / (cnts.length || 1);
-      const varc = cnts.reduce((a, b) => a + (b - avg) ** 2, 0) / (cnts.length || 1);
-      const score = avg - Math.sqrt(varc);
-      return score > best.score ? { ch: c, score } : best;
-    },
-    { ch: ",", score: -1 as number }
-  ).ch;
-
-type Mapping = Partial<
-  Record<
-    | "name"
-    | "first"
-    | "last"
-    | "email"
-    | "phone"
-    | "tags"
-    | "note"
-    | "city"
-    | "state"
-    | "zip"
-    | "address"
-    | "dob",
-    string
-  >
->;
-type Row = {
-  id: string;
-  name: string;
-  size: number;
-  at: string;
-  leads: number;
-  duplicates: number;
-  invalids: number;
-  status: "success" | "partial" | "failed";
+const FIELD_LABEL: Record<Field, string> = {
+  phone: "Phone",
+  first: "First name",
+  last: "Last name",
+  name: "Full name",
+  email: "Email",
+  dob: "Date of birth",
+  zip: "ZIP",
+  city: "City",
+  state: "State",
+  address: "Address",
+  tags: "Tags column",
+  note: "Notes column",
 };
 
-export default function Uploads() {
-  const nav = useNavigate();
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const [rows, setRows] = useState<Row[]>([]);
-  const [open, setOpen] = useState(false);
-  const [file, setFile] = useState<File | null>(null);
+const MAIN_FIELDS: Field[] = ["phone", "first", "last", "email", "dob", "zip"];
+const MORE_FIELDS: Field[] = ["name", "city", "state", "address", "tags", "note"];
 
-  // preview state
-  const [headers, setHeaders] = useState<string[]>([]);
-  const [samples, setSamples] = useState<string[][]>([]);
-  const [mapping, setMapping] = useState<Mapping>({});
-  const [presentCanon, setPresentCanon] = useState<Set<string>>(new Set());
+const normKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-  // options
-  const [opts, setOpts] = useState<{
-    ignoreDuplicates: boolean;
-    tags: string[];
-    workflowId?: string;
-  }>({ ignoreDuplicates: false, tags: [] });
-  const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([]);
-  const [err, setErr] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+function scoreHeader(h: string, candidate: string): number {
+  const hk = normKey(h);
+  const ck = normKey(candidate);
+  if (!hk || !ck) return 0;
+  if (hk === ck) return 100;
+  if (hk.includes(ck)) return 80 - Math.abs(hk.length - ck.length);
+  return 0;
+}
 
-  // Load workflows via API helper (respects VITE_API_URL)
-  useEffect(() => {
-    (async () => {
-      try {
-        const data = await listWorkflows();
-        setWorkflows((data || []).map((w: any) => ({ id: w.id, name: w.name })));
-      } catch {
-        /* ignore */
-      }
-    })();
-  }, []);
-
-  const readText = (f: File) =>
-    new Promise<string>((res, rej) => {
-      const fr = new FileReader();
-      fr.onerror = () => rej(fr.error);
-      fr.onload = () => res(String(fr.result || ""));
-      fr.readAsText(f);
-    });
-
-  // fuzzy header scoring
-  function scoreHeader(h: string, canon: string): number {
-    const hk = normKey(h),
-      ck = normKey(canon);
-    if (!hk || !ck) return 0;
-    if (hk === ck) return 100;
-    if (hk.includes(ck)) return 80 - Math.abs(hk.length - ck.length);
-    return 0;
-  }
-  function guessFor(canon: keyof typeof SYN, raw: string[]): string {
-    const candidates = [canon, ...(SYN[canon] || [])];
-    let best = { h: "", s: 0 };
-    for (const h of raw)
-      for (const c of candidates) {
-        const s = scoreHeader(h, c);
-        if (s > best.s) best = { h, s };
-      }
-    return best.s >= 50 ? best.h : "";
-  }
-
-  async function begin(f: File) {
-    setErr(null);
-    setFile(f);
-    setOpen(true);
-    const text = await readText(f);
-    const looksJson =
-      f.type.includes("json") ||
-      text.trim().startsWith("{") ||
-      text.trim().startsWith("[");
-
-    if (looksJson) {
-      try {
-        const data = JSON.parse(text);
-        const arr: any[] = Array.isArray(data) ? data : [data];
-        if (!arr.length || typeof arr[0] !== "object") throw new Error();
-
-        const raw = Object.keys(arr[0]);
-        const canon = raw.map(nHeader);
-        setHeaders(raw);
-        setSamples(arr.slice(0, 8).map((obj) => raw.map((k) => String(obj[k] ?? ""))));
-        setPresentCanon(new Set(canon));
-
-        const picked: Mapping = {
-          name: guessFor("name", raw),
-          first: guessFor("first", raw),
-          last: guessFor("last", raw),
-          email: guessFor("email", raw),
-          phone: guessFor("phone", raw),
-          tags: guessFor("tags", raw),
-          note: guessFor("note", raw),
-          city: guessFor("city", raw),
-          state: guessFor("state", raw),
-          zip: guessFor("zip", raw),
-          address: guessFor("address", raw),
-          dob: guessFor("dob", raw),
-        };
-        setMapping((m) => ({ ...picked, ...m }));
-        return;
-      } catch {
-        /* fall through to CSV */
-      }
+function guessFor(field: Field, headers: string[]): string {
+  let best = { h: "", s: 0 };
+  for (const h of headers)
+    for (const c of [field, ...SYN[field]]) {
+      const s = scoreHeader(h, c);
+      if (s > best.s) best = { h, s };
     }
+  return best.s >= 50 ? best.h : "";
+}
 
-    // CSV path
-    const d = guessDelim(text);
-    const lines = text.split(/\r?\n/).filter((l) => l.length);
-    if (!lines.length) {
-      setErr("Empty file");
-      return;
-    }
-    const raw = lines[0].split(d).map((h) => String(h).replace(/\uFEFF/g, "").trim());
-    const canon = raw.map(nHeader);
-    setHeaders(raw);
-    setSamples(lines.slice(1, 9).map((l) => l.split(d)));
-    setPresentCanon(new Set(canon));
-
-    const picked: Mapping = {
-      name: guessFor("name", raw),
-      first: guessFor("first", raw),
-      last: guessFor("last", raw),
-      email: guessFor("email", raw),
-      phone: guessFor("phone", raw),
-      tags: guessFor("tags", raw),
-      note: guessFor("note", raw),
-      city: guessFor("city", raw),
-      state: guessFor("state", raw),
-      zip: guessFor("zip", raw),
-      address: guessFor("address", raw),
-      dob: guessFor("dob", raw),
-    };
-    setMapping((m) => ({ ...picked, ...m }));
+/* ---------------- CSV reading ---------------- */
+function guessDelimiter(text: string): string {
+  const lines = text.split(/\r?\n/).slice(0, 6);
+  let best = { ch: ",", score: -Infinity };
+  for (const ch of [",", ";", "\t", "|"]) {
+    const counts = lines.map((l) => l.split(ch).length - 1);
+    const avg = counts.reduce((a, b) => a + b, 0) / (counts.length || 1);
+    const variance = counts.reduce((a, b) => a + (b - avg) ** 2, 0) / (counts.length || 1);
+    const score = avg - Math.sqrt(variance);
+    if (score > best.score) best = { ch, score };
   }
+  return best.ch;
+}
 
-  const validMap = useMemo(() => {
-    const hasName = !!(mapping.name || (mapping.first && mapping.last));
-    const hasKey = !!(mapping.email || mapping.phone);
-    return hasName && hasKey;
-  }, [mapping]);
+// Handles quoted values like "Orlando, FL" and "" escapes.
+function parseCsv(text: string, delim: string, maxRows: number): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+  for (let i = 0; i < text.length && rows.length < maxRows; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (c === '"') quoted = false;
+      else cell += c;
+    } else if (c === '"') quoted = true;
+    else if (c === delim) { row.push(cell); cell = ""; }
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(cell);
+      if (row.some((v) => v.trim() !== "")) rows.push(row);
+      row = [];
+      cell = "";
+    } else cell += c;
+  }
+  if (rows.length < maxRows && (cell || row.length)) {
+    row.push(cell);
+    if (row.some((v) => v.trim() !== "")) rows.push(row);
+  }
+  return rows.map((r) => r.map((v) => v.replace(/\uFEFF/g, "").trim()));
+}
 
-  const mappedCount = useMemo(
-    () => Object.values(mapping).filter(Boolean).length,
-    [mapping]
+function countRows(text: string): number {
+  // rough count for display; the server does the real parsing
+  return Math.max(0, text.split(/\r?\n/).filter((l) => l.trim()).length - 1);
+}
+
+/* ---------------- history (kept in this browser until the backend stores it) ---------------- */
+type HistoryItem = {
+  id: string;
+  file: string;
+  at: string;
+  added: number;
+  dbDuplicates: number;
+  fileDuplicates: number;
+  invalid: number;
+  failed?: string;
+};
+
+const HISTORY_KEY = "gs_upload_history";
+
+function loadHistory(): HistoryItem[] {
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+function saveHistory(items: HistoryItem[]) {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(0, 20)));
+  } catch {}
+}
+
+const fmt = (n: number) => n.toLocaleString();
+
+function relDate(iso: string) {
+  const d = new Date(iso);
+  const days = Math.round(
+    (new Date().setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 86_400_000
   );
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
 
-  // Optional fields shown only if present in file
-  const optionalFields: Array<{ key: keyof Mapping; label: string }> = useMemo(() => {
-    const arr: Array<{ key: keyof Mapping; label: string }> = [];
-    const add = (canon: string, key: keyof Mapping, label: string) => {
-      if (presentCanon.has(canon)) arr.push({ key, label });
-    };
-    add("city", "city", "City");
-    add("state", "state", "State");
-    add("zip", "zip", "ZIP");
-    add("address", "address", "Address");
-    add("dob", "dob", "DOB");
-    return arr;
-  }, [presentCanon]);
+function skippedOf(h: HistoryItem) {
+  return h.dbDuplicates + h.fileDuplicates + h.invalid;
+}
 
-  /** —— Import action (uses API helper so it hits Render, not Vercel) —— */
-  const importNow = async () => {
-    if (!file) return;
-    setBusy(true);
-    setErr(null);
+function summaryLine(h: HistoryItem) {
+  const parts = [`${fmt(h.added)} added`];
+  const dups = h.dbDuplicates + h.fileDuplicates;
+  if (dups) parts.push(`${fmt(dups)} duplicate${dups === 1 ? "" : "s"}`);
+  if (h.invalid) parts.push(`${fmt(h.invalid)} missing a phone or email`);
+  return parts.join(" · ");
+}
 
-    try {
-      const res = await uploadLeadsMapped(
-        file,
-        (mapping as unknown) as CsvMapping,
-        {
-          ignoreDuplicates: !!opts.ignoreDuplicates,
-          tags: opts.tags || [],
-          workflowId: opts.workflowId || undefined,
-        }
-      );
+function reasonList(h: HistoryItem) {
+  const out: { n: number; label: string; fixable: boolean }[] = [];
+  if (h.dbDuplicates) out.push({ n: h.dbDuplicates, label: "Duplicates already in GroScales, so no copies were created", fixable: false });
+  if (h.fileDuplicates) out.push({ n: h.fileDuplicates, label: "Duplicates within this file", fixable: false });
+  if (h.invalid) out.push({ n: h.invalid, label: "Missing a valid phone number and email", fixable: true });
+  return out;
+}
 
-      const leads =
-        typeof res.leads === "number"
-          ? res.leads
-          : (res.inserted ?? 0) + (res.duplicates ?? 0) + (res.invalids ?? 0);
+/* ---------------- icons ---------------- */
+const Icon = ({ d, size = 16, w = 1.8 }: { d: string; size?: number; w?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d={d} />
+  </svg>
+);
+const I = {
+  upload: "M12 15V3M7 8l5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4",
+  file: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5",
+  check: "M20 6L9 17l-5-5",
+  down: "M6 9l6 6 6-6",
+  up: "M18 15l-6-6-6 6",
+  x: "M6 6l12 12M18 6L6 18",
+};
 
-      const inserted = Number(res?.inserted || 0);
-      const dups = Number(res?.duplicates || 0);
-      const invalids = Number(res?.invalids || 0);
-
-      setRows((r) => [
-        {
-          id: crypto.randomUUID(),
-          name: file.name,
-          size: file.size,
-          at: new Date().toISOString(),
-          leads,
-          duplicates: dups,
-          invalids,
-          status: res.ok
-            ? inserted > 0 && (dups > 0 || invalids > 0)
-              ? "partial"
-              : inserted > 0
-              ? "success"
-              : "failed"
-            : "failed",
-        },
-        ...r,
-      ]);
-
-      if (!res.ok) {
-        setErr("Import finished with errors. Check counts.");
-      } else {
-        setOpen(false);
-      }
-    } catch (e: any) {
-      setErr(String(e?.message || "Import failed"));
-    } finally {
-      setBusy(false);
-    }
-  };
-
+function Reasons({ items }: { items: { n: number; label: string; fixable: boolean }[] }) {
   return (
-    <div className="p-uploads">
-      <div className="crumbs">
-        <button className="link" onClick={() => nav("/dashboard")}>
-          ← Dashboard
-        </button>
-        <span>› Uploads</span>
-      </div>
-
-      <label
-        className="drop"
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
-        }}
-        tabIndex={0}
-      >
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".csv,.json,text/csv,application/json"
-          style={{ display: "none" }}
-          onChange={(e) => e.target.files && begin(e.target.files[0])}
-        />
-        <div className="drop-center">
-          <svg
-            width="28"
-            height="28"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-          >
-            <path d="M12 3v14" />
-            <path d="M7 8l5-5 5 5" />
-            <path d="M5 21h14" />
-          </svg>
-          <div className="h1">Drop CSV or JSON</div>
-          <div className="sub">Click to browse • Max 50MB • UTF-8 • Headers required</div>
-        </div>
-      </label>
-
-      <div className="card">
-        <div className="card-h">Recent uploads</div>
-        <div className="table">
-          <table>
-            <thead>
-              <tr>
-                <th>File</th>
-                <th>Date</th>
-                <th className="num">Leads</th>
-                <th className="num">Duplicates</th>
-                <th className="num">Invalids</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {!rows.length && (
-                <tr>
-                  <td colSpan={6} className="empty">
-                    No uploads yet.
-                  </td>
-                </tr>
-              )}
-              {rows.map((r) => (
-                <tr key={r.id}>
-                  <td>{r.name}</td>
-                  <td>{new Date(r.at).toLocaleString()}</td>
-                  <td className="num">{r.leads}</td>
-                  <td className="num">{r.duplicates}</td>
-                  <td className="num">{r.invalids}</td>
-                  <td>
-                    <span className={`pill ${r.status}`}>{r.status}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {open && (
-        <div className="modal" role="dialog" aria-modal="true">
-          <div className="sheet">
-            <div className="sheet-h">
-              <div className="w-title">Import Leads</div>
-              <button className="icon" onClick={() => !busy && setOpen(false)}>
-                ✕
-              </button>
-            </div>
-
-            <div className="grid">
-              {/* Preview */}
-              <div className="col">
-                <div className="label">
-                  Preview <span className="muted">({Math.min(samples.length, 8)} rows shown)</span>
-                </div>
-
-                <div className="previewWrap">
-                  <div className="previewScroll">
-                    <table className="previewTable">
-                      <colgroup>
-                        {headers.map((_, i) => (
-                          <col key={i} style={{ width: i === 0 ? "220px" : "180px" }} />
-                        ))}
-                      </colgroup>
-                      <thead>
-                        <tr>
-                          {headers.map((h, i) => (
-                            <th key={i} title={h}>
-                              {h}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {samples.map((r, i) => (
-                          <tr key={i} className={i % 2 ? "odd" : ""}>
-                            {r.map((c, j) => (
-                              <td key={j} title={c}>
-                                {c}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-
-              {/* Mapping + Options */}
-              <div className="col">
-                <div className="label">
-                  Map Columns <span className="chip">{mappedCount} mapped</span>
-                </div>
-
-                <Picker
-                  label="Name (optional if First+Last)"
-                  value={mapping.name || ""}
-                  onChange={(v) => setMapping((m) => ({ ...m, name: v }))}
-                  options={headers}
-                />
-                <div className="two">
-                  <Picker
-                    label="First name"
-                    value={mapping.first || ""}
-                    onChange={(v) => setMapping((m) => ({ ...m, first: v }))}
-                    options={headers}
-                  />
-                  <Picker
-                    label="Last name"
-                    value={mapping.last || ""}
-                    onChange={(v) => setMapping((m) => ({ ...m, last: v }))}
-                    options={headers}
-                  />
-                </div>
-                <div className="two">
-                  <Picker
-                    label="Email"
-                    value={mapping.email || ""}
-                    onChange={(v) => setMapping((m) => ({ ...m, email: v }))}
-                    options={headers}
-                  />
-                  <Picker
-                    label="Phone"
-                    value={mapping.phone || ""}
-                    onChange={(v) => setMapping((m) => ({ ...m, phone: v }))}
-                    options={headers}
-                  />
-                </div>
-
-                {/** Optional extras only if present */}
-                {(() => {
-                  const optionalFields: Array<{ key: keyof Mapping; label: string }> = [];
-                  const add = (canon: string, key: keyof Mapping, label: string) => {
-                    if (presentCanon.has(canon)) optionalFields.push({ key, label });
-                  };
-                  add("city", "city", "City");
-                  add("state", "state", "State");
-                  add("zip", "zip", "ZIP");
-                  add("address", "address", "Address");
-                  add("dob", "dob", "DOB");
-                  return optionalFields.length ? (
-                    <>
-                      <div className="label sm">Additional fields</div>
-                      {optionalFields.map((f) => (
-                        <Picker
-                          key={f.key}
-                          label={f.label}
-                          value={(mapping[f.key] as string) || ""}
-                          onChange={(v) => setMapping((m) => ({ ...m, [f.key]: v }))}
-                          options={headers}
-                        />
-                      ))}
-                    </>
-                  ) : null;
-                })()}
-
-                <div className="two">
-                  <Picker
-                    label="Tags (per row)"
-                    value={mapping.tags || ""}
-                    onChange={(v) => setMapping((m) => ({ ...m, tags: v }))}
-                    options={headers}
-                    placeholder="(none)"
-                  />
-                  <Picker
-                    label="Note"
-                    value={mapping.note || ""}
-                    onChange={(v) => setMapping((m) => ({ ...m, note: v }))}
-                    options={headers}
-                    placeholder="(none)"
-                  />
-                </div>
-
-                <div className="label mt">Configure</div>
-                <label className="chk tip">
-                  <input
-                    type="checkbox"
-                    checked={opts.ignoreDuplicates}
-                    onChange={(e) =>
-                      setOpts((o) => ({ ...o, ignoreDuplicates: e.target.checked }))
-                    }
-                  />
-                  Ignore duplicates within file
-                  <span
-                    className="q"
-                    aria-label="File vs DB duplicates"
-                    title="Ignores repeated rows in this file only. Existing contacts in your database are still detected and skipped."
-                  >
-                    ?
-                  </span>
-                </label>
-                <div className="two">
-                  <div className="stack">
-                    <div className="sublabel">Apply tags to all leads</div>
-                    <input
-                      className="text"
-                      placeholder="comma,separated,tags"
-                      value={(opts.tags || []).join(",")}
-                      onChange={(e) =>
-                        setOpts((o) => ({
-                          ...o,
-                          tags: e.target.value
-                            .split(",")
-                            .map((t) => t.trim())
-                            .filter(Boolean),
-                        }))
-                      }
-                    />
-                  </div>
-                  <div className="stack">
-                    <div className="sublabel">Workflow</div>
-                    <select
-                      className="select"
-                      value={opts.workflowId || ""}
-                      onChange={(e) =>
-                        setOpts((o) => ({
-                          ...o,
-                          workflowId: e.target.value || undefined,
-                        }))
-                      }
-                    >
-                      <option value="">(none)</option>
-                      {workflows.map((w) => (
-                        <option key={w.id} value={w.id}>
-                          {w.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {!validMap && (
-                  <div className="warn">
-                    Map either <b>Name</b> or <b>First+Last</b>, and at least one of{" "}
-                    <b>Email</b> or <b>Phone</b>.
-                  </div>
-                )}
-                {err && <div className="err">{err}</div>}
-
-                <div className="actions">
-                  <span className="hint">Invalid emails/phones will be skipped automatically.</span>
-                  <div className="spacer" />
-                  <button className="btn ghost" onClick={() => setOpen(false)} disabled={busy}>
-                    Cancel
-                  </button>
-                  <button className="btn" onClick={() => void importNow()} disabled={!validMap || busy}>
-                    {busy ? "Importing…" : "Import"}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* styles */}
-      <style>{`
-        .p-uploads{padding:14px}
-        .link{background:none;border:0;color:var(--accent,#10b981);cursor:pointer}
-        .drop{display:grid;place-items:center;border:1px dashed var(--line,#e5e7eb);border-radius:12px;padding:28px;margin:8px 0;background:rgba(16,185,129,.03)}
-        .drop-center{display:grid;place-items:center;text-align:center;gap:6px}
-        .h1{font-weight:700}
-        .sub{color:#6b7280;font-size:12px}
-        .card{border:1px solid var(--line,#e5e7eb);border-radius:12px;overflow:hidden}
-        .card-h{padding:10px;border-bottom:1px solid var(--line,#e5e7eb);font-weight:700}
-        .table{overflow:auto}
-        table{width:100%;border-collapse:collapse}
-        th,td{padding:10px;border-top:1px solid #e5e7eb}
-        .num{text-align:right}
-        .empty{color:#6b7280;text-align:center}
-        .pill{padding:3px 8px;border-radius:999px;font-size:12px;text-transform:capitalize}
-        .pill.success{background:#d1fae5;color:#065f46}.pill.partial{background:#fef3c7;color:#92400e}.pill.failed{background:#fee2e2;color:#991b1b}
-
-        .modal{position:fixed;inset:0;background:rgba(0,0,0,.35);display:grid;place-items:center;z-index:50}
-        .sheet{width:min(1100px,95vw);background:#fff;border-radius:14px;border:1px solid #e5e7eb;box-shadow:0 20px 60px rgba(0,0,0,.2)}
-        .sheet-h{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #e5e7eb}
-        .w-title{font-weight:800}
-        .icon{background:none;border:0;font-size:18px;cursor:pointer;opacity:.75}
-
-        /* Layout: wider preview, compact mapping column */
-        .grid{display:grid;grid-template-columns: 1.55fr .65fr;gap:16px;padding:18px 22px 20px}
-        .col{display:grid;gap:10px}
-        .label{font-weight:700}
-        .label.sm{font-weight:600;font-size:12px;color:#6b7280}
-        .chip{margin-left:8px;font-size:12px;background:#ecfdf5;color:#065f46;padding:2px 8px;border-radius:999px}
-        .muted{font-size:12px;color:#6b7280;margin-left:8px}
-
-        /* —— PREVIEW: single scroller, sticky header only —— */
-        .previewWrap{border:1px solid #e5e7eb;border-radius:10px;background:#fff;overflow:hidden}
-        .previewScroll{max-height:280px;overflow:auto}
-        .previewScroll::-webkit-scrollbar{height:10px}
-        .previewScroll::-webkit-scrollbar-thumb{background:#e5e7eb;border-radius:8px}
-        .previewScroll:hover::-webkit-scrollbar-thumb{background:#d1d5db}
-
-        .previewTable{border-collapse:separate;border-spacing:0;table-layout:fixed;width:max(100%, calc(var(--colW,180px) * var(--cols,5)))}
-        .previewTable thead th{
-          position:sticky; top:0; z-index:3;
-          background:#f4f6fb; color:#111827;
-          font-weight:700; border-bottom:1px solid #e3e5ea;
-        }
-        .previewTable th, .previewTable td{
-          min-width:140px; max-width:320px;
-          padding:12px 14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-          border-right:1px solid #f4f4f5; border-bottom:1px solid #f4f4f5; background:#fff;
-        }
-        .previewTable th:first-child, .previewTable td:first-child{ min-width:220px; }
-        .previewTable th:last-child, .previewTable td:last-child{ border-right:none; }
-        .previewTable tbody tr.odd td{ background:#fbfbfd; }
-        .previewTable tbody tr:hover td{ background:#f8fafc; }
-
-        /* form polish */
-        .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-        .stack{display:grid;gap:6px}
-        .sublabel{font-size:12px;color:#6b7280}
-        .select,.text{width:100%;border:1px solid #e5e7eb;border-radius:8px;padding:0 10px;background:#fff;height:36px;line-height:36px}
-        .select.mapped,.text.mapped{background:#f0fdf4;border-color:#bbf7d0}
-        .select:focus{outline:0;box-shadow:0 0 0 3px rgba(16,185,129,.25);border-color:#10b981}
-        .warn{background:#fffbeb;border:1px solid #fef3c7;color:#92400e;padding:8px 10px;border-radius:8px}
-        .err{background:#fef2f2;border:1px solid #fee2e2;color:#991b1b;padding:8px 10px;border-radius:8px}
-        .actions{display:flex;align-items:center;gap:12px;margin-top:8px}
-        .hint{font-size:12px;color:#6b7280}
-        .spacer{flex:1}
-        .btn{background:var(--accent,#10b981);color:#fff;border:0;border-radius:10px;padding:8px 12px;cursor:pointer}
-        .btn.ghost{background:#fff;color:#374151;border:1px solid #e5e7eb}
-        .mt{margin-top:8px}
-
-        .chk.tip{ display:flex; align-items:center; gap:6px; }
-        .q{ display:inline-grid; place-items:center; width:18px; height:18px; border-radius:50%; font-size:12px; line-height:1; color:#334155; background:#e5e7eb; cursor:help; }
-      `}</style>
-
-      {/* Tell the preview table how many columns it has for width calc */}
-      <style>{`.previewTable{--cols:${Math.max(headers.length, 1)}}`}</style>
-    </div>
+    <ul className="up-reasons">
+      {items.map((r) => (
+        <li key={r.label}>
+          <span className={`up-dot ${r.fixable ? "is-bad" : ""}`} />
+          <strong>{fmt(r.n)}</strong>
+          <span>{r.label}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
-function Picker({
-  label,
-  value,
-  onChange,
-  options,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: string[];
-  placeholder?: string;
-}) {
+/* ====================================================================== */
+type Step = "pick" | "map" | "done";
+
+export default function Uploads() {
+  const nav = useNavigate();
+  const fileInput = useRef<HTMLInputElement | null>(null);
+
+  const [step, setStep] = useState<Step>("pick");
+  const [history, setHistory] = useState<HistoryItem[]>(loadHistory);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+
+  // current file
+  const [file, setFile] = useState<File | null>(null);
+  const [headers, setHeaders] = useState<string[]>([]);
+  const [firstRow, setFirstRow] = useState<string[]>([]);
+  const [rowCount, setRowCount] = useState(0);
+  const [mapping, setMapping] = useState<Partial<Record<Field, string>>>({});
+  const [autoMatched, setAutoMatched] = useState(0);
+  const [showMore, setShowMore] = useState(false);
+
+  // options
+  const [tagInput, setTagInput] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([]);
+  const [workflowId, setWorkflowId] = useState("");
+  const [consent, setConsent] = useState(false);
+
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<HistoryItem | null>(null);
+
+  useEffect(() => {
+    listWorkflows()
+      .then((ws) => setWorkflows((ws || []).map((w: any) => ({ id: w.id, name: w.name }))))
+      .catch(() => {});
+  }, []);
+
+  function reset() {
+    setStep("pick");
+    setFile(null);
+    setHeaders([]);
+    setFirstRow([]);
+    setMapping({});
+    setTags([]);
+    setTagInput("");
+    setWorkflowId("");
+    setConsent(false);
+    setShowMore(false);
+    setError(null);
+    setResult(null);
+    if (fileInput.current) fileInput.current.value = "";
+  }
+
+  async function begin(f: File) {
+    setError(null);
+    if (!/\.csv$/i.test(f.name) && f.type !== "text/csv") {
+      setError("That file isn't a CSV. In Excel, use File → Save As → CSV, then upload it here.");
+      return;
+    }
+    if (f.size > 50 * 1024 * 1024) {
+      setError("That file is over 50 MB. Split it into smaller files and upload them one at a time.");
+      return;
+    }
+    const text = await f.text();
+    const rows = parseCsv(text, guessDelimiter(text), 2);
+    if (!rows.length) {
+      setError("That file is empty.");
+      return;
+    }
+    const hdrs = rows[0];
+    const picked: Partial<Record<Field, string>> = {};
+    (Object.keys(SYN) as Field[]).forEach((f) => {
+      const g = guessFor(f, hdrs);
+      if (g) picked[f] = g;
+    });
+    // if first + last both exist, don't also use a "name" column
+    if (picked.first && picked.last && picked.name) delete picked.name;
+
+    setFile(f);
+    setHeaders(hdrs);
+    setFirstRow(rows[1] || []);
+    setRowCount(countRows(text));
+    setMapping(picked);
+    setAutoMatched(Object.keys(picked).length);
+    setShowMore(MORE_FIELDS.some((k) => picked[k]));
+    setStep("map");
+  }
+
+  const sampleFor = (col?: string) => {
+    if (!col) return "";
+    const i = headers.indexOf(col);
+    return i >= 0 ? firstRow[i] || "" : "";
+  };
+
+  const canImport = !!mapping.phone && consent && !busy;
+
+  function addTag(raw: string) {
+    const t = raw.trim().replace(/,$/, "");
+    if (t && !tags.includes(t)) setTags((x) => [...x, t]);
+    setTagInput("");
+  }
+
+  async function importNow() {
+    if (!file || !canImport) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res: any = await uploadLeadsMapped(file, mapping as CsvMapping, {
+        // skip repeated rows inside the file; leads already in GroScales are always skipped by the server
+        ignoreDuplicates: true,
+        tags,
+        workflowId: workflowId || undefined,
+      });
+      const item: HistoryItem = {
+        id: crypto.randomUUID(),
+        file: file.name,
+        at: new Date().toISOString(),
+        added: Number(res?.inserted || 0),
+        dbDuplicates: Number(res?.duplicates || 0),
+        fileDuplicates: Number(res?.stats?.fileDuplicates || 0),
+        invalid: Number(res?.invalids || 0),
+      };
+      if (!res?.ok) item.failed = res?.error || "The server couldn't import this file";
+      const next = [item, ...history];
+      setHistory(next);
+      saveHistory(next);
+      setResult(item);
+      setStep("done");
+    } catch (e: any) {
+      setError(e?.message || "Import failed. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const filePicker = (
+    <input
+      ref={fileInput}
+      type="file"
+      accept=".csv,text/csv"
+      hidden
+      onChange={(e) => e.target.files?.[0] && begin(e.target.files[0])}
+    />
+  );
+
+  /* ---------------- step: results ---------------- */
+  if (step === "done" && result) {
+    const skipped = skippedOf(result);
+    return (
+      <div className="gs-page">
+        <div className="gs-page-panel">
+          <div className="up up--done">
+            {result.failed ? (
+              <header className="up-head">
+                <span className="up-result-icon is-bad"><Icon d={I.x} size={20} w={2.4} /></span>
+                <h1>Import failed</h1>
+                <p>{result.failed}. Nothing was added.</p>
+              </header>
+            ) : (
+              <header className="up-head">
+                <span className="up-result-icon"><Icon d={I.check} size={20} w={2.4} /></span>
+                <h1>{fmt(result.added)} lead{result.added === 1 ? "" : "s"} imported</h1>
+                <p>
+                  From {result.file}
+                  {tags.length ? ` · tagged ${tags.join(", ")}` : ""}
+                </p>
+              </header>
+            )}
+
+            {!result.failed && (
+              <div className="up-stats">
+                <div><strong>{fmt(result.added + skipped)}</strong><span>Rows in file</span></div>
+                <div><strong className="is-good">{fmt(result.added)}</strong><span>Added</span></div>
+                <div><strong className={skipped ? "is-warn" : ""}>{fmt(skipped)}</strong><span>Skipped</span></div>
+              </div>
+            )}
+
+            {!result.failed && skipped > 0 && (
+              <section className="up-why">
+                <h2>Why {fmt(skipped)} {skipped === 1 ? "was" : "were"} skipped</h2>
+                <Reasons items={reasonList(result)} />
+              </section>
+            )}
+
+            <div className="up-actions">
+              {!result.failed && (
+                <button className="gs-btn gs-btn--primary up-btn-lg" onClick={() => nav("/dashboard")}>
+                  Go to inbox
+                </button>
+              )}
+              <button className="gs-btn up-btn-lg" onClick={reset}>
+                {result.failed ? "Try again" : "Upload another file"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ---------------- step: match columns ---------------- */
+  if (step === "map" && file) {
+    const fields = showMore ? [...MAIN_FIELDS, ...MORE_FIELDS] : MAIN_FIELDS;
+    return (
+      <div className="gs-page">
+        <div className="gs-page-panel">
+          <div className="up up--map">
+            <header className="up-head">
+              <button className="up-back" onClick={reset}>Upload leads</button>
+              <h1>Match your columns</h1>
+              <p>
+                <strong>{file.name}</strong> · about {fmt(rowCount)} rows.{" "}
+                {autoMatched
+                  ? `We matched ${autoMatched} of your columns automatically. Check them before importing.`
+                  : "Pick which column in your file goes with each field."}
+              </p>
+            </header>
+
+            {error && <div className="up-banner">{error}</div>}
+
+            <div className="up-map">
+              <div className="up-map-row up-map-head">
+                <span>GroScales field</span>
+                <span>Column in your file</span>
+                <span>First row</span>
+                <span />
+              </div>
+              {fields.map((f) => {
+                const col = mapping[f] || "";
+                const required = f === "phone";
+                return (
+                  <div className="up-map-row" key={f}>
+                    <span className="up-field">
+                      {FIELD_LABEL[f]}
+                      {required && <span className="up-req"> *</span>}
+                    </span>
+                    <select
+                      className={`up-select ${required && !col ? "is-missing" : ""}`}
+                      value={col}
+                      onChange={(e) => setMapping((m) => ({ ...m, [f]: e.target.value || undefined }))}
+                      aria-label={`Column for ${FIELD_LABEL[f]}`}
+                    >
+                      <option value="">{required ? "Choose a column" : "Don't import"}</option>
+                      {headers.map((h, i) => (
+                        <option key={`${h}-${i}`} value={h}>
+                          {h || `(column ${i + 1})`}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="up-sample gs-mono">{sampleFor(col)}</span>
+                    <span className="up-state">
+                      {col ? (
+                        <span className="is-ok"><Icon d={I.check} size={12} w={2.6} />Matched</span>
+                      ) : required ? (
+                        <span className="is-req">Required</span>
+                      ) : (
+                        <span>Not in file</span>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
+              <button className="up-more" onClick={() => setShowMore((s) => !s)}>
+                {showMore ? "Show fewer fields" : "Show more fields"}
+              </button>
+            </div>
+
+            <section className="up-options">
+              <h2>Options</h2>
+              <div className="up-option-row">
+                <label className="up-option">
+                  <span className="up-label">Tag everyone in this file</span>
+                  <div className="up-tagbox">
+                    {tags.map((t) => (
+                      <span key={t} className="gs-chip up-tag">
+                        {t}
+                        <button aria-label={`Remove ${t}`} onClick={() => setTags((x) => x.filter((y) => y !== t))}>
+                          <Icon d={I.x} size={10} w={2.4} />
+                        </button>
+                      </span>
+                    ))}
+                    <input
+                      value={tagInput}
+                      placeholder={tags.length ? "" : "Add a tag"}
+                      onChange={(e) => (e.target.value.endsWith(",") ? addTag(e.target.value) : setTagInput(e.target.value))}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") { e.preventDefault(); addTag(tagInput); }
+                        if (e.key === "Backspace" && !tagInput) setTags((x) => x.slice(0, -1));
+                      }}
+                      onBlur={() => tagInput && addTag(tagInput)}
+                    />
+                  </div>
+                </label>
+                <label className="up-option">
+                  <span className="up-label">Start a workflow</span>
+                  <select className="up-select" value={workflowId} onChange={(e) => setWorkflowId(e.target.value)}>
+                    <option value="">None</option>
+                    {workflows.map((w) => (
+                      <option key={w.id} value={w.id}>{w.name}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <p className="up-muted up-note">Leads already in GroScales and repeated rows are skipped automatically, so nobody gets added twice.</p>
+
+              <label className="up-check up-consent">
+                <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
+                <span>
+                  These leads agreed to receive texts from my business.{" "}
+                  <span className="up-muted">Required before importing. Texting leads without consent can violate the TCPA.</span>
+                </span>
+              </label>
+            </section>
+
+            <div className="up-actions up-actions--end">
+              <button className="gs-btn gs-btn--ghost up-btn-lg" onClick={reset} disabled={busy}>
+                Cancel
+              </button>
+              <button className="gs-btn gs-btn--primary up-btn-lg" onClick={importNow} disabled={!canImport}>
+                {busy ? "Importing…" : `Import ${rowCount ? `about ${fmt(rowCount)} ` : ""}leads`}
+              </button>
+            </div>
+            {!mapping.phone && <p className="up-footnote">Choose your phone column to continue.</p>}
+            {mapping.phone && !consent && <p className="up-footnote">Confirm consent to continue.</p>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ---------------- step: pick file + history ---------------- */
   return (
-    <div className="stack" aria-label={label}>
-      <div className="sublabel">{label}</div>
-      <select
-        className={`select ${value ? "mapped" : ""}`}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        <option value="">{placeholder || "(none)"}</option>
-        {options.map((h) => (
-          <option key={h} value={h}>
-            {h}
-          </option>
-        ))}
-      </select>
+    <div className="gs-page">
+      <div className="gs-page-panel">
+        <div className="up">
+          <header className="up-head">
+            <h1>Upload leads</h1>
+            <p>Import a CSV from your lead vendor. We'll match the columns for you.</p>
+          </header>
+
+          {error && <div className="up-banner">{error}</div>}
+
+          <div
+            className={`up-drop ${dragging ? "is-dragging" : ""}`}
+            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragging(false);
+              const f = e.dataTransfer.files?.[0];
+              if (f) begin(f);
+            }}
+          >
+            <span className="up-drop-icon"><Icon d={I.upload} size={20} /></span>
+            <span className="up-drop-title">Drop a CSV here</span>
+            <span className="up-muted">
+              or{" "}
+              <button className="up-link" onClick={() => fileInput.current?.click()}>
+                choose a file
+              </button>{" "}
+              · CSV up to 50 MB
+            </span>
+            {filePicker}
+          </div>
+
+          <section className="up-history">
+            <h2>Recent uploads</h2>
+            {!history.length && <p className="up-muted">Files you upload will show up here.</p>}
+            {history.map((h) => {
+              const skipped = skippedOf(h);
+              const canExpand = !h.failed && skipped > 0;
+              const open = expanded === h.id;
+              return (
+                <div key={h.id} className="up-hrow">
+                  <div
+                    className={`up-hmain ${canExpand ? "is-clickable" : ""}`}
+                    onClick={() => canExpand && setExpanded(open ? null : h.id)}
+                    role={canExpand ? "button" : undefined}
+                    tabIndex={canExpand ? 0 : undefined}
+                    aria-expanded={canExpand ? open : undefined}
+                    onKeyDown={(e) => canExpand && (e.key === "Enter" || e.key === " ") && setExpanded(open ? null : h.id)}
+                  >
+                    <span className="up-file-icon"><Icon d={I.file} /></span>
+                    <div className="up-hinfo">
+                      <span className="up-hname">{h.file}</span>
+                      <span className="up-hsum">
+                        {h.failed ? (
+                          <><span className="up-fail">Import failed</span> · {h.failed.toLowerCase()}</>
+                        ) : (
+                          summaryLine(h)
+                        )}
+                      </span>
+                    </div>
+                    <span className="up-hdate">{relDate(h.at)}</span>
+                    <span className="up-hstatus">
+                      {h.failed ? (
+                        <button
+                          className="up-retry"
+                          onClick={(e) => { e.stopPropagation(); fileInput.current?.click(); }}
+                        >
+                          Try again
+                        </button>
+                      ) : skipped ? (
+                        <span className="gs-chip up-chip-warn">Some skipped</span>
+                      ) : (
+                        <span className="gs-chip up-chip-ok">Imported</span>
+                      )}
+                    </span>
+                    <span className="up-chev">{canExpand && <Icon d={open ? I.up : I.down} size={14} w={2} />}</span>
+                  </div>
+                  {open && (
+                    <div className="up-expand">
+                      <Reasons items={reasonList(h)} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </section>
+        </div>
+      </div>
     </div>
   );
 }
