@@ -22,6 +22,7 @@ import {
 } from "../lib/api";
 import { tagChipColors } from "../lib/tagColors";
 import CopilotModal from "../components/CopilotModal";
+import Onboarding from "../components/Onboarding";
 import "./dashboard.css";
 
 /* ---------------- types ---------------- */
@@ -318,6 +319,7 @@ export default function Dashboard() {
   const location = useLocation();
 
   const [threads, setThreads] = useState<ThreadRow[]>([]);
+  const [threadsLoaded, setThreadsLoaded] = useState(false);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
 
   const [msgs, setMsgs] = useState<MessageDTO[]>([]);
@@ -366,6 +368,8 @@ export default function Dashboard() {
         if (list.length) setSelectedThreadId((cur) => cur ?? list[0].id);
       } catch (e) {
         console.error(e);
+      } finally {
+        setThreadsLoaded(true);
       }
       try {
         setAllTags((await getTags()) || []);
@@ -589,12 +593,13 @@ export default function Dashboard() {
             );
           })}
 
-          {!threads.length && !showNew && (
-            <div className="gs-empty-small">
-              No conversations yet.
-              <button className="gs-btn" onClick={() => setShowNew(true)}>
-                Start your first text
-              </button>
+          {threadsLoaded && !threads.length && !showNew && (
+            <div className="gs-list-empty">
+              <span className="gs-list-empty-icon">
+                <Icon d="M21 12a8 8 0 0 1-11.6 7.2L4 20l.9-4.6A8 8 0 1 1 21 12z" size={17} />
+              </span>
+              <span className="gs-strong">No conversations yet</span>
+              <span className="gs-list-empty-sub">When you text a lead or they text you, it shows up here.</span>
             </div>
           )}
           {!!threads.length && !filtered.length && (
@@ -696,7 +701,11 @@ export default function Dashboard() {
               </div>
             </div>
           </>
-        ) : (
+        ) : threadsLoaded && !threads.length ? (
+          <div className="gs-thread-scroll">
+            <Onboarding onNewText={() => setShowNew(true)} />
+          </div>
+        ) : !threadsLoaded ? null : (
           <div className="gs-thread-empty">
             <p>Pick a conversation, or start a new one.</p>
             <button className="gs-btn gs-btn--primary" onClick={() => setShowNew(true)}>
