@@ -325,3 +325,19 @@ export async function attachTagToLead(leadId: string, tagId: string): Promise<Le
 export async function detachTagFromLead(leadId: string, tagId: string): Promise<void> {
   await http<any>(`/api/leads/${leadId}/tags/${tagId}`, { method: "DELETE" });
 }
+
+/* ---------------- templates ---------------- */
+export type TemplateDTO = { id: string; name: string; body: string; createdAt: string };
+export async function listTemplates(): Promise<TemplateDTO[]> {
+  const res = await http<any>("/api/templates");
+  return Array.isArray(res) ? res : res?.data ?? [];
+}
+export async function createTemplate(input: { name: string; body: string }): Promise<TemplateDTO> {
+  return http<TemplateDTO>("/api/templates", { method: "POST", body: JSON.stringify(input) });
+}
+export async function updateTemplate(id: string, patch: Partial<{ name: string; body: string }>): Promise<TemplateDTO> {
+  return http<TemplateDTO>(`/api/templates/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+}
+export async function deleteTemplate(id: string): Promise<void> {
+  await http(`/api/templates/${id}`, { method: "DELETE" });
+}

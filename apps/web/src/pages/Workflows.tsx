@@ -1,439 +1,391 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { NavLink } from "react-router-dom";
-import "./dashboard-ios.css";
+// apps/web/src/pages/Workflows.tsx
+// Workflows saved to the server (not the browser anymore).
+// Steps: Send text / Wait. Tags linked on the Tags page start them.
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { createWorkflow, deleteWorkflow, listWorkflowsFull, replaceWorkflowSteps, updateWorkflow, type WfStep } from "../lib/api";
+import { tagChipColors } from "../lib/tagColors";
+import { fillVariables, smsInfo, VARIABLES } from "../lib/sms";
+import "./split.css";
 
-/** ---------- Small shared icon (same style as Dashboard) ---------- */
-const OutlineIcon = ({
-  d,
-  size = 18,
-  stroke = "currentColor",
-}: { d: string; size?: number; stroke?: string }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke={stroke}
-    strokeWidth="1.5"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden
-  >
+type Status = "ACTIVE" | "PAUSED" | "DRAFT";
+type ServerStep = { id?: string; type: "SEND_TEXT" | "WAIT"; textBody?: string | null; waitMs?: number | null };
+type ServerWorkflow = {
+  id: string;
+  name: string;
+  status: string;
+  steps?: ServerStep[];
+  tags?: { id: string; name: string; color?: any }[];
+};
+
+// Local editing shape: waits are edited as amount + unit.
+type EditStep =
+  | { key: string; type: "SEND_TEXT"; text: string }
+  | { key: string; type: "WAIT"; amount: number; unit: "hours" | "days" };
+
+const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
+const key = () => Math.random().toString(36).slice(2);
+
+function toEdit(steps: ServerStep[] = []): EditStep[] {
+  return steps.map((s) => {
+    if (s.type === "WAIT") {
+      const ms = Number(s.waitMs || 0);
+      return ms && ms % DAY === 0
+        ? { key: key(), type: "WAIT", amount: ms / DAY, unit: "days" }
+        : { key: key(), type: "WAIT", amount: Math.max(1, Math.round(ms / HOUR)), unit: "hours" };
+    }
+    return { key: key(), type: "SEND_TEXT", text: s.textBody || "" };
+  });
+}
+
+function toServer(steps: EditStep[]): WfStep[] {
+  return steps.map((s) =>
+    s.type === "WAIT"
+      ? { type: "WAIT", waitMs: Math.max(1, s.amount) * (s.unit === "days" ? DAY : HOUR) }
+      : { type: "SEND_TEXT", textBody: s.text }
+  );
+}
+
+const norm = (s: string): Status => {
+  const u = String(s || "").toUpperCase();
+  return u === "ACTIVE" || u === "PAUSED" ? u : "DRAFT";
+};
+const STATUS_LABEL: Record<Status, string> = { ACTIVE: "Active", PAUSED: "Paused", DRAFT: "Draft" };
+
+const Icon = ({ d, size = 14 }: { d: string; size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
     <path d={d} />
   </svg>
 );
-
-/** ---------- Types ---------- */
-type Step = {
-  id: string;
-  type: "sms";          // room to add "wait", "email" later
-  delayMin: number;     // minutes after previous step
-  text: string;         // sms body
+const I = {
+  text: "M21 12a8 8 0 0 1-11.6 7.2L4 20l.9-4.6A8 8 0 1 1 21 12z",
+  wait: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2",
+  plus: "M12 5v14M5 12h14",
+  x: "M6 6l12 12M18 6L6 18",
 };
 
-type Workflow = {
-  id: string;
-  name: string;
-  trigger: "manual" | "on_upload" | "on_tag";
-  tag?: string | null;      // if trigger === on_tag
-  isActive: boolean;
-  steps: Step[];
-  updatedAt: number;
-};
-
-/** ---------- Local persistence (simple + safe) ---------- */
-const LS_KEY = "gs_workflows";
-
-function loadAll(): Workflow[] {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    return raw ? (JSON.parse(raw) as Workflow[]) : [];
-  } catch {
-    return [];
-  }
-}
-function saveAll(rows: Workflow[]) {
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify(rows));
-  } catch {}
-}
-function uid(prefix = "wf"): string {
-  const r = Math.random().toString(36).slice(2, 8);
-  return `${prefix}_${Date.now().toString(36)}_${r}`;
-}
-
-/** ---------- Debounce hook (for autosave) ---------- */
-function useDebouncedCallback<T extends any[]>(fn: (...args: T) => void, ms = 500) {
-  const t = useRef<number | null>(null);
-  return (...args: T) => {
-    if (t.current) window.clearTimeout(t.current);
-    t.current = window.setTimeout(() => fn(...args), ms);
-  };
-}
-
-/** ---------- Page ---------- */
+/* ====================================================================== */
 export default function Workflows() {
-  // data
-  const [rows, setRows] = useState<Workflow[]>(() => loadAll());
-  const [selectedId, setSelectedId] = useState<string | null>(rows[0]?.id || null);
-  const [query, setQuery] = useState("");
+  const [items, setItems] = useState<ServerWorkflow[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // derive
-  const selected = useMemo(
-    () => rows.find((r) => r.id === selectedId) || null,
-    [rows, selectedId]
-  );
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) => r.name.toLowerCase().includes(q));
-  }, [rows, query]);
+  const [name, setName] = useState("");
+  const [steps, setSteps] = useState<EditStep[]>([]);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
-  // persist on list change
-  useEffect(() => saveAll(rows), [rows]);
+  const selected = items.find((w) => w.id === selectedId) || null;
 
-  /** --------- CRUD helpers --------- */
-  function addWorkflow() {
-    const baseName = "New workflow";
-    const dupeCount = rows.filter((r) => r.name.startsWith(baseName)).length;
-    const wf: Workflow = {
-      id: uid(),
-      name: dupeCount ? `${baseName} ${dupeCount + 1}` : baseName,
-      trigger: "manual",
-      tag: null,
-      isActive: false,
-      steps: [
-        {
-          id: uid("step"),
-          type: "sms",
-          delayMin: 0,
-          text: "Hi {{first_name}}, thanks for opting in — reply YES to connect.",
-        },
-      ],
-      updatedAt: Date.now(),
-    };
-    setRows((r) => [wf, ...r]);
-    setSelectedId(wf.id);
+  useEffect(() => {
+    listWorkflowsFull()
+      .then((res: any) => {
+        const rows: ServerWorkflow[] = res?.data ?? res ?? [];
+        setItems(rows);
+        if (rows[0]) setSelectedId(rows[0].id);
+      })
+      .catch((e) => setError(e?.message || "Couldn't load workflows."))
+      .finally(() => setLoaded(true));
+  }, []);
+
+  useEffect(() => {
+    setName(selected?.name || "");
+    setSteps(toEdit(selected?.steps));
+    setDirty(false);
+    setConfirmDelete(false);
+    setError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
+
+  // warn before leaving with unsaved steps
+  useEffect(() => {
+    if (!dirty) return;
+    const onLeave = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", onLeave);
+    return () => window.removeEventListener("beforeunload", onLeave);
+  }, [dirty]);
+
+  function patchItem(id: string, patch: Partial<ServerWorkflow>) {
+    setItems((x) => x.map((w) => (w.id === id ? { ...w, ...patch } : w)));
   }
 
-  function updateSelected(patch: Partial<Workflow>) {
+  function editSteps(next: EditStep[]) {
+    setSteps(next);
+    setDirty(true);
+  }
+
+  async function createNew() {
+    setError(null);
+    try {
+      const w: any = await createWorkflow({ name: "Untitled workflow" });
+      const row: ServerWorkflow = { ...w, steps: [], tags: [] };
+      setItems((x) => [row, ...x]);
+      setSelectedId(row.id);
+      setSteps([{ key: key(), type: "SEND_TEXT", text: "Hi {first_name}, " }]);
+      setDirty(true);
+    } catch (e: any) {
+      setError(e?.message || "Couldn't create a workflow.");
+    }
+  }
+
+  async function saveName() {
+    if (!selected || name.trim() === selected.name) return;
+    try {
+      await updateWorkflow(selected.id, { name: name.trim() || "Untitled workflow" });
+      patchItem(selected.id, { name: name.trim() || "Untitled workflow" });
+    } catch (e: any) {
+      setError(e?.message || "Couldn't rename.");
+    }
+  }
+
+  async function toggleActive() {
     if (!selected) return;
-    setRows((all) =>
-      all.map((w) => (w.id === selected.id ? { ...w, ...patch, updatedAt: Date.now() } : w))
-    );
+    const next: Status = norm(selected.status) === "ACTIVE" ? "PAUSED" : "ACTIVE";
+    if (next === "ACTIVE" && !steps.some((s) => s.type === "SEND_TEXT" && s.text.trim())) {
+      setError("Add at least one text before turning this on.");
+      return;
+    }
+    try {
+      await updateWorkflow(selected.id, { status: next.toLowerCase() as any });
+      patchItem(selected.id, { status: next });
+    } catch (e: any) {
+      setError(e?.message || "Couldn't change status.");
+    }
   }
 
-  function deleteSelected() {
+  async function saveSteps() {
     if (!selected) return;
-    if (!confirm(`Delete "${selected.name}"? This cannot be undone.`)) return;
-    setRows((all) => all.filter((w) => w.id !== selected.id));
-    setSelectedId((cur) => (cur === selected.id ? null : cur));
+    if (steps.some((s) => s.type === "SEND_TEXT" && !s.text.trim())) {
+      setError("One of your texts is empty. Write something or remove it.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const res: any = await replaceWorkflowSteps(selected.id, toServer(steps));
+      patchItem(selected.id, { steps: res?.data?.steps ?? toServer(steps) });
+      setDirty(false);
+    } catch (e: any) {
+      setError(e?.message || "Couldn't save.");
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function addStep() {
+  async function remove() {
     if (!selected) return;
-    const step: Step = { id: uid("step"), type: "sms", delayMin: 5, text: "New SMS step…" };
-    updateSelected({ steps: [...selected.steps, step] });
-  }
-  function updateStep(stepId: string, patch: Partial<Step>) {
-    if (!selected) return;
-    updateSelected({
-      steps: selected.steps.map((s) => (s.id === stepId ? { ...s, ...patch } : s)),
-    });
-  }
-  function removeStep(stepId: string) {
-    if (!selected) return;
-    updateSelected({ steps: selected.steps.filter((s) => s.id !== stepId) });
+    try {
+      await deleteWorkflow(selected.id);
+      const rest = items.filter((w) => w.id !== selected.id);
+      setItems(rest);
+      setSelectedId(rest[0]?.id || null);
+    } catch (e: any) {
+      setError(e?.message || "Couldn't delete.");
+    }
   }
 
-  // debounced autosave hint (no server — localStorage already persists via useEffect)
-  const debouncedField = useDebouncedCallback((patch: Partial<Workflow>) => {
-    updateSelected(patch);
-  }, 350);
+  const status = selected ? norm(selected.status) : "DRAFT";
+  const textCount = useMemo(() => steps.filter((s) => s.type === "SEND_TEXT").length, [steps]);
 
-  /** --------- UI --------- */
   return (
-    <div className="p-uploads" style={{ maxWidth: 1180, margin: "0 auto" }}>
-      {/* Breadcrumbs + title — keep same rhythm as Uploads/Numbers */}
-      <div className="crumbs" style={{ marginTop: 6, marginBottom: 8 }}>
-        <NavLink className="crumb-back" to="/dashboard">← Dashboard</NavLink>
-        <span className="crumb-sep">›</span>
-        <span className="crumb-here">Workflows</span>
-      </div>
+    <div className="gs-page">
+      <div className="gs-page-panel sp">
+        <aside className="sp-list">
+          <div className="sp-list-head">
+            <h1>Workflows</h1>
+            <button className="gs-btn gs-btn--primary" onClick={createNew}>New</button>
+          </div>
+          {loaded && !items.length && (
+            <p className="sp-empty">Automate follow-ups: a series of texts spaced out over days.</p>
+          )}
+          <div className="sp-items">
+            {items.map((w) => {
+              const st = norm(w.status);
+              const n = (w.steps || []).filter((s) => s.type === "SEND_TEXT").length;
+              return (
+                <button
+                  key={w.id}
+                  className={`sp-item ${w.id === selectedId ? "is-active" : ""}`}
+                  onClick={() => {
+                    if (dirty && !window.confirm("You have unsaved changes. Leave without saving?")) return;
+                    setSelectedId(w.id);
+                  }}
+                >
+                  <span className="sp-item-top">
+                    <span className="sp-item-name">{w.id === selectedId ? name || "Untitled" : w.name}</span>
+                    <span className={`gs-chip wf-status is-${st.toLowerCase()}`}>{STATUS_LABEL[st]}</span>
+                  </span>
+                  <span className="sp-item-sub">
+                    {n} text{n === 1 ? "" : "s"}
+                    {w.tags?.length ? ` · starts from ${w.tags.map((t) => t.name).join(", ")}` : ""}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </aside>
 
-      <div className="uploads-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
-        <div className="title" style={{ fontWeight: 750 }}>Workflows</div>
-        <div>
-          <button className="btn-outline sm" onClick={addWorkflow}>+ New workflow</button>
-        </div>
-      </div>
-
-      {/* Grid: list (left) + editor (right) — reusing your panel/card style */}
-      <div style={{ display: "grid", gridTemplateColumns: "420px 1fr", gap: 14 }}>
-        {/* ------- LIST ------- */}
-        <div className="card" style={{ overflow: "hidden" }}>
-          <div style={{ padding: 10, borderBottom: "1px solid var(--line)", display: "flex", alignItems: "center", gap: 8 }}>
-            <OutlineIcon d="M11 19a8 8 0 1 1 5.29-14.29L21 9l-4 4" />
-            <input
-              className="input"
-              placeholder="Search workflows…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              style={{
-                width: "100%",
-                border: "0",
-                outline: "none",
-                background: "transparent",
-                color: "inherit",
-                height: 28,
-              }}
-            />
+        <section className="sp-main">
+          <div className="wf-notice">
+            Workflows don't send texts yet. You can build and save them now. The sending engine (each step on schedule,
+            stopping when a lead replies or texts STOP) comes next.
           </div>
 
-          {/* Empty state */}
-          {!filtered.length ? (
-            <div style={{ padding: 30, textAlign: "center", color: "var(--text-secondary)" }}>
-              <div style={{ marginBottom: 8 }}>
-                <OutlineIcon
-                  d="M4 12h6v6H4zM14 6h6v6h-6zM14 14l6 6"
-                  size={36}
-                  stroke="var(--text-muted)"
-                />
-              </div>
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>
-                No workflows yet
-              </div>
-              <div style={{ fontSize: 13 }}>
-                Click <b>New workflow</b> to build your first automation.
-              </div>
-            </div>
-          ) : (
-            <ul className="rows" style={{ paddingTop: 6 }}>
-              {filtered.map((w) => (
-                <li
-                  key={w.id}
-                  className={`row ${w.id === selectedId ? "selected" : ""}`}
-                  onClick={() => setSelectedId(w.id)}
-                  title={w.isActive ? "Active" : "Paused"}
-                >
-                  <div className="avatar" style={{ width: 26, height: 26 }}>
-                    {w.name.slice(0, 1).toUpperCase()}
-                  </div>
-                  <div className="meta" style={{ flex: 1, minWidth: 0 }}>
-                    <div className="name" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {w.name || "Untitled"}
-                    </div>
-                    <div className="sub">
-                      {w.trigger === "manual" && "Manual"}
-                      {w.trigger === "on_upload" && "On lead upload"}
-                      {w.trigger === "on_tag" && (w.tag ? `On tag: ${w.tag}` : "On tag")}
-                      {" • "}
-                      {w.steps.length} step{w.steps.length !== 1 ? "s" : ""}
-                    </div>
-                  </div>
-                  <span
-                    className="tag"
-                    style={{
-                      marginLeft: "auto",
-                      background: w.isActive ? "rgba(34,197,94,.14)" : "rgba(0,0,0,.06)",
-                      color: w.isActive ? "#22c55e" : "var(--text-secondary)",
-                      border: "1px solid var(--line)",
-                    }}
-                  >
-                    {w.isActive ? "Active" : "Paused"}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {/* ------- EDITOR ------- */}
-        <div className="card" style={{ padding: 12 }}>
           {!selected ? (
-            <div style={{ padding: 24, textAlign: "center", color: "var(--text-secondary)" }}>
-              Select a workflow to edit.
+            <div className="sp-placeholder">
+              {loaded && (
+                <>
+                  <p>Pick a workflow, or make a new one.</p>
+                  <button className="gs-btn gs-btn--primary" onClick={createNew}>New workflow</button>
+                </>
+              )}
             </div>
           ) : (
-            <form
-              onSubmit={(e) => e.preventDefault()}
-              onBlur={() => updateSelected({}) /* touch updatedAt so the list reflects changes */}
-            >
-              {/* Header row */}
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <div className="sp-editor">
+              <div className="sp-title-row">
                 <input
-                  value={selected.name}
-                  onChange={(e) => debouncedField({ name: e.target.value })}
-                  onBlur={(e) => updateSelected({ name: e.target.value })}
-                  placeholder="Workflow name"
-                  className="input"
-                  style={{
-                    flex: 1,
-                    height: 34,
-                    border: "1px solid var(--line)",
-                    borderRadius: 8,
-                    padding: "0 10px",
-                    background: "var(--surface-1)",
-                    outline: "none",
-                  }}
+                  className="sp-title"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  onBlur={saveName}
+                  onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                  aria-label="Workflow name"
                 />
-                <button
-                  type="button"
-                  className="btn-outline"
-                  onClick={() => updateSelected({ isActive: !selected.isActive })}
-                  title={selected.isActive ? "Pause" : "Activate"}
-                >
-                  {selected.isActive ? "Pause" : "Activate"}
-                </button>
-                <button type="button" className="btn-outline" onClick={deleteSelected}>
-                  Delete
-                </button>
-              </div>
-
-              {/* Trigger */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
-                <label style={{ display: "grid", gap: 6 }}>
-                  <span className="hint">Trigger</span>
-                  <select
-                    className="input"
-                    value={selected.trigger}
-                    onChange={(e) => {
-                      const t = e.target.value as Workflow["trigger"];
-                      updateSelected({ trigger: t });
-                    }}
-                    style={{ height: 34, borderRadius: 8, border: "1px solid var(--line)", background: "var(--surface-1)" }}
+                <span className="sp-title-actions">
+                  <button
+                    className={`wf-toggle ${status === "ACTIVE" ? "is-on" : ""}`}
+                    role="switch"
+                    aria-checked={status === "ACTIVE"}
+                    onClick={toggleActive}
                   >
-                    <option value="manual">Manual (run yourself)</option>
-                    <option value="on_upload">On lead upload</option>
-                    <option value="on_tag">On tag added</option>
-                  </select>
-                </label>
-
-                <label style={{ display: "grid", gap: 6 }}>
-                  <span className="hint">Tag (if “On tag”)</span>
-                  <input
-                    className="input"
-                    placeholder="e.g. warm"
-                    value={selected.tag || ""}
-                    onChange={(e) => debouncedField({ tag: e.target.value })}
-                    onBlur={(e) => updateSelected({ tag: e.target.value })}
-                    disabled={selected.trigger !== "on_tag"}
-                    style={{
-                      height: 34,
-                      borderRadius: 8,
-                      border: "1px solid var(--line)",
-                      background: "var(--surface-1)",
-                      opacity: selected.trigger !== "on_tag" ? 0.6 : 1,
-                    }}
-                  />
-                </label>
+                    <span className="wf-toggle-track"><span className="wf-toggle-knob" /></span>
+                    {status === "ACTIVE" ? "Active" : status === "PAUSED" ? "Paused" : "Off"}
+                  </button>
+                  {confirmDelete ? (
+                    <>
+                      <button className="gs-btn sp-danger" onClick={remove}>Delete</button>
+                      <button className="gs-btn gs-btn--ghost" onClick={() => setConfirmDelete(false)}>Keep</button>
+                    </>
+                  ) : (
+                    <button className="gs-btn gs-btn--ghost sp-delete" onClick={() => setConfirmDelete(true)}>Delete</button>
+                  )}
+                </span>
               </div>
 
-              {/* Steps */}
-              <div className="card" style={{ padding: 10, marginBottom: 12 }}>
-                <div className="card-head" style={{ border: "0", padding: 0, marginBottom: 8, fontWeight: 700 }}>
-                  Steps
-                </div>
+              {error && <div className="sp-error">{error}</div>}
 
-                {!selected.steps.length ? (
-                  <div style={{ padding: 14, color: "var(--text-secondary)" }}>
-                    <em>No steps yet.</em> Add your first SMS step below.
-                  </div>
-                ) : (
-                  <div style={{ display: "grid", gap: 10 }}>
-                    {selected.steps.map((s, idx) => (
-                      <div
-                        key={s.id}
-                        className="u-card"
-                        style={{
-                          padding: 10,
-                          display: "grid",
-                          gap: 8,
-                          borderRadius: 10,
-                          border: "1px solid var(--line)",
-                          background: "var(--surface-1)",
-                        }}
-                      >
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span className="tag tag-green" style={{ fontWeight: 700 }}>SMS</span>
-                          <span style={{ color: "var(--text-secondary)", fontSize: 12 }}>Step {idx + 1}</span>
-                          <button
-                            type="button"
-                            className="icon-chip"
-                            title="Remove step"
-                            onClick={() => removeStep(s.id)}
-                            style={{ marginLeft: "auto" }}
-                          >
-                            <OutlineIcon d="M18 6L6 18M6 6l12 12" />
+              <div className="wf-when">
+                <span className="sp-label">Starts when</span>
+                <span className="wf-when-line">
+                  {selected.tags?.length ? (
+                    <>
+                      A lead gets the tag
+                      {selected.tags.map((t) => {
+                        const c = tagChipColors(t.color);
+                        return (
+                          <span key={t.id} className="gs-chip" style={{ background: c.bg, color: c.fg }}>{t.name}</span>
+                        );
+                      })}
+                      <span className="sp-muted">or you pick it during an upload or new text</span>
+                    </>
+                  ) : (
+                    <>
+                      You pick it during an upload or new text.{" "}
+                      <span className="sp-muted">
+                        To start it from a tag, link it on the <Link to="/tags">Tags page</Link>.
+                      </span>
+                    </>
+                  )}
+                </span>
+              </div>
+
+              <ol className="wf-steps">
+                {steps.map((s) => (
+                  <li key={s.key} className={`wf-step is-${s.type === "WAIT" ? "wait" : "text"}`}>
+                    <span className="wf-rail">
+                      <span className="wf-node"><Icon d={s.type === "WAIT" ? I.wait : I.text} /></span>
+                      <span className="wf-line" />
+                    </span>
+                    {s.type === "SEND_TEXT" ? (
+                      <div className="wf-card">
+                        <div className="wf-card-head">
+                          <span>Send text</span>
+                          <button className="wf-remove" aria-label="Remove step" onClick={() => editSteps(steps.filter((x) => x.key !== s.key))}>
+                            <Icon d={I.x} size={13} />
                           </button>
                         </div>
-
-                        <label style={{ display: "grid", gap: 6 }}>
-                          <span className="hint">Delay (minutes after previous step)</span>
-                          <input
-                            type="number"
-                            min={0}
-                            className="input"
-                            value={s.delayMin}
-                            onChange={(e) => updateStep(s.id, { delayMin: Math.max(0, Number(e.target.value || 0)) })}
-                            style={{ height: 34, width: 140, borderRadius: 8, border: "1px solid var(--line)" }}
-                          />
-                        </label>
-
-                        <label style={{ display: "grid", gap: 6 }}>
-                          <span className="hint">Message</span>
-                          <textarea
-                            className="input"
-                            value={s.text}
-                            onChange={(e) => updateStep(s.id, { text: e.target.value })}
-                            placeholder="Hi {{first_name}} …"
-                            rows={3}
-                            style={{
-                              borderRadius: 8,
-                              border: "1px solid var(--line)",
-                              padding: 10,
-                              resize: "vertical",
-                              background: "var(--surface-1)",
-                            }}
-                          />
-                        </label>
+                        <textarea
+                          className="wf-text"
+                          rows={2}
+                          value={s.text}
+                          placeholder="Hi {first_name}, …"
+                          onChange={(e) =>
+                            editSteps(steps.map((x) => (x.key === s.key ? { ...s, text: e.target.value } : x)))
+                          }
+                        />
+                        <div className="wf-card-foot">
+                          <span className="sp-muted">Preview: {fillVariables(s.text) || "…"}</span>
+                          <span className="gs-mono sp-count">{smsInfo(fillVariables(s.text)).segments} seg</span>
+                        </div>
                       </div>
-                    ))}
+                    ) : (
+                      <div className="wf-wait">
+                        Wait
+                        <input
+                          type="number"
+                          min={1}
+                          className="wf-num"
+                          value={s.amount}
+                          aria-label="Wait amount"
+                          onChange={(e) =>
+                            editSteps(steps.map((x) => (x.key === s.key ? { ...s, amount: Math.max(1, Number(e.target.value) || 1) } : x)))
+                          }
+                        />
+                        <select
+                          className="wf-unit"
+                          value={s.unit}
+                          aria-label="Wait unit"
+                          onChange={(e) =>
+                            editSteps(steps.map((x) => (x.key === s.key ? { ...s, unit: e.target.value as "hours" | "days" } : x)))
+                          }
+                        >
+                          <option value="hours">{s.amount === 1 ? "hour" : "hours"}</option>
+                          <option value="days">{s.amount === 1 ? "day" : "days"}</option>
+                        </select>
+                        <button className="wf-remove" aria-label="Remove wait" onClick={() => editSteps(steps.filter((x) => x.key !== s.key))}>
+                          <Icon d={I.x} size={13} />
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                ))}
+                <li className="wf-step wf-add">
+                  <span className="wf-rail"><span className="wf-node is-add"><Icon d={I.plus} /></span></span>
+                  <div className="wf-add-btns">
+                    <button className="gs-btn" onClick={() => editSteps([...steps, { key: key(), type: "SEND_TEXT", text: "" }])}>
+                      Send text
+                    </button>
+                    <button className="gs-btn" onClick={() => editSteps([...steps, { key: key(), type: "WAIT", amount: 1, unit: "days" }])}>
+                      Wait
+                    </button>
                   </div>
-                )}
+                </li>
+              </ol>
 
-                <div style={{ marginTop: 10 }}>
-                  <button type="button" className="btn-outline sm" onClick={addStep}>
-                    + Add SMS step
-                  </button>
-                </div>
-              </div>
-
-              {/* Footer actions (non-destructive; autosave already runs) */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span style={{ color: "var(--text-secondary)", fontSize: 12 }}>
-                  {selected.updatedAt ? `Saved ${new Date(selected.updatedAt).toLocaleTimeString()}` : "Saved"}
+              <div className="wf-savebar">
+                <span className="sp-muted">
+                  {textCount} text{textCount === 1 ? "" : "s"} · variables: {VARIABLES.map((v) => `{${v}}`).join(" ")}
                 </span>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button
-                    type="button"
-                    className="btn-outline"
-                    onClick={() => alert("This will run the workflow against a small test list later.")}
-                  >
-                    Test run
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    onClick={() => alert("Already saved. This button can trigger a server save once API exists.")}
-                  >
-                    Save
-                  </button>
-                </div>
+                <button className="gs-btn gs-btn--primary" onClick={saveSteps} disabled={!dirty || saving}>
+                  {saving ? "Saving…" : dirty ? "Save steps" : "Saved"}
+                </button>
               </div>
-            </form>
+            </div>
           )}
-        </div>
+        </section>
       </div>
     </div>
   );
