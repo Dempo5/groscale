@@ -1,0 +1,139 @@
+/* GroScales design system
+   One place for colors, type, spacing and shared pieces.
+   Everything is prefixed gs- so it never collides with older page styles. */
+
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap");
+
+:root {
+  /* surfaces */
+  --gs-ground: #f3f4f6;      /* app background everything sits on */
+  --gs-surface: #ffffff;     /* the one raised panel (thread, cards) */
+  --gs-fill: #eceef1;        /* soft fills: search, buttons, inputs */
+  --gs-fill-hover: #e4e6ea;
+
+  /* text */
+  --gs-ink: #16181d;
+  --gs-ink-2: #3a3e46;
+  --gs-muted: #5a5f68;       /* secondary text, still 4.5:1 on white */
+
+  /* accent (deep blue) */
+  --gs-accent: #1f4fd1;
+  --gs-accent-hover: #1a44b8;
+  --gs-accent-tint: #e6edfc;
+  --gs-accent-ring: #c7d5f7;
+
+  /* status */
+  --gs-danger: #c9313a;
+  --gs-success: #1c6b3c;
+
+  /* shape */
+  --gs-r-sm: 8px;
+  --gs-r-md: 10px;
+  --gs-r-lg: 16px;
+  --gs-shadow-panel: 0 1px 2px rgba(16, 24, 40, 0.05), 0 8px 28px rgba(16, 24, 40, 0.06);
+  --gs-shadow-chip: 0 1px 2px rgba(16, 24, 40, 0.06);
+
+  --gs-font: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --gs-mono: "Geist Mono", ui-monospace, "SFMono-Regular", monospace;
+}
+
+/* Browsers don't let form controls inherit the page font by default.
+   This is what made Templates/Copilot look different in the mockup. */
+.gs-app button,
+.gs-app input,
+.gs-app textarea,
+.gs-app select {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.gs-app {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--gs-ground);
+  color: var(--gs-ink);
+  font-family: var(--gs-font);
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+.gs-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  overflow: auto;
+}
+
+/* ---------- buttons ---------- */
+.gs-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--gs-r-sm);
+  background: var(--gs-fill);
+  color: var(--gs-ink);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+.gs-btn:hover { background: var(--gs-fill-hover); }
+.gs-btn:active { transform: scale(0.98); }
+.gs-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+.gs-btn--primary { background: var(--gs-accent); color: #fff; }
+.gs-btn--primary:hover { background: var(--gs-accent-hover); }
+
+.gs-btn--dark { background: var(--gs-ink); color: #fff; }
+.gs-btn--dark:hover { background: #2a2d34; }
+
+.gs-btn--ghost { background: transparent; color: var(--gs-muted); }
+.gs-btn--ghost:hover { background: var(--gs-fill); color: var(--gs-ink); }
+
+.gs-icon-btn {
+  width: 30px;
+  padding: 0;
+}
+
+/* ---------- inputs ---------- */
+.gs-input {
+  height: 34px;
+  width: 100%;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--gs-r-md);
+  background: var(--gs-fill);
+  color: var(--gs-ink);
+  outline: none;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.gs-input:focus { background: #fff; border-color: var(--gs-accent-ring); }
+.gs-input::placeholder { color: #80858e; }
+
+/* ---------- chips (tags, stages) ---------- */
+.gs-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* keyboard focus stays visible everywhere */
+.gs-app :focus-visible {
+  outline: 2px solid var(--gs-accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gs-app * { transition: none !important; }
+}
