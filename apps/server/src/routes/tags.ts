@@ -6,6 +6,13 @@ const router = Router();
 
 router.use(requireAuth);
 
+/** A tag can only link to a workflow the same user owns. */
+async function ownsWorkflow(ownerId: string, workflowId: unknown) {
+  if (!workflowId) return true;
+  const wf = await prisma.workflow.findFirst({ where: { id: String(workflowId), ownerId }, select: { id: true } });
+  return !!wf;
+}
+
 /** toDTO keeps response shape stable for the frontend */
 function toDTO(t: any) {
   return {
@@ -13,6 +20,7 @@ function toDTO(t: any) {
     name: t.name,
     color: t.color ?? null,
     workflowId: t.workflowId ?? null,
+    leadCount: t._count?.leads ?? undefined,
     createdAt: t.createdAt,
     updatedAt: t.updatedAt,
   };
@@ -26,6 +34,7 @@ router.get("/", async (req: Request, res: Response) => {
     const tags = await prisma.tag.findMany({
       where: { ownerId },
       orderBy: { name: "asc" },
+      include: { _count: { select: { leads: true } } },
     });
 
     res.json({ ok: true, tags: tags.map(toDTO) });
@@ -38,6 +47,10 @@ router.get("/", async (req: Request, res: Response) => {
 router.post("/", async (req: Request, res: Response) => {
   try {
     const ownerId = (req as AuthedRequest).userId!;
+
+    if (!(await ownsWorkflow(ownerId, req.body?.workflowId))) {
+      return res.status(400).json({ ok: false, error: "Workflow not found" });
+    }
 
     const tag = await prisma.tag.create({
       data: {
@@ -85,6 +98,9 @@ router.patch("/:id", async (req: Request, res: Response) => {
     }
 
     if (req.body?.workflowId !== undefined) {
+      if (!(await ownsWorkflow(ownerId, req.body.workflowId))) {
+        return res.status(400).json({ ok: false, error: "Workflow not found" });
+      }
       data.workflowId = req.body.workflowId || null;
     }
 

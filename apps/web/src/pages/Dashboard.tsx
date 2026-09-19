@@ -1,58 +1,29 @@
 // apps/web/src/pages/Dashboard.tsx
+// Inbox: conversation list | message thread | lead details.
+// Same data + logic as before (threads, polling, send, tags, Copilot),
+// rebuilt on the new design system.
 import { useEffect, useMemo, useRef, useState } from "react";
-import "./dashboard-ios.css";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
-  logout,
   listWorkflows,
   startThread,
   listThreads,
   sendMessage,
   getThreadMessages,
   getTags,
+  createTag,
   getLeadTags,
   attachTagToLead,
   detachTagFromLead,
   type Workflow,
   type MessageDTO,
   type TagDTO,
+  type TagColor,
 } from "../lib/api";
-import { NavLink, useNavigate } from "react-router-dom";
+import { tagChipColors } from "../lib/tagColors";
 import CopilotModal from "../components/CopilotModal";
-
-/* ---------------- small UI helpers ---------------- */
-const OutlineIcon = ({
-  d,
-  size = 18,
-  stroke = "currentColor",
-}: { d: string; size?: number; stroke?: string }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke={stroke}
-    strokeWidth="1.5"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden
-  >
-    <path d={d} />
-  </svg>
-);
-
-const CopyBtn = ({ value }: { value?: string | null }) => (
-  <button
-    className={`icon-chip ${value ? "" : "is-disabled"}`}
-    title={value ? "Copy" : "Nothing to copy"}
-    aria-disabled={!value}
-    onClick={() => {
-      if (!value) return;
-      navigator.clipboard?.writeText(String(value)).catch(() => {});
-    }}
-  >
-    <OutlineIcon d="M9 9V7a2 2 0 0 1 2-2h6M7 9h6a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z" />
-  </button>
-);
+import Onboarding from "../components/Onboarding";
+import "./dashboard.css";
 
 /* ---------------- types ---------------- */
 type ThreadRow = {
@@ -66,16 +37,118 @@ type ThreadRow = {
   lastMessageAt?: string | null;
 };
 
-/* ---------------- utils ---------------- */
+type LeadTag = { tag: TagDTO; createdAt: string };
+
+/* ---------------- small helpers ---------------- */
+const Icon = ({ d, size = 15 }: { d: string; size?: number }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+  >
+    <path d={d} />
+  </svg>
+);
+
+const ICON = {
+  search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-3.5-3.5",
+  copy: "M9 9V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3M6 9h7a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2z",
+  sparkle: "M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z",
+  close: "M6 6l12 12M18 6L6 18",
+  plus: "M12 5v14M5 12h14",
+};
+
+const TAG_COLORS: TagColor[] = ["blue", "green", "orange", "violet", "teal", "pink", "amber", "red", "indigo", "gray"];
+
 function normalizePhone(input: string): string {
   const digits = (input || "").replace(/\D+/g, "");
   if (digits.length === 10) return `+1${digits}`;
   if (digits.startsWith("1") && digits.length === 11) return `+${digits}`;
-  if (digits.startsWith("+")) return digits;
   return `+${digits}`;
 }
 
-/* ---------------- "+ New conversation" box ---------------- */
+function formatPhone(p?: string | null): string {
+  if (!p) return "";
+  const d = p.replace(/\D+/g, "");
+  const ten = d.length === 11 && d.startsWith("1") ? d.slice(1) : d;
+  if (ten.length === 10) return `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}`;
+  return p;
+}
+
+function displayName(t?: ThreadRow | null): string {
+  if (!t) return "";
+  return t.leadName || formatPhone(t.leadPhone) || t.leadEmail || "Unknown";
+}
+
+function initials(name: string): string {
+  const parts = name.replace(/[^a-zA-Z ]/g, "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "#";
+  return (parts[0][0] + (parts[1]?.[0] || "")).toUpperCase();
+}
+
+const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+const DAY = 86_400_000;
+
+function timeOf(iso: string) {
+  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+// "9:41 AM" today, "Yesterday", "Mon" this week, "Sep 12" older
+function listTime(iso?: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const diff = (startOfDay(new Date()) - startOfDay(d)) / DAY;
+  if (diff === 0) return timeOf(iso);
+  if (diff === 1) return "Yesterday";
+  if (diff < 7) return d.toLocaleDateString([], { weekday: "short" });
+  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function dayLabel(iso: string): string {
+  const d = new Date(iso);
+  const diff = (startOfDay(new Date()) - startOfDay(d)) / DAY;
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  return d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+}
+
+function sinceLabel(iso: string): string {
+  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 48) return `${hrs}h`;
+  return `${Math.round(hrs / 24)}d`;
+}
+
+// SMS length: 160 chars for plain text, 70 if it has emoji/special chars.
+// Long messages split into segments of 153 / 67.
+function smsInfo(text: string) {
+  const plain = /^[\x20-\x7E\n\r]*$/.test(text);
+  const single = plain ? 160 : 70;
+  const multi = plain ? 153 : 67;
+  const len = text.length;
+  const segments = len === 0 ? 1 : len <= single ? 1 : Math.ceil(len / multi);
+  return { len, limit: segments === 1 ? single : multi * segments, segments };
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  QUEUED: "Sending",
+  SENT: "Sent",
+  DELIVERED: "Delivered",
+  FAILED: "Failed",
+};
+
+function copy(text?: string | null) {
+  if (text) navigator.clipboard?.writeText(text).catch(() => {});
+}
+
+/* ---------------- New conversation ---------------- */
 function NewConversationBox({
   onCreated,
   onCancel,
@@ -85,9 +158,10 @@ function NewConversationBox({
 }) {
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
-  const [wf, setWf] = useState<string>("");
+  const [wf, setWf] = useState("");
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
-  const [status, setStatus] = useState<string>("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     listWorkflows()
@@ -96,90 +170,142 @@ function NewConversationBox({
   }, []);
 
   async function handleCreate() {
-    setStatus("");
+    setError("");
     const n = normalizePhone(phone);
-    if (!n || n === "+") {
-      setStatus("Enter a valid phone number.");
+    if (n.replace(/\D/g, "").length < 10) {
+      setError("Enter a 10-digit phone number.");
       return;
     }
+    setBusy(true);
     try {
-      const created = await startThread({
+      const created: any = await startThread({
         phone: n,
         name: name.trim() || undefined,
         workflowId: wf || undefined,
       });
-      const t: ThreadRow = {
-        id: (created as any).id ?? (created as any).thread?.id ?? "",
-        ownerId:
-          (created as any).ownerId ??
-          (created as any).thread?.ownerId ??
-          "system",
-        leadId:
-          (created as any).leadId ??
-          (created as any).thread?.leadId ??
-          "",
-        leadName: (created as any).leadName ?? null,
-        leadEmail: (created as any).leadEmail ?? null,
-        leadPhone:
-          (created as any).leadPhone ?? (name ? null : n) ?? null,
-        phoneNumberSid: (created as any).phoneNumberSid ?? null,
-        lastMessageAt: (created as any).lastMessageAt ?? null,
-      };
-      onCreated(t);
+      onCreated({
+        id: created.id ?? created.thread?.id ?? "",
+        ownerId: created.ownerId ?? created.thread?.ownerId ?? "system",
+        leadId: created.leadId ?? created.thread?.leadId ?? "",
+        leadName: created.leadName ?? (name.trim() || null),
+        leadEmail: created.leadEmail ?? null,
+        leadPhone: created.leadPhone ?? n,
+        phoneNumberSid: created.phoneNumberSid ?? null,
+        lastMessageAt: created.lastMessageAt ?? null,
+      });
     } catch (e: any) {
-      setStatus(e?.message || "Failed to create conversation.");
+      setError(e?.message || "Couldn't start the conversation. Try again.");
+    } finally {
+      setBusy(false);
     }
   }
 
   return (
-    <div style={{ padding: "10px 10px 0 10px" }}>
-      <div className="u-card" style={{ padding: 10 }}>
-        <div style={{ display: "grid", gap: 8 }}>
-          <input
-            className="input"
-            placeholder="Your test number (e.g. +15551234567)"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-          />
-          <input
-            className="input"
-            placeholder="Name (optional)"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-          <select
-            className="input"
-            value={wf}
-            onChange={(e) => setWf(e.target.value)}
-          >
-            <option value="">(none)</option>
-            {workflows.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.name}
-              </option>
-            ))}
-          </select>
+    <div className="gs-newconvo">
+      <div className="gs-newconvo-title">New text</div>
+      <input
+        className="gs-input"
+        placeholder="Phone number"
+        value={phone}
+        autoFocus
+        onChange={(e) => setPhone(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+      />
+      <input
+        className="gs-input"
+        placeholder="Name (optional)"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+      />
+      <select className="gs-input" value={wf} onChange={(e) => setWf(e.target.value)}>
+        <option value="">No workflow</option>
+        {workflows.map((w) => (
+          <option key={w.id} value={w.id}>
+            {w.name}
+          </option>
+        ))}
+      </select>
+      {error && <div className="gs-error">{error}</div>}
+      <div className="gs-row-end">
+        <button className="gs-btn gs-btn--ghost" onClick={onCancel}>
+          Cancel
+        </button>
+        <button className="gs-btn gs-btn--primary" onClick={handleCreate} disabled={busy}>
+          {busy ? "Starting…" : "Start conversation"}
+        </button>
+      </div>
+    </div>
+  );
+}
 
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn-primary" onClick={handleCreate}>
-              Create
-            </button>
-            <button className="btn-outline" onClick={onCancel}>
-              Cancel
-            </button>
-          </div>
+/* ---------------- Tag picker (dropdown) ---------------- */
+function TagPicker({
+  allTags,
+  applied,
+  onPick,
+  onCreate,
+  onClose,
+}: {
+  allTags: TagDTO[];
+  applied: Set<string>;
+  onPick: (t: TagDTO) => void;
+  onCreate: (name: string) => void;
+  onClose: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const ref = useRef<HTMLDivElement | null>(null);
 
-          {status ? (
-            <div className="hint" style={{ color: "#e5484d" }}>
-              {status}
-            </div>
-          ) : (
-            <div className="hint">
-              Tip: use your own number to test. Messages will appear in
-              the middle column once your webhook ingests inbound.
-            </div>
-          )}
-        </div>
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+
+  const query = q.trim().toLowerCase();
+  const options = allTags.filter((t) => !applied.has(t.id) && t.name.toLowerCase().includes(query));
+  const exact = allTags.some((t) => t.name.toLowerCase() === query);
+
+  return (
+    <div className="gs-picker" ref={ref}>
+      <input
+        className="gs-input"
+        placeholder="Find or create a tag"
+        value={q}
+        autoFocus
+        onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter") return;
+          if (options[0]) onPick(options[0]);
+          else if (query && !exact) onCreate(q.trim());
+        }}
+      />
+      <div className="gs-picker-list">
+        {options.map((t) => {
+          const c = tagChipColors(t.color);
+          return (
+            <button key={t.id} className="gs-picker-item" onClick={() => onPick(t)}>
+              <span className="gs-chip" style={{ background: c.bg, color: c.fg }}>
+                {t.name}
+              </span>
+            </button>
+          );
+        })}
+        {query && !exact && (
+          <button className="gs-picker-item" onClick={() => onCreate(q.trim())}>
+            <Icon d={ICON.plus} size={13} />
+            Create “{q.trim()}”
+          </button>
+        )}
+        {!options.length && !query && (
+          <div className="gs-picker-empty">Type a name to create your first tag.</div>
+        )}
       </div>
     </div>
   );
@@ -190,14 +316,12 @@ function NewConversationBox({
 /* ====================================================================== */
 export default function Dashboard() {
   const nav = useNavigate();
+  const location = useLocation();
 
-  // threads + selection
   const [threads, setThreads] = useState<ThreadRow[]>([]);
-  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(
-    null
-  );
+  const [threadsLoaded, setThreadsLoaded] = useState(false);
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
 
-  // messaging state
   const [msgs, setMsgs] = useState<MessageDTO[]>([]);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
   const [draft, setDraft] = useState("");
@@ -206,159 +330,159 @@ export default function Dashboard() {
   const pollRef = useRef<number | null>(null);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
 
-  // UI chrome
   const [query, setQuery] = useState("");
-  const [railOpen, setRailOpen] = useState(true);
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [showNew, setShowNew] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
 
-  // theme
-  const [theme, setTheme] = useState<"light" | "dark">(
-    (localStorage.getItem("gs_theme") as "light" | "dark") || "light"
-  );
-  useEffect(() => {
-    document.body.setAttribute("data-theme", theme);
-    localStorage.setItem("gs_theme", theme);
-  }, [theme]);
-
-  // tagging state
   const [allTags, setAllTags] = useState<TagDTO[]>([]);
-  // leadTags is newest-first: [{ tag: TagDTO, createdAt: ISO }]
-  const [leadTags, setLeadTags] = useState<
-    { tag: TagDTO; createdAt: string }[]
-  >([]);
+  const [leadTags, setLeadTags] = useState<LeadTag[]>([]); // newest first
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
 
-  // derive most recent tag's color (we assume leadTags[0] = newest)
-  const mostRecentColor =
-    leadTags.length && leadTags[0]?.tag?.color
-      ? leadTags[0].tag.color
-      : null;
-
-  // helper to get currently selected thread row
   const selected = useMemo(
     () => threads.find((t) => t.id === selectedThreadId) || null,
     [threads, selectedThreadId]
   );
 
+  // Sidebar "New text" button
+  useEffect(() => {
+    if ((location.state as any)?.newText) setShowNew(true);
+  }, [location.state]);
+
   /* ---------------- initial load ---------------- */
   useEffect(() => {
     (async () => {
       try {
-        const res = await listThreads();
+        const res: any = await listThreads();
         const list: ThreadRow[] = Array.isArray(res)
           ? res
-          : Array.isArray((res as any)?.threads)
-          ? (res as any).threads
-          : Array.isArray((res as any)?.data)
-          ? (res as any).data
+          : Array.isArray(res?.threads)
+          ? res.threads
+          : Array.isArray(res?.data)
+          ? res.data
           : [];
+        list.sort(
+          (a, b) =>
+            new Date(b.lastMessageAt || 0).getTime() - new Date(a.lastMessageAt || 0).getTime()
+        );
         setThreads(list);
-        if (!selectedThreadId && list.length)
-          setSelectedThreadId(list[0].id);
+        if (list.length) setSelectedThreadId((cur) => cur ?? list[0].id);
       } catch (e) {
         console.error(e);
+      } finally {
+        setThreadsLoaded(true);
       }
-
       try {
-        const tags = await getTags();
-        setAllTags(tags || []);
+        setAllTags((await getTags()) || []);
       } catch (e) {
         console.error("failed to load tags", e);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ---------------- fetch messages & poll ---------------- */
+  /* ---------------- messages + polling ---------------- */
   useEffect(() => {
+    let first = true;
     async function loadMsgs() {
       if (!selectedThreadId) {
         setMsgs([]);
         return;
       }
-      setLoadingMsgs(true);
+      if (first) setLoadingMsgs(true);
       try {
         const data = await getThreadMessages(selectedThreadId);
-        setMsgs(Array.isArray(data) ? data : []);
+        setMsgs((prev) => {
+          const next = Array.isArray(data) ? data : [];
+          // only scroll when something new arrived
+          if (next.length !== prev.length) {
+            requestAnimationFrame(() =>
+              scrollerRef.current?.scrollTo({ top: 1e9, behavior: first ? "auto" : "smooth" })
+            );
+          }
+          return next;
+        });
       } catch (err) {
         console.error(err);
       } finally {
         setLoadingMsgs(false);
-        requestAnimationFrame(() => {
-          scrollerRef.current?.scrollTo({
-            top: 999999,
-            behavior: "smooth",
-          });
-        });
+        first = false;
       }
     }
 
+    setMsgs([]);
+    setNotice("");
     loadMsgs();
-
-    // poll messages every 4s
     if (pollRef.current) window.clearInterval(pollRef.current);
     pollRef.current = window.setInterval(loadMsgs, 4000);
-
     return () => {
       if (pollRef.current) window.clearInterval(pollRef.current);
       pollRef.current = null;
     };
   }, [selectedThreadId]);
 
-  /* ---------------- fetch lead tags when selected lead changes ---------------- */
-  useEffect(() => {
-    async function loadLeadTags() {
-      if (!selected?.leadId) {
-        setLeadTags([]);
-        return;
-      }
-      try {
-        const rows = await getLeadTags(selected.leadId);
-        // rows might not be sorted; force newest-first by createdAt
-        const sorted = [...rows].sort(
-          (a: any, b: any) =>
-            new Date(b.createdAt).getTime() -
-            new Date(a.createdAt).getTime()
-        );
-        // normalize to {tag, createdAt}
-        setLeadTags(
-          sorted.map((r: any) => ({
-            tag: r.tag,
-            createdAt: r.createdAt,
-          }))
-        );
-      } catch (e) {
-        console.error("failed to load lead tags", e);
-        setLeadTags([]);
-      }
+  /* ---------------- lead tags ---------------- */
+  async function refreshLeadTags(leadId = selected?.leadId) {
+    if (!leadId) {
+      setLeadTags([]);
+      return;
     }
+    try {
+      const rows: any[] = await getLeadTags(leadId);
+      rows.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setLeadTags(rows.map((r) => ({ tag: r.tag, createdAt: r.createdAt })));
+    } catch (e) {
+      console.error("failed to load lead tags", e);
+      setLeadTags([]);
+    }
+  }
 
-    loadLeadTags();
+  useEffect(() => {
+    setTagPickerOpen(false);
+    refreshLeadTags(selected?.leadId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.leadId]);
 
-  /* ---------------- filtering for left list ---------------- */
+  async function addTag(tag: TagDTO) {
+    if (!selected?.leadId) return;
+    setTagPickerOpen(false);
+    await attachTagToLead(selected.leadId, tag.id);
+    await refreshLeadTags();
+  }
+
+  async function createAndAddTag(name: string) {
+    const color = TAG_COLORS[allTags.length % TAG_COLORS.length];
+    try {
+      const tag = await createTag({ name, color });
+      setAllTags((prev) => [...prev, tag]);
+      await addTag(tag);
+    } catch (e: any) {
+      setNotice(e?.message || "Couldn't create that tag.");
+    }
+  }
+
+  async function removeTag(tagId: string) {
+    if (!selected?.leadId) return;
+    await detachTagFromLead(selected.leadId, tagId);
+    await refreshLeadTags();
+  }
+
+  /* ---------------- list filter ---------------- */
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return threads;
+    const qDigits = q.replace(/\D/g, "");
     return threads.filter((t) => {
-      const a = `${t.leadName || ""} ${t.leadEmail || ""} ${
-        t.leadPhone || ""
-      }`.toLowerCase();
-      return a.includes(q);
+      const text = `${t.leadName || ""} ${t.leadEmail || ""}`.toLowerCase();
+      const phone = (t.leadPhone || "").replace(/\D/g, "");
+      return text.includes(q) || (qDigits.length > 2 && phone.includes(qDigits));
     });
   }, [threads, query]);
 
-  /* ---------------- send handler ---------------- */
-  const canSend = () =>
-    !!selectedThreadId && draft.trim().length > 0;
+  /* ---------------- send ---------------- */
+  const canSend = !!selectedThreadId && draft.trim().length > 0 && !sending;
 
   async function handleSend() {
-    if (!canSend()) return;
+    if (!canSend) return;
     const text = draft.trim();
-
-    // optimistic bubble
     const temp: MessageDTO = {
       id: `tmp_${Date.now()}`,
       threadId: selectedThreadId!,
@@ -375,912 +499,317 @@ export default function Dashboard() {
     setDraft("");
     setSending(true);
     setNotice("");
+    requestAnimationFrame(() => scrollerRef.current?.scrollTo({ top: 1e9, behavior: "smooth" }));
 
     try {
       await sendMessage(selectedThreadId!, text);
-      setNotice(
-        "Queued to send. Delivery will update after your webhook processes."
-      );
-      // refresh real msgs
       const data = await getThreadMessages(selectedThreadId!);
       setMsgs(Array.isArray(data) ? data : []);
-    } catch (e: any) {
-      setNotice(e?.message || "Failed to send.");
-      setMsgs((m) =>
-        m.map((mm) =>
-          mm.id === temp.id ? { ...mm, status: "FAILED" } : mm
-        )
+      setThreads((prev) =>
+        prev
+          .map((t) => (t.id === selectedThreadId ? { ...t, lastMessageAt: new Date().toISOString() } : t))
+          .sort((a, b) => new Date(b.lastMessageAt || 0).getTime() - new Date(a.lastMessageAt || 0).getTime())
       );
+    } catch (e: any) {
+      setNotice(e?.message || "Message failed to send.");
+      setMsgs((m) => m.map((mm) => (mm.id === temp.id ? { ...mm, status: "FAILED" } : mm)));
     } finally {
       setSending(false);
-      requestAnimationFrame(() => {
-        scrollerRef.current?.scrollTo({
-          top: 999999,
-          behavior: "smooth",
-        });
-      });
     }
   }
 
-  /* ---------------- tag actions ---------------- */
-  async function refreshLeadTags() {
-    if (!selected?.leadId) {
-      setLeadTags([]);
-      return;
-    }
-    try {
-      const rows = await getLeadTags(selected.leadId);
-      const sorted = [...rows].sort(
-        (a: any, b: any) =>
-          new Date(b.createdAt).getTime() -
-          new Date(a.createdAt).getTime()
-      );
-      setLeadTags(
-        sorted.map((r: any) => ({
-          tag: r.tag,
-          createdAt: r.createdAt,
-        }))
-      );
-    } catch (e) {
-      console.error("failed to reload tags", e);
-    }
-  }
+  /* ---------------- derived ---------------- */
+  const name = displayName(selected);
+  const firstName = (selected?.leadName || "").split(" ")[0] || null;
+  const lastMsg = msgs.length ? msgs[msgs.length - 1] : null;
+  const sms = smsInfo(draft);
+  const appliedIds = useMemo(() => new Set(leadTags.map((l) => l.tag.id)), [leadTags]);
 
-  /* ---------------- menu close helper ---------------- */
-  const closeMenuSoon = () =>
-    setTimeout(() => setMenuOpen(false), 100);
+  // messages with a day divider wherever the date changes
+  const timeline = useMemo(() => {
+    const out: ({ kind: "day"; key: string; label: string } | { kind: "msg"; m: MessageDTO })[] = [];
+    let lastDay = "";
+    for (const m of msgs) {
+      const day = new Date(m.createdAt).toDateString();
+      if (day !== lastDay) {
+        out.push({ kind: "day", key: `d_${day}`, label: dayLabel(m.createdAt) });
+        lastDay = day;
+      }
+      out.push({ kind: "msg", m });
+    }
+    return out;
+  }, [msgs]);
 
-  /* ================================================================== */
-  /* RENDER */
   /* ================================================================== */
   return (
-    <div className="p-shell matte">
-      {/* TOP BAR */}
-      <header className="p-topbar matte">
-        <button
-          className="icon-btn left-toggle"
-          aria-label="Toggle left rail"
-          title="Toggle left rail"
-          onClick={() => setRailOpen((v) => !v)}
-        >
-          <OutlineIcon d="M9 6l6 6-6 6" />
-        </button>
-
-        <div className="brand-center">GroScales</div>
-
-        <div className="top-actions">
-          <div className="profile">
-            <button
-              className="profile-btn"
-              onClick={() => setMenuOpen((o) => !o)}
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-              title="Account"
-            >
-              {/* top-right avatar ALSO reflects most recent tag color */}
-              <div
-                className="avatar small"
-                style={
-                  mostRecentColor
-                    ? {
-                        background: mostRecentColor,
-                        color: "#fff",
-                      }
-                    : undefined
-                }
-              >
-                U
-              </div>
-            </button>
-            {menuOpen && (
-              <div className="menu" role="menu" onBlur={closeMenuSoon}>
-                <button
-                  className="menu-item"
-                  onClick={() =>
-                    setTheme((t) => (t === "light" ? "dark" : "light"))
-                  }
-                >
-                  <OutlineIcon d="M12 3v18M3 12h18" />
-                  {theme === "light"
-                    ? "Dark mode"
-                    : "Light mode"}
-                </button>
-                <div className="menu-sep" />
-                <button
-                  className="menu-item danger"
-                  onClick={() => {
-                    logout();
-                    window.location.href = "/login";
-                  }}
-                >
-                  <OutlineIcon d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-                  Logout
-                </button>
-              </div>
-            )}
-          </div>
+    <div className="gs-inbox">
+      {/* ---------------- Conversation list ---------------- */}
+      <section className="gs-list" aria-label="Conversations">
+        <div className="gs-list-head">
+          <h1>Inbox</h1>
+          <span className="gs-list-count">{threads.length || ""}</span>
         </div>
-      </header>
 
-      {/* WORK AREA */}
-      <main
-        className={`p-work grid ${
-          railOpen ? "rail-open" : "rail-closed"
-        }`}
-      >
-        {/* LEFT RAIL NAV */}
-        <aside
-          className={`rail ${railOpen ? "" : "collapsed"} matte`}
-        >
-          <nav>
-            <NavLink
-              to="/dashboard"
-              className={({ isActive }) =>
-                `rail-item ${isActive ? "active" : ""}`
-              }
-              title="Conversations"
-            >
-              <OutlineIcon d="M16 11c1.66 0 3-1.34 3-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zM5 20c0-3.31 2.69-6 6-6h2" />
-              {railOpen && <span>Conversations</span>}
-            </NavLink>
+        <label className="gs-search">
+          <Icon d={ICON.search} size={14} />
+          <input
+            placeholder="Search name or number"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Search conversations"
+          />
+        </label>
 
-            <NavLink
-              to="/workflows"
-              className={({ isActive }) =>
-                `rail-item ${isActive ? "active" : ""}`
-              }
-              title="Workflows"
-            >
-              <OutlineIcon d="M4 6h16M4 12h10M4 18h7" />
-              {railOpen && <span>Workflows</span>}
-            </NavLink>
+        {showNew && (
+          <NewConversationBox
+            onCancel={() => setShowNew(false)}
+            onCreated={(t) => {
+              setThreads((prev) => [t, ...prev.filter((p) => p.id !== t.id)]);
+              setSelectedThreadId(t.id);
+              setShowNew(false);
+            }}
+          />
+        )}
 
-            <NavLink
-              to="/phone-numbers"
-              className={({ isActive }) =>
-                `rail-item ${isActive ? "active" : ""}`
-              }
-              title="Phone numbers"
-            >
-              <OutlineIcon d="M6 2h12v20H6zM9 18h6" />
-              {railOpen && <span>Phone numbers</span>}
-            </NavLink>
-
-            <NavLink
-              to="/tags"
-              className={({ isActive }) =>
-                `rail-item ${isActive ? "active" : ""}`
-              }
-              title="Tags"
-            >
-              <OutlineIcon d="M20 12l-8 8-8-8 8-8 8 8z" />
-              {railOpen && <span>Tags</span>}
-            </NavLink>
-
-            <NavLink
-              to="/templates"
-              className={({ isActive }) =>
-                `rail-item ${isActive ? "active" : ""}`
-              }
-              title="Templates"
-            >
-              <OutlineIcon d="M4 4h16v6H4zM4 14h10" />
-              {railOpen && <span>Templates</span>}
-            </NavLink>
-
-            <NavLink
-              to="/uploads"
-              className={({ isActive }) =>
-                `rail-item ${isActive ? "active" : ""}`
-              }
-              title="Uploads"
-            >
-              <OutlineIcon d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16" />
-              {railOpen && <span>Uploads</span>}
-            </NavLink>
-          </nav>
-
-          <div className="rail-foot">
-            <a className="rail-item" title="Settings">
-              <OutlineIcon d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.07a1.65 1.65 0 0 0-1 1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06c.46-.46.6-1.14.33-1.73A1.65 1.65 0 0 0 3 13H3a2 2 0 1 1 0-4h.07c.67 0 1.28-.38 1.55-.97.27-.59.13-1.27-.33-1.73l-.06-.06z" />
-              {railOpen && <span>Settings</span>}
-            </a>
-          </div>
-        </aside>
-
-        {/* CONVO LIST */}
-        <section className="panel list">
-          <div className="list-head">
-            <div className="h">Conversations</div>
-            <div className="list-head-actions">
+        <div className="gs-rows">
+          {filtered.map((t) => {
+            const nm = displayName(t);
+            const active = t.id === selectedThreadId;
+            return (
               <button
-                className="btn-outline sm"
-                onClick={() => setShowNew(true)}
-              >
-                + New
-              </button>
-            </div>
-          </div>
-
-          {showNew && (
-            <NewConversationBox
-              onCancel={() => setShowNew(false)}
-              onCreated={(t) => {
-                setThreads((prev) => [
-                  t,
-                  ...prev.filter((p) => p.id !== t.id),
-                ]);
-                setSelectedThreadId(t.id);
-                setShowNew(false);
-              }}
-            />
-          )}
-
-          <div className="search">
-            <OutlineIcon d="M11 19a8 8 0 1 1 5.29-14.29L21 9l-4 4" />
-            <input
-              placeholder="Search…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            <button
-              className="icon-btn"
-              aria-label="Filter"
-              title="Filter"
-            >
-              <OutlineIcon d="M3 5h18M6 12h12M10 19h4" />
-            </button>
-          </div>
-
-          <ul className="rows">
-            {filtered.map((t) => (
-              <li
                 key={t.id}
-                className={`row ${
-                  t.id === selectedThreadId ? "selected" : ""
-                }`}
+                className={`gs-row ${active ? "is-active" : ""}`}
                 onClick={() => setSelectedThreadId(t.id)}
+                aria-current={active || undefined}
               >
-                {/* LEFT LIST avatar also uses mostRecentColor */}
-                <div
-                  className="avatar"
-                  style={
-                    mostRecentColor
-                      ? {
-                          background: mostRecentColor,
-                          color: "#fff",
-                        }
-                      : undefined
-                  }
-                >
-                  {(t.leadName ||
-                    t.leadEmail ||
-                    t.leadPhone ||
-                    "?")
-                    .toString()
-                    .slice(0, 1)
-                    .toUpperCase()}
+                <div className="gs-row-top">
+                  <span className="gs-row-name">{nm}</span>
+                  <span className="gs-row-time">{listTime(t.lastMessageAt)}</span>
                 </div>
-                <div className="meta">
-                  <div className="name">
-                    {t.leadName || t.leadPhone || "—"}
-                  </div>
-                  <div className="sub">
-                    {t.leadEmail || t.leadPhone || ""}
-                  </div>
-                </div>
-              </li>
-            ))}
-            {!filtered.length && (
-              <li
-                className="row"
-                style={{ opacity: 0.7 }}
-              >
-                No conversations yet.
-              </li>
-            )}
-          </ul>
-        </section>
-
-        {/* MESSAGE THREAD */}
-        <section className="panel thread">
-          <div className="thread-title">
-            <div className="who">
-              <div
-                className="avatar"
-                style={
-                  mostRecentColor
-                    ? {
-                        background: mostRecentColor,
-                        color: "#fff",
-                      }
-                    : undefined
-                }
-              >
-                {(selected?.leadName ||
-                  selected?.leadEmail ||
-                  selected?.leadPhone ||
-                  "T")
-                  .toString()
-                  .slice(0, 1)
-                  .toUpperCase()}
-              </div>
-              <div className="who-meta">
-                <div className="who-name">
-                  {selected?.leadName || "—"}
-                </div>
-                <div className="who-sub">
-                  {selected?.leadEmail ||
-                    selected?.leadPhone ||
-                    ""}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div
-            className="messages"
-            key={selected?.id ?? "none"}
-            ref={scrollerRef}
-          >
-            {loadingMsgs && !msgs.length && (
-              <div className="hint">Loading messages…</div>
-            )}
-
-            {!loadingMsgs && msgs.length === 0 && (
-              <div className="hint">
-                Messages will appear here once you start texting.
-                <br />
-                (Wire your outbound send + inbound webhook to
-                populate this thread.)
-              </div>
-            )}
-
-            {/* render bubbles */}
-            {(() => {
-              const lastOutboundId = [...msgs]
-                .reverse()
-                .find((x) => x.direction === "OUTBOUND")?.id;
-
-              return msgs.map((m) => {
-                const isOut = m.direction === "OUTBOUND";
-
-                const statusLabel = isOut
-                  ? m.status === "DELIVERED"
-                    ? "Delivered"
-                    : m.status === "SENT"
-                    ? "Sent"
-                    : m.status === "QUEUED"
-                    ? "Queued"
-                    : m.status === "FAILED"
-                    ? "Failed"
-                    : m.status
-                  : "";
-
-                return (
-                  <div
-                    key={m.id}
-                    className={`m-row ${isOut ? "out" : "in"}`}
-                    style={{
-                      display: "flex",
-                      justifyContent: isOut
-                        ? "flex-end"
-                        : "flex-start",
-                      margin: "6px 0",
-                    }}
-                  >
-                    <div
-                      className="bubble"
-                      style={{
-                        maxWidth: 560,
-                        padding: "8px 10px",
-                        borderRadius: 10,
-                        whiteSpace: "pre-wrap",
-                        wordBreak: "break-word",
-                        background: isOut
-                          ? "var(--btn-primary-bg, #4f46e5)"
-                          : "var(--panel-bg, #f3f4f6)",
-                        color: isOut
-                          ? "var(--btn-primary-fg, #fff)"
-                          : "var(--fg, #111)",
-                        opacity:
-                          m.status === "FAILED"
-                            ? 0.6
-                            : 1,
-                        border:
-                          m.status === "FAILED"
-                            ? "1px solid #e5484d"
-                            : "none",
-                      }}
-                      title={`${m.direction} • ${
-                        m.status
-                      } • ${new Date(
-                        m.createdAt
-                      ).toLocaleString()}`}
-                    >
-                      {m.body}
-                    </div>
-
-                    {/* Only show status line under the most recent outbound */}
-                    {isOut &&
-                      m.id === lastOutboundId && (
-                        <div
-                          style={{
-                            fontSize: 11,
-                            opacity: 0.8,
-                            marginTop: 4,
-                            marginRight: 6,
-                            textAlign: "right",
-                          }}
-                        >
-                          {statusLabel}
-                        </div>
-                      )}
-                  </div>
-                );
-              });
-            })()}
-
-            {notice && (
-              <div
-                className="hint"
-                style={{ marginTop: 8 }}
-              >
-                {notice}
-              </div>
-            )}
-          </div>
-
-          <div className="composer">
-            <input
-              placeholder="Send a message…"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
-              disabled={!selectedThreadId || sending}
-            />
-            <button
-              className="btn-outline"
-              onClick={() => nav("/templates")}
-              title="Open templates"
-            >
-              Templates
-            </button>
-            <button
-              className="btn-copilot"
-              title="AI Copilot"
-              onClick={() => setCopilotOpen(true)}
-            >
-              <span
-                className="copilot-static"
-                aria-hidden
-              />
-              <OutlineIcon d="M5 12l4 4L19 6" />
-              Copilot
-            </button>
-            <button
-              className="btn-primary"
-              onClick={handleSend}
-              disabled={
-                !draft.trim() ||
-                !selectedThreadId ||
-                sending
-              }
-            >
-              {sending ? "Sending…" : "Send"}
-            </button>
-          </div>
-        </section>
-
-        {/* RIGHT PANEL (details) */}
-        <aside className="panel details">
-          {/* PERSONAL INFO */}
-          <div className="section">
-            <div className="section-title">Personal Info</div>
-            <div className="kv">
-              <label>Full name</label>
-              <span className="copy-row">
-                <span>
-                  {selected?.leadName || (
-                    <i className="placeholder">
-                      Not provided
-                    </i>
-                  )}
-                </span>
-                <CopyBtn
-                  value={
-                    selected?.leadName || undefined
-                  }
-                />
-              </span>
-            </div>
-            <div className="kv">
-              <label>Email</label>
-              <span className="copy-row">
-                <span>
-                  {selected?.leadEmail || (
-                    <i className="placeholder">
-                      Not provided
-                    </i>
-                  )}
-                </span>
-                <CopyBtn
-                  value={
-                    selected?.leadEmail ||
-                    undefined
-                  }
-                />
-              </span>
-            </div>
-            <div className="kv">
-              <label>Phone</label>
-              <span className="copy-row">
-                <span>
-                  {selected?.leadPhone || (
-                    <i className="placeholder">
-                      Not provided
-                    </i>
-                  )}
-                </span>
-                <CopyBtn
-                  value={
-                    selected?.leadPhone ||
-                    undefined
-                  }
-                />
-              </span>
-            </div>
-          </div>
-
-          {/* DEMOGRAPHICS */}
-          <div className="section">
-            <div className="section-title">
-              Demographics
-            </div>
-            {[
-              "DOB",
-              "Age",
-              "City",
-              "State",
-              "ZIP",
-              "Household size",
-            ].map((k) => (
-              <div className="kv" key={k}>
-                <label>{k}</label>
-                <span className="copy-row">
-                  <span>
-                    <i className="placeholder">
-                      Not provided
-                    </i>
-                  </span>
-                </span>
-              </div>
-            ))}
-          </div>
-
-          {/* TAGS */}
-          <div className="section">
-            <div
-              className="section-title"
-              style={{
-                display: "flex",
-                justifyContent:
-                  "space-between",
-                alignItems: "center",
-              }}
-            >
-              <span>Tags</span>
-              <button
-                className="btn-outline sm"
-                onClick={() =>
-                  setTagPickerOpen(true)
-                }
-                disabled={!selected?.leadId}
-                title="Attach a tag"
-              >
-                + Tag
+                {t.leadName && t.leadPhone && (
+                  <div className="gs-row-sub">{formatPhone(t.leadPhone)}</div>
+                )}
               </button>
-            </div>
+            );
+          })}
 
-            {/* applied tags */}
-            <div
-              className="tag-row"
-              style={{
-                flexWrap: "wrap",
-                gap: 8,
-              }}
-            >
-              {leadTags.length ? (
-                leadTags.map(({ tag }) => (
-                  <span
-                    key={tag.id}
-                    className="tag"
-                    style={{
-                      background:
-                        tag.color ??
-                        "#eef2ff",
-                      color: tag.color
-                        ? "#fff"
-                        : "#374151",
-                      borderRadius: 999,
-                      padding:
-                        "4px 8px",
-                      display:
-                        "inline-flex",
-                      alignItems:
-                        "center",
-                      gap: 6,
-                      fontSize: 12,
-                      fontWeight: 500,
-                    }}
-                    title={
-                      tag.name
-                    }
+          {threadsLoaded && !threads.length && !showNew && (
+            <div className="gs-list-empty">
+              <span className="gs-list-empty-icon">
+                <Icon d="M21 12a8 8 0 0 1-11.6 7.2L4 20l.9-4.6A8 8 0 1 1 21 12z" size={17} />
+              </span>
+              <span className="gs-strong">No conversations yet</span>
+              <span className="gs-list-empty-sub">When you text a lead or they text you, it shows up here.</span>
+            </div>
+          )}
+          {!!threads.length && !filtered.length && (
+            <div className="gs-empty-small">No matches for “{query}”.</div>
+          )}
+        </div>
+      </section>
+
+      {/* ---------------- Thread ---------------- */}
+      <section className="gs-thread" aria-label={selected ? `Conversation with ${name}` : "Conversation"}>
+        {selected ? (
+          <>
+            <header className="gs-thread-head">
+              <div className="gs-thread-who">
+                <span className="gs-thread-name">{name}</span>
+                {selected.leadName && selected.leadPhone && (
+                  <span className="gs-mono">{formatPhone(selected.leadPhone)}</span>
+                )}
+              </div>
+              <button
+                className="gs-btn gs-btn--ghost gs-icon-btn"
+                title="Copy phone number"
+                aria-label="Copy phone number"
+                onClick={() => copy(selected.leadPhone)}
+              >
+                <Icon d={ICON.copy} />
+              </button>
+            </header>
+
+            <div className="gs-messages" ref={scrollerRef}>
+              {loadingMsgs && !msgs.length && <div className="gs-muted-center">Loading messages…</div>}
+              {!loadingMsgs && !msgs.length && (
+                <div className="gs-muted-center">No messages yet. Say hi to {firstName || "them"}.</div>
+              )}
+
+              {timeline.map((item) =>
+                item.kind === "day" ? (
+                  <div key={item.key} className="gs-day">
+                    {item.label}
+                  </div>
+                ) : (
+                  <div
+                    key={item.m.id}
+                    className={`gs-msg ${item.m.direction === "OUTBOUND" ? "is-out" : "is-in"} ${
+                      item.m.status === "FAILED" ? "is-failed" : ""
+                    }`}
                   >
-                    {tag.name}
-                    <button
-                      aria-label={`Remove ${tag.name}`}
-                      onClick={async () => {
-                        if (
-                          !selected?.leadId
-                        )
-                          return;
-                        await detachTagFromLead(
-                          selected.leadId,
-                          tag.id
-                        );
-                        await refreshLeadTags();
-                      }}
-                      style={{
-                        border: 0,
-        background:
-          "transparent",
-                        color:
-                          "inherit",
-                        cursor:
-                          "pointer",
-                        fontWeight: 700,
-                        lineHeight: 1,
-                      }}
-                      title="Remove"
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))
-              ) : (
-                <i className="placeholder">
-                  No tags
-                </i>
+                    <div className="gs-bubble" title={item.m.error || undefined}>
+                      {item.m.body}
+                    </div>
+                    <span className="gs-msg-meta">
+                      {timeOf(item.m.createdAt)}
+                      {item.m.direction === "OUTBOUND" && STATUS_LABEL[item.m.status]
+                        ? ` · ${STATUS_LABEL[item.m.status]}`
+                        : ""}
+                    </span>
+                  </div>
+                )
               )}
             </div>
 
-            {/* picker modal */}
-            {tagPickerOpen && (
-              <div
-                style={{
-                  position:
-                    "fixed",
-                  inset: 0,
-                  background:
-                    "rgba(0,0,0,.35)",
-                  display:
-                    "grid",
-                  placeItems:
-                    "center",
-                  zIndex: 50,
-                }}
-                onClick={() =>
-                  setTagPickerOpen(false)
-                }
-              >
-                <div
-                  className="u-card"
-                  style={{
-                    width: 360,
-                    maxWidth:
-                      "90vw",
-                    padding: 12,
-                    background:
-                      "#fff",
-                    borderRadius: 12,
-                    boxShadow:
-                      "0 20px 40px rgba(0,0,0,.18)",
+            <div className="gs-composer-wrap">
+              {notice && <div className="gs-error">{notice}</div>}
+              <div className="gs-composer">
+                <textarea
+                  rows={2}
+                  placeholder={`Text ${firstName || name}…`}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend();
+                    }
                   }}
-                  onClick={(e) =>
-                    e.stopPropagation()
-                  }
-                >
-                  <div
-                    style={{
-                      fontWeight: 700,
-                      marginBottom: 8,
-                    }}
-                  >
-                    Add a tag
-                  </div>
-                  <div
-                    style={{
-                      maxHeight: 280,
-                      overflow: "auto",
-                    }}
-                  >
-                    {allTags.length ? (
-                      allTags.map(
-                        (t) => (
-                          <button
-                            key={
-                              t.id
-                            }
-                            className="row"
-                            style={{
-                              width:
-                                "100%",
-                              display:
-                                "flex",
-                              alignItems:
-                                "center",
-                              gap: 10,
-                              padding:
-                                "6px 8px",
-                              cursor:
-                                "pointer",
-                            }}
-                            onClick={async () => {
-                              if (
-                                !selected?.leadId
-                              )
-                                return;
-                              await attachTagToLead(
-                                selected.leadId,
-                                t.id
-                              );
-                              await refreshLeadTags();
-                              setTagPickerOpen(
-                                false
-                              );
-                            }}
-                          >
-                            <span
-                              className="dot"
-                              style={{
-                                width: 12,
-                                height: 12,
-                                borderRadius:
-                                  999,
-                                background:
-                                  t.color ??
-                                  "#e5e7eb",
-                                border:
-                                  "1px solid #e5e7eb",
-                              }}
-                            />
-                            <span
-                              style={{
-                                flex: 1,
-                                textAlign:
-                                  "left",
-                              }}
-                            >
-                              {
-                                t.name
-                              }
-                            </span>
-                          </button>
-                        )
-                      )
-                    ) : (
-                      <div
-                        className="hint"
-                        style={{
-                          padding: 8,
-                        }}
-                      >
-                        No tags yet.{" "}
-                        <a
-                          onClick={() => {
-                            setTagPickerOpen(
-                              false
-                            );
-                            nav(
-                              "/tags"
-                            );
-                          }}
-                          style={{
-                            cursor:
-                              "pointer",
-                          }}
-                        >
-                          Create one
-                        </a>
-                        .
-                      </div>
-                    )}
-                  </div>
-                  <div
-                    style={{
-                      display:
-                        "flex",
-                      justifyContent:
-                        "flex-end",
-                      gap: 8,
-                      marginTop: 10,
-                    }}
-                  >
-                    <button
-                      className="btn-outline"
-                      onClick={() =>
-                        setTagPickerOpen(
-                          false
-                        )
-                      }
-                    >
-                      Close
+                  aria-label="Message"
+                />
+                <div className="gs-composer-bar">
+                  <div className="gs-row-start">
+                    <button className="gs-btn gs-btn--soft" onClick={() => nav("/templates")}>
+                      Templates
                     </button>
-                    <button
-                      className="btn"
-                      onClick={() => {
-                        setTagPickerOpen(
-                          false
-                        );
-                        nav("/tags");
-                      }}
-                    >
-                      Open Tags
-                      page
+                    <button className="gs-btn gs-btn--soft" onClick={() => setCopilotOpen(true)}>
+                      <span className="gs-accent-icon">
+                        <Icon d={ICON.sparkle} size={13} />
+                      </span>
+                      Copilot
+                    </button>
+                  </div>
+                  <div className="gs-row-start">
+                    <span className="gs-mono gs-counter">
+                      {sms.len} / {sms.limit} · {sms.segments} segment{sms.segments > 1 ? "s" : ""}
+                    </span>
+                    <button className="gs-btn gs-btn--primary" onClick={handleSend} disabled={!canSend}>
+                      {sending ? "Sending…" : "Send"}
                     </button>
                   </div>
                 </div>
               </div>
+            </div>
+          </>
+        ) : threadsLoaded && !threads.length ? (
+          <div className="gs-thread-scroll">
+            <Onboarding onNewText={() => setShowNew(true)} />
+          </div>
+        ) : !threadsLoaded ? null : (
+          <div className="gs-thread-empty">
+            <p>Pick a conversation, or start a new one.</p>
+            <button className="gs-btn gs-btn--primary" onClick={() => setShowNew(true)}>
+              New text
+            </button>
+          </div>
+        )}
+      </section>
+
+      {/* ---------------- Lead details ---------------- */}
+      {selected && (
+        <aside className="gs-details" aria-label="Lead details">
+          <div className="gs-lead-head">
+            <span className="gs-lead-avatar">{initials(name)}</span>
+            <div className="gs-lead-id">
+              <span className="gs-lead-name">{name}</span>
+              <span className="gs-lead-sub">{formatPhone(selected.leadPhone) || selected.leadEmail}</span>
+            </div>
+          </div>
+
+          <div className="gs-card">
+            <span className="gs-label">Last contact</span>
+            {lastMsg ? (
+              lastMsg.direction === "INBOUND" ? (
+                <>
+                  <span className="gs-strong">
+                    {firstName || "They"} replied {listTime(lastMsg.createdAt) === timeOf(lastMsg.createdAt) ? "at " : ""}
+                    {listTime(lastMsg.createdAt)}
+                  </span>
+                  <span className="gs-waiting-you">Waiting on you · {sinceLabel(lastMsg.createdAt)}</span>
+                </>
+              ) : (
+                <>
+                  <span className="gs-strong">You texted {listTime(lastMsg.createdAt)}</span>
+                  <span className="gs-label">Waiting on {firstName || "them"} · {sinceLabel(lastMsg.createdAt)}</span>
+                </>
+              )
+            ) : (
+              <span className="gs-label">No messages yet</span>
             )}
           </div>
 
-          {/* SYSTEM INFO */}
-          <div className="section">
-            <div className="section-title">
-              System Info
+          <div className="gs-facts">
+            <div>
+              <span className="gs-label">Age</span>
+              <span className="gs-fact">—</span>
             </div>
-            {[
-              { k: "Quote", v: "" },
-              { k: "Created", v: "" },
-            ].map(({ k, v }) => (
-              <div
-                className="kv"
-                key={k}
-              >
-                <label>{k}</label>
-                <span className="copy-row">
-                  <span>
-                    {v || (
-                      <i className="placeholder">
-                        Not
-                        provided
-                      </i>
-                    )}
+            <div>
+              <span className="gs-label">Household</span>
+              <span className="gs-fact">—</span>
+            </div>
+            <div>
+              <span className="gs-label">ZIP</span>
+              <span className="gs-fact">—</span>
+            </div>
+            <div>
+              <span className="gs-label">Email</span>
+              <span className="gs-fact gs-truncate" title={selected.leadEmail || undefined}>
+                {selected.leadEmail || "—"}
+              </span>
+            </div>
+          </div>
+
+          <div className="gs-section">
+            <div className="gs-section-head">
+              <span className="gs-label">Tags</span>
+            </div>
+            <div className="gs-tags">
+              {leadTags.map(({ tag }) => {
+                const c = tagChipColors(tag.color);
+                return (
+                  <span key={tag.id} className="gs-chip gs-tag" style={{ background: c.bg, color: c.fg }}>
+                    {tag.name}
+                    <button aria-label={`Remove ${tag.name}`} title="Remove" onClick={() => removeTag(tag.id)}>
+                      <Icon d={ICON.close} size={11} />
+                    </button>
                   </span>
-                  <CopyBtn
-                    value={
-                      v || undefined
-                    }
+                );
+              })}
+              <div className="gs-picker-anchor">
+                <button className="gs-add-tag" onClick={() => setTagPickerOpen((o) => !o)}>
+                  + Add
+                </button>
+                {tagPickerOpen && (
+                  <TagPicker
+                    allTags={allTags}
+                    applied={appliedIds}
+                    onPick={addTag}
+                    onCreate={createAndAddTag}
+                    onClose={() => setTagPickerOpen(false)}
                   />
-                </span>
+                )}
               </div>
-            ))}
+            </div>
+          </div>
+
+          <div className="gs-card gs-notes">
+            <span className="gs-label">Notes</span>
+            <input className="gs-input" placeholder="Notes are coming soon" disabled />
           </div>
         </aside>
-      </main>
+      )}
 
-      <CopilotModal
-        open={copilotOpen}
-        onClose={() =>
-          setCopilotOpen(false)
-        }
-      />
+      <CopilotModal open={copilotOpen} onClose={() => setCopilotOpen(false)} />
     </div>
   );
 }

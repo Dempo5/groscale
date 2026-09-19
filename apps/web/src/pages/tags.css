@@ -1,0 +1,100 @@
+.tg { max-width: 760px; margin: 0 auto; padding: 44px 40px 60px; display: flex; flex-direction: column; gap: 24px; }
+.tg-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.tg-head h1 { margin: 0 0 6px; font-size: 24px; font-weight: 600; letter-spacing: -0.02em; }
+.tg-head p { margin: 0; font-size: 14px; color: var(--gs-muted); }
+.tg-new { height: 36px; border-radius: var(--gs-r-md); }
+.tg-error { padding: 10px 14px; border-radius: var(--gs-r-md); background: #fbe9ea; color: var(--gs-danger); }
+.tg-empty { margin: 8px 4px; color: var(--gs-muted); }
+.tg-muted { color: var(--gs-muted); }
+.tg-none { color: #80858e; }
+
+.tg-table { display: flex; flex-direction: column; }
+.tg-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px 240px 32px;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 8px;
+  border-bottom: 1px solid #f0f1f3;
+  cursor: pointer;
+  border-radius: 10px;
+}
+.tg-row:hover, .tg-row.is-open { background: #f7f8fa; }
+.tg-row--head { padding: 0 8px 6px; font-size: 12px; color: var(--gs-muted); cursor: default; border-bottom: none; }
+.tg-row--head:hover { background: none; }
+.tg-wf { display: flex; align-items: center; gap: 6px; color: var(--gs-ink-2); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tg-dots { display: flex; justify-content: center; color: var(--gs-muted); }
+
+/* new tag row */
+.tg-create {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #f7f8fa;
+}
+.tg-create .tg-input { width: 240px; }
+
+/* editor */
+.tg-editor {
+  margin: 4px 0 8px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #f7f8fa;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.tg-editor-row { display: flex; gap: 24px; align-items: flex-start; }
+.tg-field { display: flex; flex-direction: column; gap: 5px; }
+.tg-field--name { width: 170px; }
+.tg-field--wf { flex: 1; min-width: 0; }
+.tg-label { font-size: 12px; color: var(--gs-muted); }
+.tg-hint { font-size: 12px; color: var(--gs-muted); }
+.tg-input { background: #fff; box-shadow: inset 0 0 0 1px #e6e7ea; }
+
+.tg-swatches { display: flex; align-items: center; gap: 7px; height: 34px; }
+.tg-swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px currentColor;
+  opacity: 0.9;
+  cursor: pointer;
+}
+.tg-swatch.is-on { outline: 2px solid currentColor; outline-offset: 2px; opacity: 1; }
+
+.tg-wf-select {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 34px;
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px #e6e7ea;
+}
+.tg-wf-select.is-set { box-shadow: inset 0 0 0 1px var(--gs-accent-ring), var(--gs-shadow-chip); }
+.tg-wf-icon { position: absolute; left: 10px; display: flex; color: var(--gs-accent); pointer-events: none; }
+.tg-wf-select select {
+  width: 100%;
+  height: 100%;
+  padding: 0 10px 0 32px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  font-weight: 500;
+  cursor: pointer;
+}
+.tg-wf-select select:focus { outline: none; }
+.tg-wf-select:focus-within { box-shadow: inset 0 0 0 1px var(--gs-accent); }
+
+.tg-editor-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tg-actions-right { display: flex; gap: 6px; margin-left: auto; }
+.tg-delete { color: var(--gs-danger); }
+.tg-delete:hover { background: #fbe9ea; color: var(--gs-danger); }
+.tg-confirm { display: flex; align-items: center; gap: 8px; color: var(--gs-ink-2); }
+.tg-btn-danger { background: var(--gs-danger); color: #fff; }
+.tg-btn-danger:hover { background: #b0262f; }

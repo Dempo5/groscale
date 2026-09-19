@@ -43,7 +43,21 @@ export function setToken(token: string) {
 export function clearToken() {
   try { localStorage.removeItem(TOKEN_KEY); } catch {}
 }
-export function isAuthed(): boolean { return !!getToken(); }
+// A JWT carries its own expiry time ("exp"), so we can check it without asking the server.
+function tokenExpired(token: string): boolean {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return typeof payload.exp === "number" && payload.exp * 1000 < Date.now();
+  } catch {
+    return true; // unreadable token = treat as logged out
+  }
+}
+export function isAuthed(): boolean {
+  const t = getToken();
+  if (!t) return false;
+  if (tokenExpired(t)) { clearToken(); return false; }
+  return true;
+}
 
 /* ---------------- fetch helper ---------------- */
 async function http<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
@@ -56,9 +70,18 @@ async function http<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
   const res = await fetch(url, { ...opts, headers, credentials: "include" });
-  if (!res.ok) {
+    if (!res.ok) {
+    // Login is invalid or expired: sign out and go to the login page.
+    if (res.status === 401 && !path.startsWith("/api/auth")) {
+      clearToken();
+      window.location.href = "/login";
+      throw new Error("Your session expired. Please log in again.");
+    }
+    // Show the server's message ("Invalid or expired token") instead of raw JSON.
     const text = await res.text().catch(() => "");
-    throw new Error(`${res.status} ${res.statusText}${text ? ` – ${text}` : ""}`);
+    let message = text;
+    try { message = JSON.parse(text).error || text; } catch {}
+    throw new Error(message || `Request failed (${res.status})`);
   }
   const ct = res.headers.get("content-type") || "";
   return (ct.includes("application/json") ? res.json() : (res.text() as any)) as T;
@@ -301,4 +324,20 @@ export async function attachTagToLead(leadId: string, tagId: string): Promise<Le
 
 export async function detachTagFromLead(leadId: string, tagId: string): Promise<void> {
   await http<any>(`/api/leads/${leadId}/tags/${tagId}`, { method: "DELETE" });
+}
+
+/* ---------------- templates ---------------- */
+export type TemplateDTO = { id: string; name: string; body: string; createdAt: string };
+export async function listTemplates(): Promise<TemplateDTO[]> {
+  const res = await http<any>("/api/templates");
+  return Array.isArray(res) ? res : res?.data ?? [];
+}
+export async function createTemplate(input: { name: string; body: string }): Promise<TemplateDTO> {
+  return http<TemplateDTO>("/api/templates", { method: "POST", body: JSON.stringify(input) });
+}
+export async function updateTemplate(id: string, patch: Partial<{ name: string; body: string }>): Promise<TemplateDTO> {
+  return http<TemplateDTO>(`/api/templates/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+}
+export async function deleteTemplate(id: string): Promise<void> {
+  await http(`/api/templates/${id}`, { method: "DELETE" });
 }
