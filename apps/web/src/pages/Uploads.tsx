@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { listWorkflows, uploadLeadsMapped, type CsvMapping } from "../lib/api";
+import { downloadSkippedRows, listUploads, type UploadRow } from "../lib/uploadsApi";
 import "./uploads.css";
 
 /* ---------------- column matching (from the old page) ---------------- */
@@ -118,33 +119,7 @@ function countRows(text: string): number {
   return Math.max(0, text.split(/\r?\n/).filter((l) => l.trim()).length - 1);
 }
 
-/* ---------------- history (kept in this browser until the backend stores it) ---------------- */
-type HistoryItem = {
-  id: string;
-  file: string;
-  at: string;
-  added: number;
-  dbDuplicates: number;
-  fileDuplicates: number;
-  invalid: number;
-  failed?: string;
-};
-
-const HISTORY_KEY = "gs_upload_history";
-
-function loadHistory(): HistoryItem[] {
-  try {
-    return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
-  } catch {
-    return [];
-  }
-}
-function saveHistory(items: HistoryItem[]) {
-  try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(0, 20)));
-  } catch {}
-}
-
+/* ---------------- history helpers ---------------- */
 const fmt = (n: number) => n.toLocaleString();
 
 function relDate(iso: string) {
@@ -157,23 +132,23 @@ function relDate(iso: string) {
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-function skippedOf(h: HistoryItem) {
-  return h.dbDuplicates + h.fileDuplicates + h.invalid;
+function skippedOf(h: UploadRow) {
+  return h.duplicates + h.fileDuplicates + h.invalids;
 }
 
-function summaryLine(h: HistoryItem) {
-  const parts = [`${fmt(h.added)} added`];
-  const dups = h.dbDuplicates + h.fileDuplicates;
+function summaryLine(h: UploadRow) {
+  const parts = [`${fmt(h.leads)} added`];
+  const dups = h.duplicates + h.fileDuplicates;
   if (dups) parts.push(`${fmt(dups)} duplicate${dups === 1 ? "" : "s"}`);
-  if (h.invalid) parts.push(`${fmt(h.invalid)} missing a phone or email`);
+  if (h.invalids) parts.push(`${fmt(h.invalids)} missing a phone or email`);
   return parts.join(" · ");
 }
 
-function reasonList(h: HistoryItem) {
+function reasonList(h: UploadRow) {
   const out: { n: number; label: string; fixable: boolean }[] = [];
-  if (h.dbDuplicates) out.push({ n: h.dbDuplicates, label: "Duplicates already in GroScales, so no copies were created", fixable: false });
+  if (h.duplicates) out.push({ n: h.duplicates, label: "Duplicates already in GroScales, so no copies were created", fixable: false });
   if (h.fileDuplicates) out.push({ n: h.fileDuplicates, label: "Duplicates within this file", fixable: false });
-  if (h.invalid) out.push({ n: h.invalid, label: "Missing a valid phone number and email", fixable: true });
+  if (h.invalids) out.push({ n: h.invalids, label: "Missing a valid phone number and email", fixable: true });
   return out;
 }
 
@@ -214,7 +189,7 @@ export default function Uploads() {
   const fileInput = useRef<HTMLInputElement | null>(null);
 
   const [step, setStep] = useState<Step>("pick");
-  const [history, setHistory] = useState<HistoryItem[]>(loadHistory);
+  const [history, setHistory] = useState<UploadRow[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -236,9 +211,12 @@ export default function Uploads() {
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<HistoryItem | null>(null);
+  const [result, setResult] = useState<UploadRow | null>(null);
 
   useEffect(() => {
+    listUploads()
+      .then(setHistory)
+      .catch((e) => console.error("failed to load upload history", e));
     listWorkflows()
       .then((ws) => setWorkflows((ws || []).map((w: any) => ({ id: w.id, name: w.name }))))
       .catch(() => {});
@@ -319,20 +297,22 @@ export default function Uploads() {
         ignoreDuplicates: true,
         tags,
         workflowId: workflowId || undefined,
-      });
-      const item: HistoryItem = {
-        id: crypto.randomUUID(),
-        file: file.name,
-        at: new Date().toISOString(),
-        added: Number(res?.inserted || 0),
-        dbDuplicates: Number(res?.duplicates || 0),
+        // recorded with the upload as proof the agent confirmed consent
+        consent: true,
+      } as any);
+      const item: UploadRow = {
+        id: String(res?.uploadId || ""),
+        fileName: file.name,
+        createdAt: String(res?.createdAt || new Date().toISOString()),
+        leads: Number(res?.inserted || 0),
+        duplicates: Number(res?.duplicates || 0),
         fileDuplicates: Number(res?.stats?.fileDuplicates || 0),
-        invalid: Number(res?.invalids || 0),
+        invalids: Number(res?.invalids || 0),
+        status: res?.ok ? "SUCCESS" : "FAILED",
+        error: res?.ok ? null : res?.error || "The server couldn't import this file",
+        skippedTruncated: false,
       };
-      if (!res?.ok) item.failed = res?.error || "The server couldn't import this file";
-      const next = [item, ...history];
-      setHistory(next);
-      saveHistory(next);
+      setHistory((h) => [item, ...h]);
       setResult(item);
       setStep("done");
     } catch (e: any) {
@@ -359,32 +339,32 @@ export default function Uploads() {
       <div className="gs-page">
         <div className="gs-page-panel">
           <div className="up up--done">
-            {result.failed ? (
+            {result.error ? (
               <header className="up-head">
                 <span className="up-result-icon is-bad"><Icon d={I.x} size={20} w={2.4} /></span>
                 <h1>Import failed</h1>
-                <p>{result.failed}. Nothing was added.</p>
+                <p>{result.error}. Nothing was added.</p>
               </header>
             ) : (
               <header className="up-head">
                 <span className="up-result-icon"><Icon d={I.check} size={20} w={2.4} /></span>
-                <h1>{fmt(result.added)} lead{result.added === 1 ? "" : "s"} imported</h1>
+                <h1>{fmt(result.leads)} lead{result.leads === 1 ? "" : "s"} imported</h1>
                 <p>
-                  From {result.file}
+                  From {result.fileName}
                   {tags.length ? ` · tagged ${tags.join(", ")}` : ""}
                 </p>
               </header>
             )}
 
-            {!result.failed && (
+            {!result.error && (
               <div className="up-stats">
-                <div><strong>{fmt(result.added + skipped)}</strong><span>Rows in file</span></div>
-                <div><strong className="is-good">{fmt(result.added)}</strong><span>Added</span></div>
+                <div><strong>{fmt(result.leads + skipped)}</strong><span>Rows in file</span></div>
+                <div><strong className="is-good">{fmt(result.leads)}</strong><span>Added</span></div>
                 <div><strong className={skipped ? "is-warn" : ""}>{fmt(skipped)}</strong><span>Skipped</span></div>
               </div>
             )}
 
-            {!result.failed && skipped > 0 && (
+            {!result.error && skipped > 0 && (
               <section className="up-why">
                 <h2>Why {fmt(skipped)} {skipped === 1 ? "was" : "were"} skipped</h2>
                 <Reasons items={reasonList(result)} />
@@ -392,13 +372,21 @@ export default function Uploads() {
             )}
 
             <div className="up-actions">
-              {!result.failed && (
+              {!result.error && (
                 <button className="gs-btn gs-btn--primary up-btn-lg" onClick={() => nav("/dashboard")}>
                   Go to inbox
                 </button>
               )}
-              <button className="gs-btn up-btn-lg" onClick={reset}>
-                {result.failed ? "Try again" : "Upload another file"}
+              {!result.error && skipped > 0 && result.id && (
+                <button
+                  className="gs-btn up-btn-lg"
+                  onClick={() => downloadSkippedRows(result.id, result.fileName).catch((e) => setError(e.message))}
+                >
+                  Download skipped rows
+                </button>
+              )}
+              <button className="gs-btn gs-btn--ghost up-btn-lg" onClick={reset}>
+                {result.error ? "Try again" : "Upload another file"}
               </button>
             </div>
           </div>
@@ -578,7 +566,7 @@ export default function Uploads() {
             {!history.length && <p className="up-muted">Files you upload will show up here.</p>}
             {history.map((h) => {
               const skipped = skippedOf(h);
-              const canExpand = !h.failed && skipped > 0;
+              const canExpand = !h.error && skipped > 0;
               const open = expanded === h.id;
               return (
                 <div key={h.id} className="up-hrow">
@@ -592,18 +580,18 @@ export default function Uploads() {
                   >
                     <span className="up-file-icon"><Icon d={I.file} /></span>
                     <div className="up-hinfo">
-                      <span className="up-hname">{h.file}</span>
+                      <span className="up-hname">{h.fileName}</span>
                       <span className="up-hsum">
-                        {h.failed ? (
-                          <><span className="up-fail">Import failed</span> · {h.failed.toLowerCase()}</>
+                        {h.error ? (
+                          <><span className="up-fail">Import failed</span> · {h.error.toLowerCase()}</>
                         ) : (
                           summaryLine(h)
                         )}
                       </span>
                     </div>
-                    <span className="up-hdate">{relDate(h.at)}</span>
+                    <span className="up-hdate">{relDate(h.createdAt)}</span>
                     <span className="up-hstatus">
-                      {h.failed ? (
+                      {h.error ? (
                         <button
                           className="up-retry"
                           onClick={(e) => { e.stopPropagation(); fileInput.current?.click(); }}
@@ -621,6 +609,15 @@ export default function Uploads() {
                   {open && (
                     <div className="up-expand">
                       <Reasons items={reasonList(h)} />
+                      <button
+                        className="gs-btn up-download"
+                        onClick={() => downloadSkippedRows(h.id, h.fileName).catch((e) => setError(e.message))}
+                      >
+                        Download skipped rows
+                      </button>
+                      {h.skippedTruncated && (
+                        <span className="up-muted up-note">Only the first 2,000 skipped rows were saved.</span>
+                      )}
                     </div>
                   )}
                 </div>

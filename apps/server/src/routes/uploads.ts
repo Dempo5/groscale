@@ -216,6 +216,7 @@ type PreparedLead = {
   email: string | null;
   phone: string | null;
   tags: string[];
+  rowNumber: number;
   note: string | null;
   dob: string | null;
   householdSize: number | null;
@@ -463,6 +464,7 @@ router.post(
       (safeJSON(req.body?.options) as
         | {
             ignoreDuplicates?: boolean;
+            consent?: boolean;
             tags?: string[];
             workflowId?: string;
           }
@@ -574,6 +576,17 @@ router.post(
     let fileDup = 0;
     let dbDup = 0;
 
+    // Rows we didn't import, with the reason, so the user can fix and retry.
+    const SKIPPED_CAP = 2000;
+    type SkippedRow = { row: number; name: string; phone: string; email: string; reason: string };
+    const skippedRows: SkippedRow[] = [];
+    let skippedTruncated = false;
+
+    const noteSkipped = (row: SkippedRow) => {
+      if (skippedRows.length < SKIPPED_CAP) skippedRows.push(row);
+      else skippedTruncated = true;
+    };
+
     const seen = new Set<string>();
 
     /*
@@ -584,7 +597,8 @@ router.post(
      */
     const prepared: PreparedLead[] = [];
 
-    for (const r of rows) {
+    for (const [index, r] of rows.entries()) {
+      const rowNumber = index + 2; // +1 for the header, +1 for 1-based rows
       let nm = fullName(
         pick(r, "name"),
         pick(r, "first"),
@@ -602,6 +616,15 @@ router.post(
       // Require at least one contact path
       if (!email && !phone) {
         invalids++;
+        noteSkipped({
+          row: rowNumber,
+          name: nm || "",
+          phone: String(pick(r, "phone") ?? ""),
+          email: String(pick(r, "email") ?? ""),
+          reason: pick(r, "phone") || pick(r, "email")
+            ? "Phone number and email are not valid"
+            : "No phone number or email",
+        });
         continue;
       }
 
@@ -622,6 +645,13 @@ router.post(
 
       if (seen.has(key)) {
         fileDup++;
+        noteSkipped({
+          row: rowNumber,
+          name: nm || "",
+          phone: phone || "",
+          email: email || "",
+          reason: "Duplicate row inside this file",
+        });
 
         if (options.ignoreDuplicates) {
           skipped++;
@@ -655,6 +685,7 @@ router.post(
         email: email || null,
         phone: phone || null,
         tags: allTags,
+        rowNumber,
         note: cell(pick(r, "note"), 5000),
         dob: cell(pick(r, "dob"), 20),
         householdSize: wholeNumber(pick(r, "household"), 30),
@@ -712,6 +743,13 @@ router.post(
 
       if (emailExists || phoneExists) {
         dbDup++;
+        noteSkipped({
+          row: lead.rowNumber,
+          name: lead.name,
+          phone: lead.phone || "",
+          email: lead.email || "",
+          reason: "Already in GroScales",
+        });
         continue;
       }
 
@@ -775,8 +813,27 @@ router.post(
       );
     }
 
+    const record = await prisma.upload.create({
+      data: {
+        ownerId,
+        fileName: req.file.originalname || "upload.csv",
+        byteSize: req.file.size ?? 0,
+        leads: inserted,
+        duplicates: dbDup,
+        fileDuplicates: fileDup,
+        invalids,
+        consent: options.consent === true,
+        skipped: skippedRows as any,
+        skippedTruncated,
+        status: skippedRows.length ? "PARTIAL" : "SUCCESS",
+      },
+      select: { id: true, createdAt: true },
+    });
+
     return res.json({
       ok: true,
+      uploadId: record.id,
+      createdAt: record.createdAt,
       inserted,
       duplicates: dbDup,
       invalids,
@@ -796,5 +853,57 @@ router.post(
     });
   }
 );
+
+/** GET /api/uploads — recent uploads for this user */
+router.get("/", requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    const rows = await prisma.upload.findMany({
+      where: { ownerId: req.userId! },
+      orderBy: { createdAt: "desc" },
+      take: 25,
+      select: {
+        id: true,
+        fileName: true,
+        leads: true,
+        duplicates: true,
+        fileDuplicates: true,
+        invalids: true,
+        status: true,
+        error: true,
+        skippedTruncated: true,
+        createdAt: true,
+      },
+    });
+    res.json({ ok: true, data: rows });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message || "failed" });
+  }
+});
+
+/** GET /api/uploads/:id/skipped — the skipped rows as a CSV download */
+router.get("/:id/skipped", requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    const row = await prisma.upload.findFirst({
+      where: { id: req.params.id, ownerId: req.userId! },
+      select: { fileName: true, skipped: true },
+    });
+    if (!row) return res.status(404).json({ ok: false, error: "Upload not found" });
+
+    const skipped = (row.skipped as any as Array<Record<string, string | number>>) || [];
+    // wrap every value in quotes so commas inside names don't break the file
+    const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const csv = [
+      ["row", "name", "phone", "email", "reason"].join(","),
+      ...skipped.map((r) => [r.row, r.name, r.phone, r.email, r.reason].map(esc).join(",")),
+    ].join("\r\n");
+
+    const base = String(row.fileName || "upload").replace(/\.csv$/i, "").replace(/[^\w.-]+/g, "_");
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${base}-skipped.csv"`);
+    res.send(csv);
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message || "failed" });
+  }
+});
 
 export default router;
