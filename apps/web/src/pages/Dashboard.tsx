@@ -19,7 +19,14 @@ import {
   type MessageDTO,
   type TagDTO,
   type TagColor,
+  getLeadDetails,
+  updateLead,
+  setLeadStage,
+  addLeadNote,
+  deleteLeadNote,
+  type LeadDetails,
 } from "../lib/api";
+import { STAGES, stageMeta } from "../lib/stages";
 import { tagChipColors } from "../lib/tagColors";
 import CopilotModal from "../components/CopilotModal";
 import Onboarding from "../components/Onboarding";
@@ -35,6 +42,8 @@ type ThreadRow = {
   leadPhone?: string | null;
   phoneNumberSid?: string | null;
   lastMessageAt?: string | null;
+  leadStage?: string | null;
+  lastMessage?: { body: string; direction: string } | null;
 };
 
 type LeadTag = { tag: TagDTO; createdAt: string };
@@ -136,6 +145,18 @@ function smsInfo(text: string) {
   const segments = len === 0 ? 1 : len <= single ? 1 : Math.ceil(len / multi);
   return { len, limit: segments === 1 ? single : multi * segments, segments };
 }
+
+function ageFrom(dob?: string | null): number | null {
+  if (!dob) return null;
+  const d = new Date(dob);
+  if (isNaN(d.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - d.getFullYear();
+  if (now < new Date(now.getFullYear(), d.getMonth(), d.getDate())) age--;
+  return age >= 0 && age < 130 ? age : null;
+}
+
+const money = (n?: number | null) => (n == null ? null : `$${n.toLocaleString()}`);
 
 const STATUS_LABEL: Record<string, string> = {
   QUEUED: "Sending",
@@ -338,6 +359,13 @@ export default function Dashboard() {
   const [leadTags, setLeadTags] = useState<LeadTag[]>([]); // newest first
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
 
+  // lead details (stage, fields, notes)
+  const [details, setDetails] = useState<LeadDetails | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const [editingFacts, setEditingFacts] = useState(false);
+  const [factDraft, setFactDraft] = useState<Record<string, string>>({});
+  const [noteDraft, setNoteDraft] = useState("");
+
   const selected = useMemo(
     () => threads.find((t) => t.id === selectedThreadId) || null,
     [threads, selectedThreadId]
@@ -436,6 +464,90 @@ export default function Dashboard() {
   }
 
   useEffect(() => {
+    setDetails(null);
+    setShowHistory(false);
+    setEditingFacts(false);
+    setNoteDraft("");
+    if (!selected?.leadId) return;
+    let cancelled = false;
+    getLeadDetails(selected.leadId)
+      .then((d) => !cancelled && setDetails(d))
+      .catch((e) => console.error("failed to load lead details", e));
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.leadId]);
+
+  async function changeStage(next: string) {
+    if (!details || next === details.stage) return;
+    const prev = details.stage;
+    // update the screen right away, then save
+    setDetails({ ...details, stage: next });
+    setThreads((x) => x.map((t) => (t.leadId === details.id ? { ...t, leadStage: next } : t)));
+    try {
+      const change = await setLeadStage(details.id, next);
+      if (change) setDetails((d) => (d ? { ...d, stageChanges: [change, ...d.stageChanges] } : d));
+    } catch (e: any) {
+      setDetails((d) => (d ? { ...d, stage: prev } : d));
+      setThreads((x) => x.map((t) => (t.leadId === details.id ? { ...t, leadStage: prev } : t)));
+      setNotice(e?.message || "Couldn't change the stage.");
+    }
+  }
+
+  function startEditFacts() {
+    if (!details) return;
+    setFactDraft({
+      dob: details.dob || "",
+      householdSize: details.householdSize?.toString() || "",
+      zip: details.zip || "",
+      income: details.income?.toString() || "",
+      email: details.email || "",
+      quoteMonthly: details.quoteMonthly?.toString() || "",
+    });
+    setEditingFacts(true);
+  }
+
+  async function saveFacts() {
+    if (!details) return;
+    const patch: Record<string, string | null> = {};
+    for (const [k, v] of Object.entries(factDraft)) patch[k] = v.trim() === "" ? null : v.trim();
+    try {
+      const updated = await updateLead(details.id, patch);
+      setDetails((d) => (d ? { ...d, ...updated } : d));
+      if (updated.email !== undefined) {
+        setThreads((x) => x.map((t) => (t.leadId === details.id ? { ...t, leadEmail: updated.email ?? null } : t)));
+      }
+      setEditingFacts(false);
+    } catch (e: any) {
+      setNotice(e?.message || "Couldn't save those details.");
+    }
+  }
+
+  async function addNote() {
+    const body = noteDraft.trim();
+    if (!details || !body) return;
+    setNoteDraft("");
+    try {
+      const n = await addLeadNote(details.id, body);
+      setDetails((d) => (d ? { ...d, notes: [n, ...d.notes] } : d));
+    } catch (e: any) {
+      setNoteDraft(body);
+      setNotice(e?.message || "Couldn't save the note.");
+    }
+  }
+
+  async function removeNote(noteId: string) {
+    if (!details) return;
+    const before = details.notes;
+    setDetails({ ...details, notes: details.notes.filter((n) => n.id !== noteId) });
+    try {
+      await deleteLeadNote(details.id, noteId);
+    } catch {
+      setDetails((d) => (d ? { ...d, notes: before } : d));
+    }
+  }
+
+  useEffect(() => {
     setTagPickerOpen(false);
     refreshLeadTags(selected?.leadId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -526,19 +638,31 @@ export default function Dashboard() {
   const appliedIds = useMemo(() => new Set(leadTags.map((l) => l.tag.id)), [leadTags]);
 
   // messages with a day divider wherever the date changes
+  // messages + stage changes in time order, with day dividers
   const timeline = useMemo(() => {
-    const out: ({ kind: "day"; key: string; label: string } | { kind: "msg"; m: MessageDTO })[] = [];
+    type Item =
+      | { kind: "day"; key: string; label: string }
+      | { kind: "msg"; m: MessageDTO }
+      | { kind: "stage"; key: string; to: string; at: string };
+    const events: { at: string; item: Item }[] = [
+      ...msgs.map((m) => ({ at: m.createdAt, item: { kind: "msg", m } as Item })),
+      ...(msgs.length ? details?.stageChanges || [] : [])
+        .filter((c) => new Date(c.createdAt) >= new Date(msgs[0].createdAt))
+        .map((c) => ({ at: c.createdAt, item: { kind: "stage", key: c.id, to: c.toStage, at: c.createdAt } as Item })),
+    ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+
+    const out: Item[] = [];
     let lastDay = "";
-    for (const m of msgs) {
-      const day = new Date(m.createdAt).toDateString();
+    for (const e of events) {
+      const day = new Date(e.at).toDateString();
       if (day !== lastDay) {
-        out.push({ kind: "day", key: `d_${day}`, label: dayLabel(m.createdAt) });
+        out.push({ kind: "day", key: `d_${day}`, label: dayLabel(e.at) });
         lastDay = day;
       }
-      out.push({ kind: "msg", m });
+      out.push(e.item);
     }
     return out;
-  }, [msgs]);
+  }, [msgs, details?.stageChanges]);
 
   /* ================================================================== */
   return (
@@ -583,11 +707,26 @@ export default function Dashboard() {
                 aria-current={active || undefined}
               >
                 <div className="gs-row-top">
-                  <span className="gs-row-name">{nm}</span>
+                  <span className="gs-row-name">
+                    {t.lastMessage?.direction === "INBOUND" && !active && <span className="gs-unread-dot" />}
+                    {nm}
+                  </span>
                   <span className="gs-row-time">{listTime(t.lastMessageAt)}</span>
                 </div>
-                {t.leadName && t.leadPhone && (
-                  <div className="gs-row-sub">{formatPhone(t.leadPhone)}</div>
+                <div className="gs-row-sub">
+                  {t.lastMessage
+                    ? `${t.lastMessage.direction === "OUTBOUND" ? "You: " : ""}${t.lastMessage.body}`
+                    : t.leadName && t.leadPhone
+                    ? formatPhone(t.leadPhone)
+                    : "No messages yet"}
+                </div>
+                {t.leadStage && (
+                  <span
+                    className="gs-chip gs-row-stage"
+                    style={{ background: stageMeta(t.leadStage).bg, color: stageMeta(t.leadStage).fg }}
+                  >
+                    {stageMeta(t.leadStage).label}
+                  </span>
                 )}
               </button>
             );
@@ -619,14 +758,30 @@ export default function Dashboard() {
                   <span className="gs-mono">{formatPhone(selected.leadPhone)}</span>
                 )}
               </div>
-              <button
-                className="gs-btn gs-btn--ghost gs-icon-btn"
-                title="Copy phone number"
-                aria-label="Copy phone number"
-                onClick={() => copy(selected.leadPhone)}
-              >
-                <Icon d={ICON.copy} />
-              </button>
+              <div className="gs-row-start">
+                {details && (
+                  <label className="gs-stage-select">
+                    <span className="gs-stage-dot" style={{ background: stageMeta(details.stage).dot }} />
+                    <select
+                      value={details.stage}
+                      onChange={(e) => changeStage(e.target.value)}
+                      aria-label="Stage"
+                    >
+                      {STAGES.map((s) => (
+                        <option key={s} value={s}>{stageMeta(s).label}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                <button
+                  className="gs-btn gs-btn--ghost gs-icon-btn"
+                  title="Copy phone number"
+                  aria-label="Copy phone number"
+                  onClick={() => copy(selected.leadPhone)}
+                >
+                  <Icon d={ICON.copy} />
+                </button>
+              </div>
             </header>
 
             <div className="gs-messages" ref={scrollerRef}>
@@ -639,6 +794,12 @@ export default function Dashboard() {
                 item.kind === "day" ? (
                   <div key={item.key} className="gs-day">
                     {item.label}
+                  </div>
+                ) : item.kind === "stage" ? (
+                  <div key={item.key} className="gs-stage-event">
+                    <span className="gs-stage-dot" style={{ background: stageMeta(item.to).dot }} />
+                    Moved to {stageMeta(item.to).label}
+                    <span className="gs-stage-event-time">· {timeOf(item.at)}</span>
                   </div>
                 ) : (
                   <div
@@ -748,26 +909,91 @@ export default function Dashboard() {
             )}
           </div>
 
-          <div className="gs-facts">
-            <div>
-              <span className="gs-label">Age</span>
-              <span className="gs-fact">—</span>
-            </div>
-            <div>
-              <span className="gs-label">Household</span>
-              <span className="gs-fact">—</span>
-            </div>
-            <div>
-              <span className="gs-label">ZIP</span>
-              <span className="gs-fact">—</span>
-            </div>
-            <div>
-              <span className="gs-label">Email</span>
-              <span className="gs-fact gs-truncate" title={selected.leadEmail || undefined}>
-                {selected.leadEmail || "—"}
+          {details && (
+            <div className="gs-card">
+              <span className="gs-label">Stage</span>
+              <span className="gs-stage-now">
+                <span className="gs-stage-dot" style={{ background: stageMeta(details.stage).dot }} />
+                <span className="gs-strong">{stageMeta(details.stage).label}</span>
+                <span className="gs-label">
+                  {details.stageChanges[0] ? `since ${listTime(details.stageChanges[0].createdAt)}` : ""}
+                </span>
               </span>
+              {showHistory && (
+                <ol className="gs-stage-history">
+                  {details.stageChanges.map((c) => (
+                    <li key={c.id}>
+                      <span>{stageMeta(c.toStage).label}</span>
+                      <span className="gs-label">{listTime(c.createdAt)}</span>
+                    </li>
+                  ))}
+                  <li>
+                    <span>New</span>
+                    <span className="gs-label">{listTime(details.createdAt)}</span>
+                  </li>
+                </ol>
+              )}
+              {details.stageChanges.length > 0 && (
+                <button className="gs-link-btn" onClick={() => setShowHistory((h) => !h)}>
+                  {showHistory ? "Hide history" : `Show history (${details.stageChanges.length})`}
+                </button>
+              )}
             </div>
-          </div>
+          )}
+
+          {editingFacts ? (
+            <div className="gs-facts-edit">
+              {([
+                ["dob", "Date of birth", "e.g. 1990-03-14"],
+                ["householdSize", "Household", "e.g. 3"],
+                ["zip", "ZIP", ""],
+                ["income", "Yearly income", "e.g. 52000"],
+                ["email", "Email", ""],
+                ["quoteMonthly", "Quote per month", "e.g. 320"],
+              ] as const).map(([k, label, ph]) => (
+                <label key={k}>
+                  <span className="gs-label">{label}</span>
+                  <input
+                    className="gs-input"
+                    value={factDraft[k] || ""}
+                    placeholder={ph}
+                    onChange={(e) => setFactDraft((f) => ({ ...f, [k]: e.target.value }))}
+                    onKeyDown={(e) => e.key === "Enter" && saveFacts()}
+                  />
+                </label>
+              ))}
+              <div className="gs-row-end gs-facts-actions">
+                <button className="gs-btn gs-btn--ghost" onClick={() => setEditingFacts(false)}>Cancel</button>
+                <button className="gs-btn gs-btn--primary" onClick={saveFacts}>Save</button>
+              </div>
+            </div>
+          ) : (
+            <div className="gs-facts-wrap">
+              <div className="gs-facts">
+                <div>
+                  <span className="gs-label">Age</span>
+                  <span className="gs-fact">{ageFrom(details?.dob) ?? "—"}</span>
+                </div>
+                <div>
+                  <span className="gs-label">Household</span>
+                  <span className="gs-fact">{details?.householdSize ?? "—"}</span>
+                </div>
+                <div>
+                  <span className="gs-label">ZIP</span>
+                  <span className="gs-fact">{details?.zip || "—"}</span>
+                </div>
+                <div>
+                  <span className="gs-label">Income</span>
+                  <span className="gs-fact">{details?.income != null ? `${money(details.income)} / yr` : "—"}</span>
+                </div>
+              </div>
+              {details && (
+                <button className="gs-link-btn gs-facts-edit-btn" onClick={startEditFacts}>
+                  Edit details
+                </button>
+              )}
+            </div>
+          )}
 
           <div className="gs-section">
             <div className="gs-section-head">
@@ -804,7 +1030,31 @@ export default function Dashboard() {
 
           <div className="gs-card gs-notes">
             <span className="gs-label">Notes</span>
-            <input className="gs-input" placeholder="Notes are coming soon" disabled />
+            <input
+              className="gs-input"
+              placeholder="Add a note and press Enter"
+              value={noteDraft}
+              disabled={!details}
+              onChange={(e) => setNoteDraft(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addNote()}
+              aria-label="Add a note"
+            />
+            <ul className="gs-note-list">
+              {details?.notes.map((n) => (
+                <li key={n.id}>
+                  <span className="gs-note-body">{n.body}</span>
+                  <span className="gs-note-meta">
+                    {listTime(n.createdAt)}
+                    <button className="gs-note-del" onClick={() => removeNote(n.id)} aria-label="Delete note">
+                      Delete
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className="gs-notes-foot">
+              <span>Quote: {details?.quoteMonthly != null ? `${money(details.quoteMonthly)} / mo` : "not set"}</span>
+            </div>
           </div>
         </aside>
       )}

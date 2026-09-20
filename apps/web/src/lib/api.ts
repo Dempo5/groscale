@@ -341,3 +341,32 @@ export async function updateTemplate(id: string, patch: Partial<{ name: string; 
 export async function deleteTemplate(id: string): Promise<void> {
   await http(`/api/templates/${id}`, { method: "DELETE" });
 }
+
+/* ---------------- lead details, stage, notes ---------------- */
+export type StageChangeDTO = { id: string; fromStage: string | null; toStage: string; createdAt: string };
+export type NoteDTO = { id: string; body: string; createdAt: string };
+export type LeadDetails = {
+  id: string; name: string; email: string | null; phone: string | null; stage: string;
+  dob: string | null; householdSize: number | null; income: number | null; quoteMonthly: number | null;
+  address: string | null; city: string | null; state: string | null; zip: string | null; createdAt: string;
+  stageChanges: StageChangeDTO[]; notes: NoteDTO[];
+};
+export async function getLeadDetails(id: string): Promise<LeadDetails> {
+  const res = await http<{ ok: boolean; data: LeadDetails }>(`/api/leads/${id}/details`);
+  return res.data;
+}
+export async function updateLead(id: string, patch: Record<string, string | number | null>) {
+  const res = await http<{ ok: boolean; data: Partial<LeadDetails> }>(`/api/leads/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+  return res.data;
+}
+export async function setLeadStage(id: string, stage: string): Promise<StageChangeDTO | null> {
+  const res = await http<{ ok: boolean; data: StageChangeDTO | null }>(`/api/leads/${id}/stage`, { method: "POST", body: JSON.stringify({ stage }) });
+  return res.data;
+}
+export async function addLeadNote(id: string, body: string): Promise<NoteDTO> {
+  const res = await http<{ ok: boolean; data: NoteDTO }>(`/api/leads/${id}/notes`, { method: "POST", body: JSON.stringify({ body }) });
+  return res.data;
+}
+export async function deleteLeadNote(id: string, noteId: string): Promise<void> {
+  await http(`/api/leads/${id}/notes/${noteId}`, { method: "DELETE" });
+}

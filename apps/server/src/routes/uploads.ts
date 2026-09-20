@@ -78,6 +78,18 @@ const H: Record<string, string> = {
 
   dob: "dob",
   "date of birth": "dob",
+  birthdate: "dob",
+  birthday: "dob",
+
+  household: "household",
+  "household size": "household",
+  "hh size": "household",
+  "family size": "household",
+
+  income: "income",
+  "annual income": "income",
+  "household income": "income",
+  "yearly income": "income",
 };
 
 const norm = (s?: string) =>
@@ -204,6 +216,25 @@ type PreparedLead = {
   email: string | null;
   phone: string | null;
   tags: string[];
+  note: string | null;
+  dob: string | null;
+  householdSize: number | null;
+  income: number | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+};
+
+// "" -> null, trimmed and length-capped
+const cell = (v: unknown, max: number) => {
+  const t = String(v ?? "").trim();
+  return t ? t.slice(0, max) : null;
+};
+// "$52,000" -> 52000; anything unparseable -> null
+const wholeNumber = (v: unknown, max: number) => {
+  const n = Math.round(Number(String(v ?? "").replace(/[$,\s]/g, "")));
+  return String(v ?? "").trim() && Number.isFinite(n) && n >= 0 && n <= max ? n : null;
 };
 
 /* ---------------- batch duplicate lookup ---------------- */
@@ -447,7 +478,14 @@ router.post(
               | "email"
               | "phone"
               | "tags"
-              | "note",
+              | "note"
+              | "dob"
+              | "household"
+              | "income"
+              | "address"
+              | "city"
+              | "state"
+              | "zip",
               string
             >
           >
@@ -501,6 +539,13 @@ router.post(
       "phone",
       "tags",
       "note",
+      "dob",
+      "household",
+      "income",
+      "address",
+      "city",
+      "state",
+      "zip",
     ] as const) {
       const explicit = mapping?.[k];
 
@@ -610,6 +655,14 @@ router.post(
         email: email || null,
         phone: phone || null,
         tags: allTags,
+        note: cell(pick(r, "note"), 5000),
+        dob: cell(pick(r, "dob"), 20),
+        householdSize: wholeNumber(pick(r, "household"), 30),
+        income: wholeNumber(pick(r, "income"), 10_000_000),
+        address: cell(pick(r, "address"), 200),
+        city: cell(pick(r, "city"), 100),
+        state: cell(pick(r, "state"), 40),
+        zip: cell(pick(r, "zip"), 15),
       });
     }
 
@@ -690,10 +743,25 @@ router.post(
             name: lead.name,
             email: lead.email,
             phone: lead.phone,
+            dob: lead.dob,
+            householdSize: lead.householdSize,
+            income: lead.income,
+            address: lead.address,
+            city: lead.city,
+            state: lead.state,
+            zip: lead.zip,
           })),
         });
 
       inserted += result.count;
+    }
+
+    // A "notes" column becomes a real note on each new lead.
+    const withNotes = newLeads.filter((l) => l.note);
+    for (const group of chunk(withNotes, 1000)) {
+      await prisma.note.createMany({
+        data: group.map((l) => ({ leadId: l.id, authorId: ownerId, body: l.note! })),
+      });
     }
 
     /*

@@ -19,6 +19,7 @@ import twilioRouter from "./routes/twilio.js";
 import leadsRouter from "./routes/leads.js";
 import leadTagsRouter from "./routes/lead-tags.js";
 import templatesRouter from "./routes/templates.js";
+import leadDetailsRouter from "./routes/lead-details.js";
 
 import { requireAuth } from "./middleware/auth.js";
 import { rateLimit } from "express-rate-limit";
@@ -160,6 +161,7 @@ app.use("/api/messages", requireAuth, messagesRouter);
  */
 app.use("/api/leads", requireAuth, leadsRouter);
 app.use("/api/leads", requireAuth, leadTagsRouter);
+app.use("/api/leads", requireAuth, leadDetailsRouter);
 
 /* ------------------------------ Root ------------------------------ */
 

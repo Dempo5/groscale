@@ -60,12 +60,19 @@ r.get("/threads", async (req, res) => {
           name: true,
           email: true,
           phone: true,
+          stage: true,
         },
+      },
+      // newest message only, for the preview line in the list
+      messages: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { body: true, direction: true },
       },
     },
   });
 
-  const data = rows.map((t) => ({
+  const data = rows.map((t: any) => ({
     id: t.id,
     ownerId: t.ownerId,
     leadId: t.leadId,
@@ -74,6 +81,10 @@ r.get("/threads", async (req, res) => {
     leadPhone: t.lead?.phone ?? null,
     phoneNumberSid: (t as any).phoneNumberSid ?? null,
     lastMessageAt: t.lastMessageAt ?? null,
+    leadStage: t.lead?.stage ?? null,
+    lastMessage: t.messages?.[0]
+      ? { body: t.messages[0].body, direction: t.messages[0].direction }
+      : null,
   }));
 
   res.json({ ok: true, data });

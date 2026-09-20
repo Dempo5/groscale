@@ -9,7 +9,8 @@ import "./uploads.css";
 /* ---------------- column matching (from the old page) ---------------- */
 type Field =
   | "phone" | "first" | "last" | "name" | "email" | "dob"
-  | "zip" | "city" | "state" | "address" | "tags" | "note";
+  | "zip" | "city" | "state" | "address" | "tags" | "note"
+  | "household" | "income";
 
 const SYN: Record<Field, string[]> = {
   name: ["name", "full name", "contact name"],
@@ -24,6 +25,8 @@ const SYN: Record<Field, string[]> = {
   zip: ["zip", "zipcode", "postal", "postal code", "post code"],
   address: ["address", "street", "street address", "addr", "line1"],
   dob: ["dob", "date of birth", "birthdate", "birthday"],
+  household: ["household", "household size", "hh size", "family size"],
+  income: ["income", "annual income", "household income", "yearly income"],
 };
 
 const FIELD_LABEL: Record<Field, string> = {
@@ -39,9 +42,11 @@ const FIELD_LABEL: Record<Field, string> = {
   address: "Address",
   tags: "Tags column",
   note: "Notes column",
+  household: "Household size",
+  income: "Yearly income",
 };
 
-const MAIN_FIELDS: Field[] = ["phone", "first", "last", "email", "dob", "zip"];
+const MAIN_FIELDS: Field[] = ["phone", "first", "last", "email", "dob", "zip", "household", "income"];
 const MORE_FIELDS: Field[] = ["name", "city", "state", "address", "tags", "note"];
 
 const normKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
