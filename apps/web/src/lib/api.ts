@@ -223,16 +223,6 @@ export async function updateTag(id: string, patch: Partial<{ name: string; color
 }
 export async function deleteTag(id: string): Promise<void> { await http<{ ok: boolean }>(`/api/tags/${id}`, { method: "DELETE" }); }
 
-/* ---------------- simple test send ---------------- */
-export async function sendTestSMS(to: string, body: string, leadId?: string) {
-  return fetch(`${BASE}/api/messages/send`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({ to, body, leadId }),
-  }).then(r => r.json());
-}
-
 /* ===== Messaging (threads & messages) ===== */
 export type MessageDir = "OUTBOUND" | "INBOUND";
 export type MessageStatus = "QUEUED" | "SENT" | "DELIVERED" | "FAILED" | "RECEIVED";
@@ -279,15 +269,10 @@ export async function startThread(input: {
   name?: string;
   workflowId?: string;
 }) {
-  return fetch(`${BASE}/api/messages/start`, {
+  // goes through http() so the login token is attached
+  return http<any>("/api/messages/start", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
     body: JSON.stringify(input),
-  }).then(async (r) => {
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(data?.error || data?.message || `${r.status} ${r.statusText}`);
-    return data;
   });
 }
 
