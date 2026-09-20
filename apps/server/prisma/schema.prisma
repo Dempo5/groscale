@@ -68,14 +68,63 @@ model Lead {
   ownerId String
   owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
+  // pipeline
+  stage LeadStage @default(NEW)
+
+  // quoting details (all optional; filled from uploads or edited in the inbox)
+  dob           String? @db.VarChar(20) // kept as typed, e.g. "1972-07-12" or "07/12/1972"
+  householdSize Int?
+  income        Int? // yearly, whole dollars
+  quoteMonthly  Int? // monthly premium, whole dollars
+  address       String? @db.VarChar(200)
+  city          String? @db.VarChar(100)
+  state         String? @db.VarChar(40)
+  zip           String? @db.VarChar(15)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tags    LeadTag[]
-  threads MessageThread[]
+  tags         LeadTag[]
+  threads      MessageThread[]
+  stageChanges StageChange[]
+  notes        Note[]
 
   @@index([ownerId, email])
   @@index([ownerId, phone])
+  @@index([ownerId, stage])
+}
+
+enum LeadStage {
+  NEW
+  CONTACTED
+  POSITIVE_RESPONSE
+  QUOTED
+  APPOINTMENT
+  SOLD
+  NOT_INTERESTED
+}
+
+// One row every time a lead moves stages: this is the stage history.
+model StageChange {
+  id        String     @id @default(cuid())
+  leadId    String
+  lead      Lead       @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  fromStage LeadStage?
+  toStage   LeadStage
+  createdAt DateTime   @default(now())
+
+  @@index([leadId, createdAt])
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  authorId  String
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([leadId, createdAt])
 }
 
 // ---------------- Phone numbers (Twilio) ----------------
