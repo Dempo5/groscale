@@ -16,12 +16,12 @@ import copilotRouter from "./routes/copilot.js";
 import tagsRouter from "./routes/tags.js";
 import messagesRouter from "./routes/messages.js";
 import twilioRouter from "./routes/twilio.js";
-import debugMsgs from "./routes/messages.debug.js";
 import leadsRouter from "./routes/leads.js";
 import leadTagsRouter from "./routes/lead-tags.js";
 import templatesRouter from "./routes/templates.js";
 
 import { requireAuth } from "./middleware/auth.js";
+import { rateLimit } from "express-rate-limit";
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
 
@@ -42,8 +42,9 @@ const envList = (process.env.ALLOWED_ORIGINS || "")
   .map((s) => norm(s.trim()))
   .filter(Boolean);
 
-/** Allow Vercel previews, Render, and localhost */
-const allowRegex = /(localhost(:\d+)?|\.vercel\.app|\.onrender\.com)$/;
+/** In development, also allow http://localhost:<any port>. */
+const isDev = process.env.NODE_ENV !== "production";
+const localhost = /^http:\/\/localhost(:\d+)?$/;
 
 /** Single CORS middleware that always answers OPTIONS */
 function corsGuard(req: Request, res: Response, next: NextFunction) {
@@ -52,7 +53,7 @@ function corsGuard(req: Request, res: Response, next: NextFunction) {
   const allowed =
     !origin ||
     envList.includes(origin) ||
-    allowRegex.test(origin);
+    (isDev && localhost.test(origin));
 
   if (allowed) {
     res.header("Vary", "Origin");
@@ -85,8 +86,18 @@ function corsGuard(req: Request, res: Response, next: NextFunction) {
 
 const app = express();
 
-// behind Render's proxy
-app.set("trust proxy", true);
+// Behind exactly one proxy (Render). "true" would let anyone fake their IP
+// with an X-Forwarded-For header and dodge the login rate limit.
+app.set("trust proxy", 1);
+
+// Slow down password guessing: 20 attempts per 15 minutes per IP.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Too many attempts. Wait a few minutes and try again." },
+});
 
 // global JSON for most routes
 app.use(express.json({ limit: "2mb" }));
@@ -103,6 +114,8 @@ app.get("/health", (_req, res) => {
 });
 
 /** Login/register/me */
+app.use("/api/auth/login", authLimiter);
+app.use("/api/auth/register", authLimiter);
 app.use("/api/auth", authRoute);
 
 /**
@@ -147,12 +160,6 @@ app.use("/api/messages", requireAuth, messagesRouter);
  */
 app.use("/api/leads", requireAuth, leadsRouter);
 app.use("/api/leads", requireAuth, leadTagsRouter);
-
-/* -------------------------- Debug/dev only -------------------------- */
-
-if (process.env.NODE_ENV !== "production") {
-  app.use("/api/messages", requireAuth, debugMsgs);
-}
 
 /* ------------------------------ Root ------------------------------ */
 

@@ -1,2 +1,18 @@
-docker compose up -d
-docker ps
+# Optional: run Postgres locally instead of Neon.
+#   docker compose up -d
+# then in apps/server/.env:
+#   DATABASE_URL=postgresql://groscales:groscales@localhost:5432/groscales
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: groscales
+      POSTGRES_PASSWORD: groscales
+      POSTGRES_DB: groscales
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:

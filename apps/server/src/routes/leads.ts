@@ -1,6 +1,6 @@
 // apps/server/src/routes/leads.ts
 import { Router } from 'express';
-import { prisma } from '../db.js';
+import { prisma } from '../prisma.js';
 import { requireAuth, AuthedRequest } from '../middleware/auth.js';
 
 const router = Router();
