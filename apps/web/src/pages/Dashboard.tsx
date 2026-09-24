@@ -3,7 +3,7 @@
 // Same data + logic as before (threads, polling, send, tags, Copilot),
 // rebuilt on the new design system.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   listWorkflows,
   startThread,
@@ -338,6 +338,7 @@ function TagPicker({
 export default function Dashboard() {
   const nav = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [threads, setThreads] = useState<ThreadRow[]>([]);
   const [threadsLoaded, setThreadsLoaded] = useState(false);
@@ -393,7 +394,14 @@ export default function Dashboard() {
             new Date(b.lastMessageAt || 0).getTime() - new Date(a.lastMessageAt || 0).getTime()
         );
         setThreads(list);
-        if (list.length) setSelectedThreadId((cur) => cur ?? list[0].id);
+        // ?thread=... comes from the Contacts page's Text button
+        const wanted = searchParams.get("thread");
+        if (wanted && list.some((t) => t.id === wanted)) {
+          setSelectedThreadId(wanted);
+          setSearchParams({}, { replace: true });
+        } else if (list.length) {
+          setSelectedThreadId((cur) => cur ?? list[0].id);
+        }
       } catch (e) {
         console.error(e);
       } finally {
