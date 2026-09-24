@@ -156,6 +156,13 @@ model Upload {
   leads      Int          @default(0)
   duplicates Int          @default(0)
   invalids   Int          @default(0)
+  fileDuplicates Int @default(0)
+  consent        Boolean @default(false)
+
+  // rows the import skipped, with the reason for each (capped)
+  skipped          Json?
+  skippedTruncated Boolean @default(false)
+
   status     UploadStatus @default(PROCESSING)
   error      String?
   reportUrl  String?

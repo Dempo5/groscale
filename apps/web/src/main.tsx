@@ -10,6 +10,7 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import Uploads from "./pages/Uploads";
+import Contacts from "./pages/Contacts";
 import PhoneNumbers from "./pages/PhoneNumbers";
 import Workflows from "./pages/Workflows";
 import Tags from "./pages/Tags";           // ✅ NEW
@@ -45,6 +46,14 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             }
           />
 
+          <Route
+            path="/contacts"
+            element={
+              <ProtectedRoute>
+                <Contacts />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/uploads"
             element={
